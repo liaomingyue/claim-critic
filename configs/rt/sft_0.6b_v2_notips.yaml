@@ -1,0 +1,36 @@
+# RAGTruth 主线 SFT 基线：Qwen3-0.6B（指令版）+ LoRA，本机 12 GB 单卡。
+# 训练数据：RAGTruth 官方 train 按源抽 1/10 的人工标注，拆成逐句样本，目标为 evidence → reason → type → verdict（见 ragtruth.task）。
+# 用指令版而不是 Base：对话特殊 token 已训练，不用 lora_train_tokens，于是能用 TRL 默认的 chunked_nll
+# （不展开整词表 logits）；Base + nll 在 3k token 序列上要约 19 GB，本机溢出到内存，单步慢 2–3 倍。
+# 零样本基线也是这个模型，零样本 → SFT → GRPO 同一基座。
+# 换大卡（5090 / A800）时改 base_model、batch 和 output_dir 即可。
+task: ragtruth
+prompt_tips: false
+base_model: outputs/models/Qwen3-0.6B     # Qwen/Qwen3-0.6B 的本地副本
+use_lora: true
+merge_lora: true
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 3       # 逐句训练集 3,003 条
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 3072          # 实测最长 2,811 token（prompt + 目标）
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+
+coldstart:
+  data: outputs/rt/claims/train_sub35_r3.jsonl   # v2：35B 补写 + 一致性校验，去掉粗粒度/存疑句，幻觉句:无问题句 = 1:3
+  output_dir: outputs/rt/ckpt/sft-0.6b-v2-notips

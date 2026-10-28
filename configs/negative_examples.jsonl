@@ -1,0 +1,12 @@
+{"type": "missing_condition", "original": "在 18 至 65 岁的 2型糖尿病成人患者中，二甲双胍在 24 周内使 HbA1c 下降 1.1%。", "corrupted": "在 2型糖尿病患者中，二甲双胍在 24 周内使 HbA1c 下降 1.1%。", "reason": "原文限定为 18 至 65 岁成人，claim 推广到所有患者。"}
+{"type": "missing_condition", "original": "在 eGFR 高于 45 的患者中，该药使收缩压降低 8 mmHg。", "corrupted": "该药使收缩压降低 8 mmHg。", "reason": "丢掉了 eGFR 高于 45 的人群限定。"}
+{"type": "missing_condition", "original": "剂量不低于 20 mg 时，他汀类药物使 LDL 胆固醇降低约 40%。", "corrupted": "他汀类药物使 LDL 胆固醇降低约 40%。", "reason": "丢掉了剂量条件。"}
+{"type": "unsupported_inference", "original": "在该队列中，钠摄入量较高与血压升高相关。", "corrupted": "在该队列中，钠摄入量较高导致了血压升高。", "reason": "原文是相关性，claim 写成因果。"}
+{"type": "unsupported_inference", "original": "一项随机对照试验发现吸入性糖皮质激素使急性加重略有减少。", "corrupted": "吸入性糖皮质激素已被证实可以减少急性加重。", "reason": "单一试验的结果被写成定论。"}
+{"type": "unsupported_inference", "original": "脓毒性休克患者中，早期使用抗生素与较低的死亡率相关。", "corrupted": "脓毒性休克患者中，早期使用抗生素降低了死亡率，因此也能预防脓毒症的发生。", "reason": "做了原文没有的推论。"}
+{"type": "wrong_attribution", "original": "安慰剂组有 12% 的患者出现恶心。", "corrupted": "治疗组有 12% 的患者出现恶心。", "reason": "把安慰剂组的结果安到了治疗组。"}
+{"type": "wrong_attribution", "original": "与华法林相比，阿哌沙班减少了大出血。", "corrupted": "与阿哌沙班相比，华法林减少了大出血。", "reason": "主体和对照对调。"}
+{"type": "wrong_attribution", "original": "2019 年的队列研究报告青少年复发率为 30%。", "corrupted": "该随机对照试验报告青少年复发率为 30%。", "reason": "把队列研究的结论安到了另一项试验上。"}
+{"type": "citation_error", "original": "二甲双胍在 24 周内使 HbA1c 下降 1.1%。", "corrupted": "二甲双胍在 24 周内使 HbA1c 下降 1.1%，并使全因死亡率降低 18%。", "reason": "参考文献没有报告死亡率，18% 是编出来的。"}
+{"type": "citation_error", "original": "干预组 12 个月时收缩压降低 8 mmHg。", "corrupted": "干预组 12 个月时收缩压降低 8 mmHg，且在 65 岁以上亚组中降幅最大。", "reason": "参考文献没有做年龄亚组分析。"}
+{"type": "citation_error", "original": "新辅助化疗后病理完全缓解率为 32%。", "corrupted": "新辅助化疗后病理完全缓解率为 32%，5 年总生存期达到 89%。", "reason": "参考文献没有报告 5 年总生存期。"}

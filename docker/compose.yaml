@@ -1,0 +1,51 @@
+# vLLM 推理服务 + verl 训练容器。Windows 上需要 Docker Desktop（WSL2 引擎）。
+# 在仓库根目录运行：
+#   docker compose -f docker/compose.yaml up -d vllm                    # 默认加载冒烟测试的 critic-0
+#   VLLM_MODEL=outputs/ckpt/critic-3 VLLM_NAME=critic-3 docker compose -f docker/compose.yaml up -d vllm
+#   docker compose -f docker/compose.yaml run --rm verl python -m train.grpo launch --config configs/smoke/grpo.yaml --version 1
+# 镜像版本固定；升级时改这里，并重跑 scripts.env_check。
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  vllm:
+    <<: *gpu
+    image: vllm/vllm-openai:v0.31.0
+    ipc: host
+    ports:
+      - "${VLLM_PORT:-8002}:8000"
+    volumes:
+      - ..:/work
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    working_dir: /work
+    environment:
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+    command:
+      - --model=/work/${VLLM_MODEL:-outputs/smoke/ckpt/critic-0}
+      - --served-model-name=${VLLM_NAME:-critic-0}
+      - --max-model-len=${VLLM_MAX_LEN:-4096}
+      - --gpu-memory-utilization=${VLLM_GPU_MEM:-0.85}
+      - ${VLLM_EXTRA:---disable-log-stats}   # 额外参数（单个），如 WSL 小显存卡用 --enforce-eager
+
+  verl:
+    <<: *gpu
+    build:
+      context: .
+      dockerfile: verl.Dockerfile
+    image: claim-critic-verl:0.9.1
+    profiles: [train]          # up 时不自动启动，只用 run 调用
+    shm_size: 10g
+    volumes:
+      - ..:/work
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    working_dir: /work
+    environment:
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://huggingface.co}
+      - PYTHONPATH=/work

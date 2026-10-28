@@ -1,0 +1,23 @@
+[project]
+name = "claim-critic"
+version = "0.1.0"
+description = "Claim-level faithfulness critic for medical literature reviews, trained with GRPO"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = ["pyyaml>=6", "openai>=1.40", "anthropic>=2"]
+
+[project.optional-dependencies]
+train = ["torch>=2.4", "transformers>=4.51", "datasets>=2.20", "peft>=0.13", "trl>=0.19", "accelerate", "vllm>=0.8", "pandas", "pyarrow"]
+verl = ["verl"]
+# 单卡冒烟测试（Windows 可用，不含 vLLM）；torch 需先按 CUDA 版本单独装
+smoke = ["transformers>=4.51", "datasets>=2.20", "peft>=0.13", "trl>=0.19", "accelerate"]
+baselines = ["minicheck @ git+https://github.com/Liyan06/MiniCheck.git", "refchecker"]
+app = ["gradio>=4.44", "pandas"]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["common*", "data*", "train*", "eval*", "annotation*", "infer*", "review*", "app*", "scripts*", "ragtruth*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
