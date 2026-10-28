@@ -1,0 +1,42 @@
+# 医学术语词典：英文 \t 标准中文译名 \t 常见误译（| 分隔）。
+# 用途：term_error 负样本的规则合成、critic 输入里附带的术语表、推理时的规则预检（common/glossary.py）。
+# 误译只收「意思不同的另一个术语」，不收可接受的同义译法（如 心肌梗塞 / 心肌梗死）。
+# en	zh	wrong
+myocardial infarction	心肌梗死	心肌缺血|心肌炎
+heart failure	心力衰竭	心律失常
+atrial fibrillation	心房颤动	心室颤动
+stroke	卒中	短暂性脑缺血发作
+transient ischemic attack	短暂性脑缺血发作	卒中
+hypertension	高血压	低血压
+hypoglycemia	低血糖	高血糖
+type 2 diabetes	2型糖尿病	1型糖尿病
+type 1 diabetes	1型糖尿病	2型糖尿病
+HbA1c	糖化血红蛋白	血红蛋白|空腹血糖
+systolic blood pressure	收缩压	舒张压
+diastolic blood pressure	舒张压	收缩压
+estimated glomerular filtration rate	估算肾小球滤过率	肌酐清除率
+hazard ratio	风险比	比值比
+odds ratio	比值比	风险比
+relative risk	相对危险度	比值比|绝对风险
+confidence interval	置信区间	置信水平
+adverse event	不良事件	不良反应
+placebo	安慰剂	阳性对照
+randomized controlled trial	随机对照试验	队列研究|病例对照研究
+cohort study	队列研究	随机对照试验|横断面研究
+incidence	发病率	患病率
+prevalence	患病率	发病率
+case fatality rate	病死率	死亡率
+sensitivity	灵敏度	特异度
+specificity	特异度	灵敏度
+neoadjuvant chemotherapy	新辅助化疗	辅助化疗
+adjuvant chemotherapy	辅助化疗	新辅助化疗
+overall survival	总生存期	无进展生存期
+progression-free survival	无进展生存期	总生存期
+statin	他汀类药物	贝特类药物
+anticoagulation	抗凝	抗血小板
+antiplatelet	抗血小板	抗凝
+inhaled corticosteroid	吸入性糖皮质激素	口服糖皮质激素|支气管扩张剂
+sepsis	脓毒症	菌血症
+septic shock	脓毒性休克	失血性休克
+bacteremia	菌血症	脓毒症
+selective serotonin reuptake inhibitor	选择性5-羟色胺再摄取抑制剂	5-羟色胺和去甲肾上腺素再摄取抑制剂

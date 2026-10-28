@@ -1,0 +1,15 @@
+# 演示数据配置，由 python -m review.demo_data 生成
+label_positive:
+  out: outputs\demo\positives.jsonl
+  audit_out: outputs\demo\positives_audit.jsonl
+  max_audit_error: 0.03
+synth_negative:
+  out: outputs\demo\synth_batch{batch}.jsonl
+mine_hard:
+  out: outputs\demo\hard_batch{batch}.jsonl
+  audit_out: outputs\demo\hard_batch{batch}_audit.jsonl
+  max_not_error_ratio: 0.1
+build_trainset:
+  coldstart_out: outputs\demo\coldstart.jsonl
+review:
+  dir: outputs\demo\review

@@ -1,0 +1,38 @@
+base_model: Qwen/Qwen3-8B-Base
+use_lora: false
+eos_tokens: ["<|im_end|>"]   # 写进 generation_config，推理遇到即停
+lora:
+  r: 64
+  lora_alpha: 128
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:                 # 传给 trl.SFTConfig
+  num_train_epochs: 1
+  learning_rate: 1.0e-5
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03       # transformers 5：小于 1 的小数按总步数的比例算
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 7168          # 与 grpo.yaml 的 prompt 6144 + response 1024 对齐
+  logging_steps: 10
+  save_strategy: "no"
+  report_to: wandb
+
+coldstart:
+  data: outputs/data/coldstart.jsonl
+  output_dir: outputs/ckpt/critic-0
+
+full:                    # 同基座全量 SFT 基线
+  data: outputs/data/trainset_v3/train.jsonl
+  output_dir: outputs/ckpt/sft-full
+  rationale_cache: outputs/data/rationales_v3.jsonl
+  trainer:
+    num_train_epochs: 2
+
+rationale_model:
+  model: Qwen/Qwen3-32B
+  base_url: http://localhost:8000/v1
+  concurrency: 32

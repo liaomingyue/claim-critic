@@ -1,0 +1,29 @@
+# 12 GB 单卡冒烟测试：TRL GRPO + LoRA，不用 vLLM（Windows 装不了），5 步
+init_model: outputs/smoke/ckpt/critic-0
+data_dir: outputs/smoke/trainset_v{version}
+output_dir: outputs/smoke/ckpt/grpo-trl-v{version}
+prompts_per_step: 2
+max_prompt_length: 2560
+
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:
+  learning_rate: 1.0e-5
+  num_generations: 4
+  temperature: 1.0
+  max_completion_length: 384
+  beta: 0.01
+  max_steps: 5
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2    # 1 卡 × 4 × 2 / 4 generations = 2 prompt/step
+  shuffle_dataset: false
+  eval_strategy: "no"
+  bf16: true
+  gradient_checkpointing: true
+  use_vllm: false
+  logging_steps: 1
+  report_to: none

@@ -1,0 +1,90 @@
+#!/bin/bash
+# 新开的 GPU 机器用「自定义镜像 + 文件存储」起步（2026-10-28 起，取代 bootstrap_worker.sh 从主实例经 SSH 拉的做法）：
+#   环境：自定义镜像自带；镜像没有时从文件存储的环境包解压（单个大文件，比 rsync 几十万个小文件快得多）
+#   代码和数据：直接在文件存储的 code/critic_model 上跑（用户建议：共用，免拷贝；结果写进去所有机器立刻可见）。
+#              本地上传的最新代码包先解压到这里。bash 是边跑边读脚本的，所以角色脚本先拷到本地再执行，
+#              防止别的机器同时改代码时打断正在跑的流程；Python 模块启动时已载入，不受影响
+#   模型：基座拷到本地盘（实测比直接从文件存储加载快，见下）；只存了适配器、要完整权重的在本机合并，写本地盘
+#   结果：outputs 直接写在共享目录里；新训练的适配器写 adapters/；日志存到 runs/<运行名>/
+# 不依赖主实例。用法：bash bootstrap_fs.sh <角色> <运行名>。日志 /root/autodl-tmp/worker.log，结束写 WORKER_DONE。
+set -u
+ROLE=$1 RUN=$2
+FS=/root/autodl-fs; A=/root/autodl-tmp; R=$FS/code/critic_model
+LOG=$A/worker.log
+log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
+mkdir -p $A/models $A/ckpt $FS/runs/$RUN
+touch $A/.run_start
+log "bootstrap_fs start ($ROLE, $RUN)"
+[ -d $FS/models ] || { log "file storage not mounted"; exit 1; }
+# 认领角色：多台机器（含主动排队的机器）抢同一批任务时，先在共享目录 mkdir 占位（原子操作），占不到就退出
+mkdir -p $FS/runs/claims
+if ! mkdir $FS/runs/claims/$ROLE 2>/dev/null; then
+  log "role $ROLE already claimed by $(cat $FS/runs/claims/$ROLE/by 2>/dev/null)"; log "WORKER_DONE"; exit 0
+fi
+echo "$(hostname) $RUN $(date '+%F %T')" > $FS/runs/claims/$ROLE/by
+
+# 环境
+if ! python -c "import vllm, trl, peft, fla, rapidfuzz" 2>/dev/null; then
+  [ -f $FS/env/miniconda3.tar ] || { log "env missing and no env tarball"; exit 1; }
+  log "env not in image: unpacking $FS/env/miniconda3.tar"
+  rm -rf /root/miniconda3 && tar -xf $FS/env/miniconda3.tar -C /root || { log "env unpack FAILED"; exit 1; }
+  python -c "import vllm, trl, peft, fla, rapidfuzz" || { log "env check FAILED"; exit 1; }
+fi
+
+# 代码：本地最新代码包（scripts.autodl_extra 上传，不含 outputs）解压到共享目录
+if [ -f $A/code_update.tar ]; then
+  tar -xf $A/code_update.tar -C $R || { log "code update FAILED"; exit 1; }
+  find $R/scripts -name '*.sh' -exec sed -i 's/\r$//' {} +
+fi
+mkdir -p $A/scripts && cp $R/scripts/remote/*.sh $A/scripts/   # 本次运行用的脚本快照
+
+# 本角色需要的模型：MODELS = 基座（拷到本地），MERGE = 只存了适配器、要完整权重的（拷适配器后在本机合并到 9B 上）
+case $ROLE in
+  closedloop) MODELS="Qwen3.5-9B Qwen3.5-35B-A3B-GPTQ-Int4"; MERGE="gen-sft-free" ;;
+  closedcritic) MODELS="Qwen3.5-9B"; MERGE="" ;;
+  unidisc)    MODELS="Qwen3.5-9B"; MERGE="" ;;
+  gfix)       MODELS="Qwen3.5-9B Qwen3.5-35B-A3B-GPTQ-Int4"; MERGE="critic-gan-r2" ;;
+  freedpo)    MODELS="Qwen3.5-9B Qwen3.5-35B-A3B-GPTQ-Int4"; MERGE="gen-sft-free critic-gan-r2 discrim-9b discrim-9b-r2" ;;
+  smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
+  *) log "unknown role $ROLE"; exit 1 ;;
+esac
+# 基座拷到本地盘：顺序拷贝约 100 MB/s（9B 约 3 分钟）；直接从文件存储加载时 transformers 按需随机读，
+# 实测只有约 25 MB/s（9B 光加载就要十几分钟，2026-10-28 第 2 台机器）。已是本地目录或软链接的跳过
+for m in $MODELS; do
+  [ -e $A/models/$m ] && continue
+  t0=$(date +%s); rsync -a $FS/models/$m $A/models/ || { log "copy $m FAILED"; exit 1; }
+  log "model $m copied in $(( $(date +%s) - t0 ))s"
+done
+for c in $MERGE; do
+  [ -f $A/ckpt/$c/model.safetensors ] && continue   # 本机已有完整权重（排队跑的机器）
+  mkdir -p $A/ckpt/$c && rsync -a $FS/adapters/$c/ $A/ckpt/$c/ || { log "copy adapter $c FAILED"; exit 1; }
+  (cd $R && python -u -m train.merge_lora --ckpt $A/ckpt/$c --base $A/models/Qwen3.5-9B > $A/merge-$c.log 2>&1) \
+    || { log "merge $c FAILED"; exit 1; }
+  log "merged $c"
+done
+log "ready: $(du -sh $A | cut -f1) local"
+
+# 跑本角色（脚本用本地快照，工作目录是共享的代码目录）
+S=$A/scripts
+cd $R
+case $ROLE in
+  closedloop) CODE=$R bash $S/run_closedloop.sh; rc=$? ;;
+  closedcritic) CODE=$R ARM=gfree bash $S/run_closedcritic.sh; rc=$? ;;
+  unidisc) CODE=$R bash $S/run_unidisc.sh; rc=$? ;;
+  gfix) CODE=$R bash $S/run_gfix.sh; rc=$? ;;
+  freedpo) CODE=$R bash $S/run_freedpo.sh; rc=$? ;;
+  smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
+esac
+log "role $ROLE exit $rc"
+
+# 存档：本次新产生的结果清单、日志；新训练的适配器写进 adapters/
+cd $R && find outputs -type f -newer $A/.run_start > $FS/runs/$RUN/new_outputs.txt
+cp $A/*.log $FS/runs/$RUN/ 2>/dev/null
+for d in $A/ckpt/*/; do d=${d%/}; n=$(basename $d)
+  [ -f $d/adapter/adapter_model.safetensors ] && [ $d/adapter/adapter_model.safetensors -nt $A/.run_start ] || continue
+  mkdir -p $FS/adapters/$n && rsync -a $d/adapter $FS/adapters/$n/ \
+    && cp $d/run_manifest.json $d/sft_meta.json $FS/adapters/$n/ 2>/dev/null && log "adapter $n saved to file storage"
+done
+log "$(wc -l < $FS/runs/$RUN/new_outputs.txt) new output files (list in $FS/runs/$RUN/new_outputs.txt)"
+[ $rc = 0 ] && touch $FS/runs/$RUN/DONE
+log "WORKER_DONE"
