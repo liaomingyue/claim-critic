@@ -107,23 +107,23 @@ class Web:
         walk(r.get("data"), [])
         return out
 
-    def create(self, machine_id: str, image_uuid: str, expand_bytes: int, name: str) -> dict:
+    def create(self, machine_id: str, image_uuid: str, expand_bytes: int, name: str, gpus: int = 1) -> dict:
         # 自定义镜像（控制台「保存镜像」得到的 image-xxx）放 private_image_uuid；放进 base_image_uuid 会报「基础镜像不存在」
         private = image_uuid.startswith("image-")
         return self.call("/api/v1/order/instance/create/payg", {
-            "instance_info": {"machine_id": machine_id, "charge_type": "payg", "req_gpu_amount": 1,
+            "instance_info": {"machine_id": machine_id, "charge_type": "payg", "req_gpu_amount": gpus,
                               "base_image_uuid": "" if private else image_uuid,
                               "private_image_uuid": image_uuid if private else "", "reproduction_uuid": "",
                               "reproduction_id": 0, "cg_application_uuid": "", "instance_name": name,
                               "expand_data_disk": expand_bytes},
             "price_info": {"coupon_id_list": [], "machine_id": machine_id, "charge_type": "payg", "duration": 1,
-                           "num": 1, "expand_data_disk": expand_bytes}})
+                           "num": gpus, "expand_data_disk": expand_bytes}})   # num 是卡数：只改 req_gpu_amount 时报「请求参数错误」
 
 
-def usable(m: dict, expand_bytes: int, max_price: float = float("inf")) -> bool:
+def usable(m: dict, expand_bytes: int, max_price: float = float("inf"), gpus: int = 1) -> bool:
     """有空闲卡、在线可租（on_line 3–6 为离线 / 维护，空闲卡也租不了）、没绑满、数据盘能扩到、
     每卡每小时价格（payg_price，单位 元 × 1000）不超过 max_price。"""
-    return (m.get("gpu_idle_num", 0) >= 1 and m.get("on_line") not in OFFLINE
+    return (m.get("gpu_idle_num", 0) >= gpus and m.get("on_line") not in OFFLINE
             and m.get("binding_instance_num", 0) < m.get("max_instance_num", 1 << 30)
             and m.get("max_data_disk_expand_size", 1 << 62) >= expand_bytes
             and m.get("payg_price", 0) / 1000 <= max_price)

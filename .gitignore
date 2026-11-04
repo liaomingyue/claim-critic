@@ -16,3 +16,4 @@ external_data/
 
 # 打包产物
 *.egg-info/
+.claude/settings.local.json

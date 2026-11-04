@@ -1,0 +1,35 @@
+# MiniCPM5-2B 造错生成器 SFT，种子第四版（2026-11-03，用户：种子里选出来的错句改对后做样本，这部分要用 2B 筛一下，只选 2B 不知道是错的）：
+# 第三版 172 条里只留 2B critic（rm1__mcgold）在原回答里判不出（P < 0.5，hardpool）的那些。其余同 sft_gen_seed3_mc，单卡 1 轮。
+task: gen
+prompt_tips: false
+base_model: /root/autodl-fs/models/MiniCPM5-2B
+use_lora: true
+merge_lora: true
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 1
+  learning_rate: 5.0e-5
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 2
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 4096
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+  model_init_kwargs:
+    dtype: bfloat16
+    device_map: cuda
+
+coldstart:
+  data: outputs/rt/gentarget/seed2b/sft_train_v4.jsonl
+  output_dir: /root/autodl-tmp/ckpt/gen-seed4-mc

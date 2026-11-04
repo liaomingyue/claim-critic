@@ -1,0 +1,36 @@
+# MiniCPM5-2B 版单字符选项 RM（2026-11-02，用户：做 2B 适配）。和 rm_9b.yaml 只差底座和批大小：
+# 9B 每次 1 条、累积 16 步是显存所迫，2B 用同样设置 GPU 只跑到约 30%；改成每次 4 条、累积 4 步，总批量仍是 16（8 条时 13 万词表的 logits 在 4096 长度下约 8.5 GB，怕 OOM），学习率、轮数、LoRA 不变。
+# data / output_dir / max_length 由 run_mcrm.sh 按 RM 改写。
+task: option
+prompt_tips: false
+base_model: /root/autodl-fs/models/MiniCPM5-2B
+use_lora: true
+merge_lora: true
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 2
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 3072
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+  model_init_kwargs:
+    dtype: bfloat16
+    device_map: cuda
+
+coldstart:
+  data: outputs/rt/rm/rm1/train.jsonl
+  output_dir: /root/autodl-tmp/ckpt/rm1-mc

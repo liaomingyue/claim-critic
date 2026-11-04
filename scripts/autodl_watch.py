@@ -57,6 +57,13 @@ def download_evals(logf: Path, log_dir: str = "outputs/autodl/remote_logs") -> i
                 safe_get(s, f"{REMOTE}/outputs/rt/claims/{f}", f"outputs/rt/claims/{f}")
     except OSError:
         pass
+    try:   # 负例复核结果（ragtruth.negcheck），两台机器各写自己那一片
+        os.makedirs("outputs/rt/negcheck", exist_ok=True)
+        for f in s.listdir(f"{REMOTE}/outputs/rt/negcheck"):
+            if f.endswith(".jsonl"):
+                safe_get(s, f"{REMOTE}/outputs/rt/negcheck/{f}", f"outputs/rt/negcheck/{f}")
+    except OSError:
+        pass
     os.makedirs(log_dir, exist_ok=True)
     for f in s.listdir("/root/autodl-tmp"):   # 训练 / 评测日志一并拉回，画 loss 曲线和排查用
         if f.endswith(".log"):
@@ -71,13 +78,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--uuid", default=None, help="默认读 outputs/autodl/web_instance.json（克隆后 uuid 会变）")
     ap.add_argument("--interval", type=int, default=120)
-    ap.add_argument("--idle_minutes", type=int, default=30, help="流水线不在且 GPU 空闲这么久就收尾")
+    ap.add_argument("--idle_minutes", type=int, default=20, help="流水线不在且 GPU 空闲这么久就收尾")
     ap.add_argument("--notify", nargs="*", default=["email", "toast"])
     ap.add_argument("--exp_log", default="/root/autodl-tmp/exp.log", help="流水线日志，最后一行出现 --done 即完成")
     ap.add_argument("--done", default="ALL_DONE")
     ap.add_argument("--proc", default="run_format_exp", help="流水线脚本名，用来判断进程是否还在")
     ap.add_argument("--keep_on_file", default="outputs/autodl/keep_on", help="这个文件存在就不关机；none = 总是关机（加开的机器）")
     ap.add_argument("--log_dir", default="outputs/autodl/remote_logs", help="远端日志下载到哪（多台机器各用一个目录）")
+    ap.add_argument("--gpu_idle_only", type=int, default=1, help="1 = 只看 GPU：所有卡利用率 ≤ 5% 持续 idle_minutes 就收尾，流水线进程还在也关（卡死时不空烧，用户 2026-11-03）")
     ap.add_argument("--remote_dir", default=REMOTE, help="远端代码目录；文件存储模式为 /root/autodl-fs/code/critic_model")
     args = ap.parse_args()
 
@@ -98,10 +106,14 @@ def main() -> None:
         if args.done in last:
             reason = "实验全部完成"
             break
-        busy = running != "0" or (util.isdigit() and int(util) > 5)
+        utils = [int(u) for u in util.split() if u.isdigit()]   # 多卡时每张卡一行
+        gpu_busy = any(u > 5 for u in utils)
+        busy = (running != "0" or gpu_busy) if not args.gpu_idle_only else gpu_busy
         idle_since = None if busy else (idle_since or time.time())
-        if idle_since and time.time() - idle_since > args.idle_minutes * 60:
-            reason = f"流水线已退出且 GPU 空闲 {args.idle_minutes} 分钟（最后一步：{last}）"
+        ov = Path("outputs/autodl/idle_minutes")   # 运行中改空闲时长（用户：GPU 空闲 20 分钟自动关机）
+        idle_min = int(ov.read_text().strip()) if ov.exists() else args.idle_minutes
+        if idle_since and time.time() - idle_since > idle_min * 60:
+            reason = f"GPU 空闲 {idle_min} 分钟（流水线进程 {running} 个，最后一步：{last}）"
             break
         time.sleep(args.interval)
 

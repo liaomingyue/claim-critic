@@ -87,6 +87,13 @@ def logprob_score(client, model: str, row: dict) -> dict:
         if "origin" in (seen + t.token).lower() and (is_n(tok) or is_s(tok)):
             pn = sum(math.exp(c.logprob) for c in t.top_logprobs if is_n(norm(c.token)))
             ps = sum(math.exp(c.logprob) for c in t.top_logprobs if is_s(norm(c.token)))
+            # 判别器很自信时另一个标签排不进前 20，按 1 − 选中概率估计（否则分数只剩 0 / 1，DPO 配不出对；
+            # 2026-10-28 发现 D1 在 G_free 产出上 1,126 条全是 0 或 1）
+            chosen = math.exp(t.logprob)
+            if pn + ps > 0 and pn == 0:
+                pn = max(1e-6, 1 - chosen)
+            if pn + ps > 0 and ps == 0:
+                ps = max(1e-6, 1 - chosen)
             if pn + ps > 0:
                 return {"p_natural": pn / (pn + ps), "score": math.log(pn + 1e-12) - math.log(ps + 1e-12)}
         seen += t.token
