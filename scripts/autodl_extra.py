@@ -144,6 +144,7 @@ def main() -> None:
                     help="可接受的卡型，按顺序优先（vGPU-48GB 显存 48G、单价和 5090 相当；4090 只有 24G，放不下 35B）")
     ap.add_argument("--expand_gb", type=int, default=100, help="环境 12G + 模型和权重约 40G + 新训练的权重，默认 50G 免费盘 + 100G")
     ap.add_argument("--max_price", type=float, default=5.0)
+    ap.add_argument("--gpus", type=int, default=1, help="每台机器要几张卡（GRPO：训练卡 + 推理卡 = 2）")
     ap.add_argument("--interval", type=int, default=60)
     ap.add_argument("--max_hours", type=float, default=6, help="超过这么久还没抢到就不再开（主实例排队也快跑完了）")
     ap.add_argument("--notify", nargs="*", default=["email", "toast"])
@@ -168,15 +169,20 @@ def main() -> None:
     deadline = time.time() + args.max_hours * 3600
     log(f"want {todo}, image {image}", logf)
     while todo and time.time() < deadline:
-        cands = [m for g in args.gpu for m in web.machines(signs, g)
-                 if usable(m, expand, args.max_price) and m["machine_id"] not in args.exclude_machines]
+        try:   # 偶发网络超时不能让整个抢机器循环退出（2026-11-04 踩过：抢了 2.5 小时后一次 timed out 就退了）
+            cands = [m for g in args.gpu for m in web.machines(signs, g)
+                     if usable(m, expand, args.max_price, args.gpus) and m["machine_id"] not in args.exclude_machines]
+        except Exception as e:  # noqa: BLE001
+            log(f"machine list error, retry: {str(e)[:120]}", logf)
+            time.sleep(args.interval)
+            continue
         if not cands:
             time.sleep(args.interval)
             continue
         role = todo[0]
         name = f"WORKER-{role}-{time.strftime('%m%d%H%M')}"
         before = {i["uuid"] for i in web.instances()}
-        r = web.create(cands[0]["machine_id"], image, expand, name)
+        r = web.create(cands[0]["machine_id"], image, expand, name, args.gpus)
         log(f"create {name} on {cands[0]['machine_id']}: {r.get('code')} {r.get('msg')}", logf)
         if r.get("code") != "Success":
             if image.startswith("image-") and "镜像" in str(r.get("msg")):   # 自定义镜像用不了：退回基础镜像（环境从文件存储解压）
