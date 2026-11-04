@@ -38,6 +38,7 @@ from ragtruth.synth import (build_prompt, build_prompt_free, check, check_free, 
 from ragtruth.task import messages, parse_output
 
 NO_THINK = {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+THINK = {"extra_body": {"chat_template_kwargs": {"enable_thinking": True}}}
 TIER = {"hard": 2, "easy": 1, "invalid": 0}
 
 
@@ -112,7 +113,7 @@ def cmd_sample(args) -> None:
         prompts, outputs, variant = [], [], []
         per = max(1, args.k // args.variants)
         for v in range(args.variants):
-            prompt = build_prompt_free(seed["resp"], free_examples(ex_pool, seed["resp"]["task_type"], rng))
+            prompt = build_prompt_free(seed["resp"], free_examples(ex_pool, seed["resp"]["task_type"], rng), focus=args.focus)
             outs = gen.chat([{"role": "user", "content": prompt}], n=per, **NO_THINK)
             prompts.append(prompt)
             outputs += outs
@@ -191,16 +192,56 @@ def cmd_valid(args) -> None:
           f"rule_ok {sum(c['rule_ok'] for r in rows for c in r['cands'])}/{n}")
 
 
+def disputed(c: dict) -> bool:
+    v = c.get("verify") or {}
+    return bool(c.get("rule_ok")) and v.get("orig") == "none" and v.get("new") == "none"
+
+
+def type_prob(choice) -> float | None:
+    """critic 一次输出里，<type> 标签处「conflict / baseless」（有幻觉）相对「none」的概率。critic 的格式是
+    evidence → reason → type → verdict，判定在 type 这一步就定了；比 verdict 投票的 0/1 细得多。"""
+    import math
+    import re
+    toks = (choice.logprobs.content if choice.logprobs else None) or []
+    norm = lambda x: re.sub(r"^[^a-z]+", "", x.strip().lower())  # noqa: E731
+    is_h = lambda x: bool(x) and any(w.startswith(x) or x.startswith(w) for w in ("conflict", "baseless"))  # noqa: E731
+    is_n = lambda x: bool(x) and ("none".startswith(x) or x.startswith("none"))  # noqa: E731
+    seen = ""
+    for t in toks:
+        tok = norm(t.token)
+        if "<type>" in (seen + t.token).lower() and (is_h(tok) or is_n(tok)):
+            ph = sum(math.exp(c.logprob) for c in t.top_logprobs if is_h(norm(c.token)))
+            pn = sum(math.exp(c.logprob) for c in t.top_logprobs if is_n(norm(c.token)))
+            chosen = math.exp(t.logprob)   # 另一边不在前 20 名时，用 1 − 选中概率估计（模型很自信时也有连续值）
+            if ph + pn > 0:
+                if ph == 0:
+                    ph = max(1e-6, 1 - chosen)
+                if pn == 0:
+                    pn = max(1e-6, 1 - chosen)
+                return ph / (ph + pn)
+        seen += t.token
+    return None
+
+
 def cmd_hard(args) -> None:
     d = Path(args.dir)
     critic = llm(args.model, args.base_url, args.concurrency, max_tokens=512, temperature=0.7)
     items = [{"id": f"{r['id']}#{c['j']}", "rec": c["rec"]} for r in kept(d / "valid.jsonl") for c in r["cands"]
-             if c["valid"]]
+             if c["valid"] or (args.include_disputed and disputed(c))]
 
     def run(it: dict) -> dict:
         bad, _ = to_claims(it["rec"])
-        outs = critic.chat(messages(bad), n=4, **NO_THINK)
-        return {"detect_rate": sum(parse_output(o).verdict == "hallucination" for o in outs) / len(outs)}
+        if not args.logprob:
+            outs = critic.chat(messages(bad), n=args.n, **NO_THINK)
+            return {"detect_rate": sum(parse_output(o).verdict == "hallucination" for o in outs) / len(outs)}
+        # 连续难度（2026-10-28）：识破率只有 n+1 档，72% 的有效样本是 1，DPO 配不出「更难」的对
+        resp = critic.client.chat.completions.create(
+            model=args.model, messages=messages(bad), n=args.n, max_tokens=512, temperature=0.7, logprobs=True,
+            top_logprobs=20, **NO_THINK)
+        ps = [type_prob(ch) for ch in resp.choices]
+        votes = [parse_output(ch.message.content or "").verdict == "hallucination" for ch in resp.choices]
+        ps = [p if p is not None else float(v) for p, v in zip(ps, votes)]
+        return {"detect_rate": sum(votes) / len(votes), "p_halluc": sum(ps) / len(ps)}
 
     out = d / f"hard_{args.tag}.jsonl"
     map_resumable(items, run, out, concurrency=args.concurrency)
@@ -208,18 +249,51 @@ def cmd_hard(args) -> None:
     print(f"{args.tag}: {len(rates)} valid scored; hard (detect < 0.5) {sum(x < 0.5 for x in rates)}")
 
 
+def cmd_arbitrate(args) -> None:
+    """「35B 说没错、critic 也没检出」的样本：35B 开思考重新复核（只这一小批，思考慢但量小）。
+    判为与原文矛盾 / 原文没有 → 记为错误（隐蔽错误，有效性按 1 算）；仍判为有依据 → 记为没错。"""
+    from ragtruth.synth import verify_one as v1
+    d = Path(args.dir)
+    pool = {r["id"]: r for r in read_jsonl(args.pool)}
+    hard = {r["id"]: r for r in kept(d / f"hard_{args.tag}.jsonl")} if (d / f"hard_{args.tag}.jsonl").exists() else {}
+    samples = {r["id"]: r for r in kept(d / "samples.jsonl")}   # resp_id 在采样记录里，valid.jsonl 的行没有
+    judge = llm(args.model, args.base_url, args.concurrency, max_tokens=8192, temperature=0.6)
+    items = []
+    for r in kept(d / "valid.jsonl"):
+        for c in r["cands"]:
+            key = f"{r['id']}#{c['j']}"
+            h = hard.get(key)
+            if disputed(c) and (args.all or (h and h.get("p_halluc", h["detect_rate"]) < 0.5)):
+                items.append({"id": key, "row": r, "c": c})
+
+    def run(it: dict) -> dict:
+        c, r = it["c"], it["row"]
+        seed = {**_seed(samples[r["id"]], pool), **{k: c["rec"][k] for k in ("idx", "type")}}
+        v = v1(judge, seed, c["rec"]["sentence"], random.Random(it["id"]), THINK)
+        return {"verify_think": v, "verdict": "error" if v["orig"] == "none" and v["new"] in ("conflict", "baseless")
+                else "none"}
+
+    out = d / f"arbitrate_{args.tag}.jsonl"
+    map_resumable([{"id": x["id"], "row": x["row"], "c": x["c"]} for x in items], run, out, concurrency=args.concurrency)
+    res = kept(out)
+    print(f"arbitrated {len(res)} disputed samples (35B none, critic missed): "
+          f"{sum(x['verdict'] == 'error' for x in res)} confirmed as subtle errors")
+
+
 def cmd_realism(args) -> None:
     """真实性判别器（ragtruth.discrim）给有效改写打 p(自然错误)：采样 4 次，判为 natural 的比例。"""
     from ragtruth import discrim
     d = Path(args.dir)
     disc = llm(args.model, args.base_url, args.concurrency, max_tokens=16, temperature=1.0)
+    arb = ({x["id"] for x in kept(d / f"arbitrate_{args.arb_tag}.jsonl") if x["verdict"] == "error"}
+           if args.arb_tag and (d / f"arbitrate_{args.arb_tag}.jsonl").exists() else set())
     items = []
     for r in kept(d / "valid.jsonl"):
         for c in r["cands"]:
-            if c["valid"]:
+            if c["valid"] or f"{r['id']}#{c['j']}" in arb:
                 rec = c["rec"]
                 i = rec["idx"]
-                items.append({"id": f"{r['id']}#{c['j']}", "source": rec["source"], "idx": i,
+                items.append({"id": f"{r['id']}#{c['j']}", "source": rec["source"], "idx": i, "unified": args.unified,
                               "sentences": rec["sentences"][:i - 1] + [rec["sentence"]] + rec["sentences"][i:]})
 
     def run(it: dict) -> dict:   # 标签词 logprob 的连续分数（ragtruth.discrim.logprob_score）
@@ -295,11 +369,80 @@ def pareto_pairs(cands: list[dict], margin: float) -> list[tuple[dict, dict, str
     return out
 
 
+def pct_rank(vals: dict[str, float]) -> dict[str, float]:
+    """按大小换成 0–1 的百分位：难度和真实性尺度不同（概率 / log-odds），换成百分位后权重才有可比的含义。"""
+    order = sorted(vals, key=lambda k: vals[k])
+    n = max(1, len(order) - 1)
+    out, i = {}, 0
+    while i < len(order):   # 并列的取平均名次：分数相同的不能被随意排出先后（否则能否当 chosen 取决于排序噪声）
+        j = i
+        while j + 1 < len(order) and vals[order[j + 1]] == vals[order[i]]:
+            j += 1
+        for k in order[i:j + 1]:
+            out[k] = (i + j) / 2 / n
+        i = j + 1
+    return out
+
+
+def composite(d: Path, args) -> dict[str, dict]:
+    """每条采样的有效性 V、难度 h、真实性 r（百分位）和综合分 = V × (a + b·h + c·r)。
+    V：规则 / 复核硬失败 0；35B 认为没错（未仲裁或仲裁仍为没错）0.3；有效或仲裁确认是隐蔽错误 1。"""
+    hard = {r["id"]: r for r in kept(d / f"hard_{args.tag}.jsonl")}
+    real = {r["id"]: r for r in kept(d / f"realism_{args.rtag}.jsonl")}
+    arb = {x["id"]: x["verdict"] for x in kept(d / f"arbitrate_{args.tag}.jsonl")} \
+        if (d / f"arbitrate_{args.tag}.jsonl").exists() else {}
+    hp = pct_rank({k: 1 - v.get("p_halluc", v["detect_rate"]) for k, v in hard.items()})
+    rp = pct_rank({k: v.get("score", v["p_natural"]) for k, v in real.items()})
+    out = {}
+    for r in kept(d / "valid.jsonl"):
+        for c in r["cands"]:
+            k = f"{r['id']}#{c['j']}"
+            if c["valid"] or arb.get(k) == "error":
+                V = 1.0
+            elif disputed(c):
+                V = 0.3
+            else:
+                V = 0.0
+            h, rr = hp.get(k), rp.get(k)
+            score = V * (args.w_base + args.w_hard * (h or 0) + args.w_real * (rr or 0)) if V == 1.0 else V * args.w_base
+            out[k] = {"sid": r["id"], "j": c["j"], "V": V, "h": h, "r": rr, "score": score,
+                      "eligible": V == 1.0 and h is not None and rr is not None and h >= args.min_hard and rr >= args.min_real}
+    return out
+
+
 def cmd_pairs(args) -> None:
     d = Path(args.dir)
     samples = {r["id"]: r for r in kept(d / "samples.jsonl")}
     rng = random.Random(0)
     pairs = []
+    if args.mode == "score":
+        # 用户提出（2026-10-28）：有效、难、真加权成一个分数再配对；chosen 必须同时满足有效、难度和真实性门槛
+        sc = composite(d, args)
+        by = collections.defaultdict(list)
+        for k, x in sc.items():
+            by[x["sid"]].append(x)
+        kinds = collections.Counter()
+        for sid, xs in sorted(by.items()):
+            prompt = [{"role": "user", "content": canonical_prompt(samples[sid])}]
+            outs = samples[sid]["outputs"]
+            cand = sorted(((ch, rj) for ch in xs if ch["eligible"] for rj in xs
+                           if ch["score"] - rj["score"] >= args.gap), key=lambda p: p[1]["score"] - p[0]["score"])
+            used = set()
+            for ch, rj in cand:
+                if len(used) >= args.max_pairs or rj["j"] in used:
+                    continue
+                used.add(rj["j"])
+                kinds["rej_V=%s" % rj["V"]] += 1
+                pairs.append({"prompt": prompt, "chosen": [{"role": "assistant", "content": outs[ch["j"]]}],
+                              "rejected": [{"role": "assistant", "content": outs[rj["j"]]}],
+                              "gap": round(ch["score"] - rj["score"], 3)})
+        rng.shuffle(pairs)
+        out = d / "pairs_score.jsonl"
+        write_jsonl(out, pairs)
+        print(json.dumps({"mode": "score", "pairs": len(pairs), "rejected_by_validity": dict(kinds),
+                          "eligible_chosen": sum(x["eligible"] for x in sc.values()), "samples": len(sc),
+                          "mean_gap": round(sum(p["gap"] for p in pairs) / max(1, len(pairs)), 3)}))
+        return
     if args.mode == "hard_real":   # 两个打分维度：critic 难度 + 判别器真实性
         for sid, cands in scored(d, args.tag, args.rtag).items():
             groups = ([(canonical_prompt(samples[sid]), cands)] if args.canonical else
@@ -341,11 +484,39 @@ def cmd_select(args) -> None:
     """给 critic 的训练样本：本轮有效改写里按 难度 + 真实性 之和取前 n 条（每个种子最多 1 条，保持多样），
     输出 ragtruth.synth 的合成记录格式，交给 ragtruth.iterate build 成对加入训练集。"""
     d = Path(args.dir)
+    clean = None
+    if args.neg_decisions:   # 只用原句经 negcheck 复核为无幻觉的改写，合成对两侧标签都可信
+        clean = {x["id"] for x in read_jsonl(args.neg_decisions) if x["src"] == "seed" and x["decision"] == "faithful"}
+    ok_orig = lambda rec: clean is None or f"{rec['response_id']}-S{rec['idx']}" in clean  # noqa: E731
+    if args.hard_mix:   # 反馈 critic 选样：每个种子最多 1 条；critic 识破率 < threshold 的难样本和易样本各一半，难样本不够时用易样本补
+        rng = random.Random(args.seed)
+        rate = {r["id"]: r["detect_rate"] for r in kept(d / f"hard_{args.tag}.jsonl")}
+        hard, easy = [], []
+        for r in sorted(kept(d / "valid.jsonl"), key=lambda r: r["id"]):
+            ok = [{**c["rec"], "id": f"{r['id']}#{c['j']}"} for c in r["cands"]
+                  if c["valid"] and ok_orig(c["rec"]) and f"{r['id']}#{c['j']}" in rate]
+            h = [c for c in ok if rate[c["id"]] < args.threshold]
+            if h:
+                hard.append(rng.choice(h))
+            elif ok:
+                easy.append(rng.choice(ok))
+        rng.shuffle(hard), rng.shuffle(easy)
+        h = hard[:args.n // 2]
+        chosen = h + easy[:args.n - len(h)]
+        rng.shuffle(chosen)
+        for c in chosen:
+            c["detect_rate"] = rate[c["id"]]
+        write_jsonl(args.out, chosen)
+        print(json.dumps({"selected": len(chosen), "hard": len(h), "hard_available": len(hard), "easy_available": len(easy),
+                          "types": dict(collections.Counter(c["type"] for c in chosen))}))
+        return
     if args.random:   # 闭环验证：每个种子随机取一条有效改写，不按难度 / 真实性挑——比较的只是生成器本身的分布
         rng = random.Random(args.seed)
         picks = []
+        arb = ({x["id"] for x in kept(d / f"arbitrate_{args.arb_tag}.jsonl") if x["verdict"] == "error"}
+               if args.arb_tag else set())
         for r in sorted(kept(d / "valid.jsonl"), key=lambda r: r["id"]):
-            ok = [c for c in r["cands"] if c["valid"]]
+            ok = [c for c in r["cands"] if (c["valid"] or f"{r['id']}#{c['j']}" in arb) and ok_orig(c["rec"])]
             if ok:
                 c = rng.choice(ok)
                 picks.append({**c["rec"], "id": f"{r['id']}#{c['j']}"})
@@ -357,6 +528,11 @@ def cmd_select(args) -> None:
         return
     rate = {r["id"]: r["detect_rate"] for r in kept(d / f"hard_{args.tag}.jsonl")}
     real = {r["id"]: r["p_natural"] for r in kept(d / f"realism_{args.rtag}.jsonl")}
+    if args.pct:   # 和 DPO v2 同口径：连续难度 / 真实性先换成百分位，各占一半（用户：难度和真实性同样重要）
+        hp = pct_rank({r["id"]: 1 - r.get("p_halluc", r["detect_rate"]) for r in kept(d / f"hard_{args.tag}.jsonl")})
+        rp = pct_rank({r["id"]: r.get("score", r["p_natural"]) for r in kept(d / f"realism_{args.rtag}.jsonl")})
+        rate = {k: 1 - v for k, v in hp.items() if k in rp}
+        real = {k: rp[k] for k in rate}
     best = {}
     for r in kept(d / "valid.jsonl"):
         for c in r["cands"]:
@@ -398,13 +574,17 @@ def cmd_report(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("sample", "valid", "hard", "realism", "pairs", "select", "report"):
+    for name in ("sample", "valid", "hard", "arbitrate", "realism", "pairs", "select", "report"):
         p = sub.add_parser(name)
         p.add_argument("--dir", required=True)
         p.add_argument("--model", default="gen")
         p.add_argument("--base_url", default="http://127.0.0.1:8000/v1")
         p.add_argument("--concurrency", type=int, default=64)
         p.add_argument("--tag", default="target", help="hard 的输出名：用哪个 critic 打的分（target / heldout）")
+        if name == "hard":
+            p.add_argument("--n", type=int, default=4)
+            p.add_argument("--logprob", action="store_true", help="另记 critic 在 <type> 处判为有幻觉的概率（连续难度）")
+            p.add_argument("--include_disputed", action="store_true", help="仲裁后确认是错误的样本也打难度")
         p.add_argument("--threshold", type=float, default=0.5)
         if name == "sample":
             p.add_argument("--pool", default="outputs/external/ragtruth/train_pool.jsonl")
@@ -415,6 +595,7 @@ def main() -> None:
             p.add_argument("--n_seeds", type=int, default=2000)
             p.add_argument("--free", action="store_true", help="自由版：种子是整条回答，句子、类型、改法由生成器自己选")
             p.add_argument("--resp_from", default="", help="自由版：用这个 samples.jsonl 里的回答作种子（和指定版对比）")
+            p.add_argument("--focus", action="store_true", help="自由版：改法清单换成定向版（synth.FOCUS_TACTICS）")
             p.add_argument("--k", type=int, default=8)
             p.add_argument("--variants", type=int, default=4, help="k 条采样分几组，每组重新抽示例（同组内才配偏好对）")
             p.add_argument("--seed", type=int, default=10)
@@ -428,22 +609,40 @@ def main() -> None:
                                                                 "outputs/rt/iter/critic_r3_mined.jsonl"],
                            help="较强 critic（迭代第 1、2 轮训出的模型）对 r2 / r3 池的识破率")
         if name == "pairs":
-            p.add_argument("--mode", choices=["hard", "hard_real"], default="hard",
-                           help="hard：只按 critic 难度分档；hard_real：难度 + 真实性两维帕累托")
+            p.add_argument("--mode", choices=["hard", "hard_real", "score"], default="hard",
+                           help="hard：只按 critic 难度分档；hard_real：难度 + 真实性两维帕累托；score：综合分（推荐）")
+            p.add_argument("--w_base", type=float, default=0.2, help="score：有效的基础分")
+            p.add_argument("--w_hard", type=float, default=0.4, help="score：难度权重（用户：和真实性同样重要）")
+            p.add_argument("--w_real", type=float, default=0.4, help="score：真实性权重")
+            p.add_argument("--min_hard", type=float, default=0.5, help="score：chosen 的难度百分位下限")
+            p.add_argument("--min_real", type=float, default=0.5, help="score：chosen 的真实性百分位下限")
+            p.add_argument("--gap", type=float, default=0.2, help="score：chosen 与 rejected 综合分之差下限")
+            p.add_argument("--max_pairs", type=int, default=3, help="score：每个 prompt 最多几对")
             p.add_argument("--rtag", default="discrim", help="realism 打分的输出名")
             p.add_argument("--margin", type=float, default=0.5)
             p.add_argument("--canonical", action="store_true",
                            help="跨示例组配对，chosen / rejected 都放在统一 prompt（去掉难样本示例）下")
+        if name == "realism":
+            p.add_argument("--arb_tag", default="", help="仲裁结果的 tag：确认是隐蔽错误的样本也打真实性")
+            p.add_argument("--unified", action="store_true", help="判别器是统一 D（中性 prompt，正确句错句一起判）")
+        if name == "arbitrate":
+            p.add_argument("--pool", default="outputs/external/ragtruth/train_pool.jsonl")
+            p.add_argument("--all", action="store_true", help="仲裁全部争议样本（默认只仲裁 critic 也没检出的）")
         if name == "select":
             p.add_argument("--rtag", default="discrim")
             p.add_argument("--n", type=int, default=600)
             p.add_argument("--out", required=True)
             p.add_argument("--random", action="store_true", help="每个种子随机取一条有效改写（闭环验证用）")
+            p.add_argument("--hard_mix", action="store_true", help="按 hard_<tag> 的识破率：难 : 易 = 1 : 1，每个种子最多 1 条")
+            p.add_argument("--neg_decisions", default="", help="ragtruth.negcheck 的 decisions.jsonl：只用原句复核为无幻觉的改写")
+            p.add_argument("--arb_tag", default="", help="--random：仲裁确认的隐蔽错误也算有效")
             p.add_argument("--seed", type=int, default=0)
+            p.add_argument("--pct", action="store_true", help="按连续难度、真实性的百分位各占一半排序（同 DPO v2 综合分）")
         if name == "valid":
             p.add_argument("--pool", default="outputs/external/ragtruth/train_pool.jsonl")
     args = ap.parse_args()
-    {"sample": cmd_sample, "valid": cmd_valid, "hard": cmd_hard, "realism": cmd_realism, "pairs": cmd_pairs,
+    {"sample": cmd_sample, "valid": cmd_valid, "hard": cmd_hard, "arbitrate": cmd_arbitrate, "realism": cmd_realism,
+     "pairs": cmd_pairs,
      "select": cmd_select, "report": cmd_report}[args.cmd](args)
 
 

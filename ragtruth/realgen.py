@@ -25,6 +25,7 @@ import argparse
 import collections
 import json
 import random
+import re
 from pathlib import Path
 
 from common.llm import LLM, LLMConfig, kept, map_resumable
@@ -141,9 +142,11 @@ def repair_one(llm: LLM, s: dict, item: dict, retries: int, rng: random.Random, 
                 return {"failed": [f"verify {v['orig']}/{v['new']}"], "repaired": repaired, "verify": v}
             return {**res, "repaired": repaired, "tactic": (obj.get("tactic") or "").strip(), "verify": v,
                     "attempts": attempt + 1}
-        msgs = msgs[:1] + [{"role": "assistant", "content": text},
-                           {"role": "user", "content": "Fix these problems and output the full JSON object again:\n- "
-                                                       + "\n- ".join(problems)}]
+        fix = "Fix these problems and output the full JSON object again:\n- " + "\n- ".join(problems)
+        if llm.cfg.provider == "claude_cli":   # claude -p 只支持单轮：上一次的回答和要修的问题拼进同一条消息
+            msgs = [{"role": "user", "content": msgs[0]["content"] + "\n\nYour previous answer was:\n" + text + "\n\n" + fix}]
+        else:
+            msgs = msgs[:1] + [{"role": "assistant", "content": text}, {"role": "user", "content": fix}]
     return {"failed": problems}
 
 
@@ -154,14 +157,19 @@ def cmd_repair(args) -> None:
         used = {r["resp_id"] for f in args.exclude for r in kept(f)}
         srcs = {r.get("source_id") for f in args.exclude_sources for r in read_jsonl(f)}
         pool = [x for x in pool if x["id"] not in used and x.get("source_id") not in srcs]
-    chosen = select_responses(pool, args.fresh or args.n_target, args.seed)
-    items = items_of(chosen)
+    if args.ids:   # 种子生成器（ragtruth.gen_seed select）：只修指定的句子
+        want = {r["id"] for r in read_jsonl(args.ids)}
+        chosen = [s for s in pool if any(it["id"] in want for it in items_of([s]))]
+        items = [it for it in items_of(chosen) if it["id"] in want]
+    else:
+        chosen = select_responses(pool, args.fresh or args.n_target, args.seed)
+        items = items_of(chosen)
     if args.limit:   # 试跑 / 抽查：取选中的前 n 句（选中顺序已随机），之后全量续跑时不重复
         items = items[:args.limit]
     print(f"{len(resps)} responses, chose {len(chosen)}; {len(items)} hallucinated sentences to repair; strata:",
           json.dumps(collections.Counter(f"{s['task_type']}|{s['model']}" for s in chosen), ensure_ascii=False))
     llm = LLM(LLMConfig(model=args.model, base_url=args.base_url, max_tokens=1024, concurrency=args.concurrency,
-                        temperature=0.3, timeout=600))
+                        temperature=0.3, timeout=600, provider=args.provider, effort=args.effort))
 
     def run(item: dict) -> dict:
         s = resps[item["resp_id"]]
@@ -366,15 +374,18 @@ def cmd_build(args) -> None:
     选中的 1,357 条回答里 597 条因此作废）；删句后句号重新编号。"""
     resps = {s["id"]: s for s in natural_responses(args.data)}
     rep = {r["id"]: r for r in kept(args.repair)}
+    # --insert_from（自由版 v2，2026-10-30）：修复时判为不可修（整句都是原文没有的内容）的句子，做成「插入一整句」的样本
+    ins = ({r["id"] for r in kept(args.insert_from) if r.get("failed") == ["not repairable"]} if args.insert_from else set())
+    ins_resp = {i.rsplit("-S", 1)[0] for i in ins}
     by_resp = collections.defaultdict(list)
-    for it in items_of([resps[i] for i in sorted({r["resp_id"] for r in rep.values()})]):
+    for it in items_of([resps[i] for i in sorted({r["resp_id"] for r in rep.values()} | ins_resp) if i in resps]):
         by_resp[it["resp_id"]].append(it)
     ex_pool = example_pool(list(read_jsonl(args.examples)))
     rows, skipped, too_long, dropped = [], 0, 0, 0
     for rid in sorted(by_resp):
         its = by_resp[rid]
         ok = [it for it in its if it["id"] in rep and "failed" not in rep[it["id"]]]
-        if not ok or (len(ok) < len(its) and not args.drop_failed):
+        if not (ok or any(it["id"] in ins for it in its)) or (len(ok) < len(its) and not args.drop_failed):
             skipped += 1
             continue
         s = resps[rid]
@@ -396,9 +407,10 @@ def cmd_build(args) -> None:
             out = {"plan": plan, "sentence": r["real"], "evidence": r["evidence"], "reason": r["reason"],
                    "original_evidence": r["original_evidence"], "original_reason": r["original_reason"]}
             if args.free:
-                prompt = build_prompt_free(resp, free_examples(ex_pool, s["task_type"], rng, exclude_source=s["source"]))
-                out = {"plan": plan, "idx": idx, "type": it["type"], "tactic": tactic,
-                       **{k: v for k, v in out.items() if k != "plan"}}
+                prompt = build_prompt_free(resp, free_examples(ex_pool, s["task_type"], rng, exclude_source=s["source"]),
+                                           v2=args.v2)
+                out = {"plan": plan, **({"op": "rewrite"} if args.v2 else {}), "idx": idx, "type": it["type"],
+                       "tactic": tactic, **{k: v for k, v in out.items() if k != "plan"}}
             else:
                 cands = [c for c in ex_pool.get((s["task_type"], it["type"]), []) if c["source"] != s["source"]]
                 seed = {"resp": resp, "idx": idx, "type": it["type"], "tactic": tactic or "any"}
@@ -409,8 +421,31 @@ def cmd_build(args) -> None:
                 continue
             rows.append({"id": it["id"], "source_id": s.get("source_id"), "task_type": s["task_type"],
                          "model": s["model"], "type": it["type"], "tactic": tactic, "resp_id": rid,
-                         "idx": idx, "n_sentences": len(fixed), "repaired": r["repaired"], "real": r["real"],
+                         "idx": idx, "n_sentences": len(fixed), "repaired": r["repaired"], "real": r["real"], "sentences": fixed,
                          "prompt": prompt, "completion": completion})
+        for it in its:   # 插入一整句：上下文里这句已删掉，新句子放回原来的位置
+            if it["id"] not in ins or not args.free:
+                continue
+            rng = random.Random(it["id"])
+            idx = sum(1 for i in new_idx if i < it["idx"]) + 1
+            a, b = s["sent_spans"][it["idx"] - 1]
+            note = next((n[2] for n in s.get("span_notes") or [] if n[0] < b and n[1] > a), "")
+            reason = re.sub(r"^[A-Z][A-Z ]+(?=[A-Z][a-z])", "", note).strip()
+            if not reason or re.search(r"Original:|Generat|\*", reason):   # 标注备注是「原文 / 生成」对照格式时用通用说法
+                reason = "The source does not say anything that supports this added sentence."
+            tactic = "a whole added sentence the source does not support"
+            out = {"plan": f"Insert one {it['type']} error as a new S{idx}: {tactic}.", "op": "insert", "idx": idx,
+                   "type": it["type"], "tactic": tactic, "sentence": s["sentences"][it["idx"] - 1], "evidence": None,
+                   "reason": reason, "original_evidence": None, "original_reason": None}
+            prompt = build_prompt_free(resp, free_examples(ex_pool, s["task_type"], rng, exclude_source=s["source"]), v2=True)
+            completion = json.dumps(out, ensure_ascii=False)
+            if len(prompt) + len(completion) > args.max_chars:
+                too_long += 1
+                continue
+            rows.append({"id": it["id"], "source_id": s.get("source_id"), "task_type": s["task_type"], "model": s["model"],
+                         "type": it["type"], "tactic": tactic, "resp_id": rid, "idx": idx, "op": "insert",
+                         "n_sentences": len(fixed), "repaired": None, "real": s["sentences"][it["idx"] - 1],
+                         "sentences": fixed, "prompt": prompt, "completion": completion})
     sources = sorted({r["source_id"] for r in rows})
     random.Random(args.seed).shuffle(sources)
     held = set(sources[:int(len(sources) * args.heldout_frac)])
@@ -484,6 +519,9 @@ def main() -> None:
     r.add_argument("--exclude", nargs="*", default=[], help="--fresh：这些修复结果里的回答不选")
     r.add_argument("--exclude_sources", nargs="*", default=[], help="--fresh：这些文件里出现的原文不选")
     r.add_argument("--no_verify", action="store_true", help="只修复 + 规则校验，复核另用 verify")
+    r.add_argument("--ids", default="", help="只修这个 jsonl 里列出的句子 id（ragtruth.gen_seed select 的输出）")
+    r.add_argument("--provider", default="openai", help="openai（本地 vLLM）| claude_cli（用户 2026-10-30：种子数据全部用 Claude 修）")
+    r.add_argument("--effort", default="high")
     f = sub.add_parser("fixdata")
     f.add_argument("--data", nargs="+", default=data)
     f.add_argument("--pool", default="outputs/external/ragtruth/train_pool.jsonl")
@@ -517,6 +555,8 @@ def main() -> None:
     b.add_argument("--heldout_frac", type=float, default=0.15)
     b.add_argument("--max_chars", type=int, default=14000)
     b.add_argument("--free", action="store_true", help="自由版 prompt：不指定句子、类型、改法，输出里带真实的句号")
+    b.add_argument("--v2", action="store_true", help="自由版 v2 prompt：可改写（大小不限）或插入一整句，输出带 op")
+    b.add_argument("--insert_from", default="", help="--v2：修复结果文件，其中不可修的整句错误做成插入样本")
     b.add_argument("--no_drop_failed", dest="drop_failed", action="store_false",
                    help="旧做法：回答里有幻觉句没修好就整条丢掉")
     b.add_argument("--n_train", type=int, default=0)

@@ -1,0 +1,35 @@
+# MiniCPM5-2B 造错生成器 SFT，种子第三版（2026-11-03，用户：改对要结合整个回答、上下句尤其重要）：172 条，两轮已确认的真错按整条回答和上下句重新改对，
+# 上下句有错一起改、不删；prompt 加「结合整条回答和上下句」、一半样本指定类型（build --ctx 1 --hint 1）。只训 1 轮，批 2 × 2，单卡。
+task: gen
+prompt_tips: false
+base_model: /root/autodl-fs/models/MiniCPM5-2B
+use_lora: true
+merge_lora: true
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 1
+  learning_rate: 5.0e-5
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 2
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 4096
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+  model_init_kwargs:
+    dtype: bfloat16
+    device_map: cuda
+
+coldstart:
+  data: outputs/rt/gentarget/seed2b/sft_train_v3.jsonl
+  output_dir: /root/autodl-tmp/ckpt/gen-seed3-mc

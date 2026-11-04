@@ -35,16 +35,22 @@ fi
 if [ -f $A/code_update.tar ]; then
   tar -xf $A/code_update.tar -C $R || { log "code update FAILED"; exit 1; }
   find $R/scripts -name '*.sh' -exec sed -i 's/\r$//' {} +
+  # 用完即删：这台机器以后再跑别的角色时，不能把开机时的旧代码再解压一遍、覆盖共享目录里更新的代码（2026-10-28 踩过）
+  rm -f $A/code_update.tar
 fi
 mkdir -p $A/scripts && cp $R/scripts/remote/*.sh $A/scripts/   # 本次运行用的脚本快照
 
 # 本角色需要的模型：MODELS = 基座（拷到本地），MERGE = 只存了适配器、要完整权重的（拷适配器后在本机合并到 9B 上）
 case $ROLE in
-  closedloop) MODELS="Qwen3.5-9B Qwen3.5-35B-A3B-GPTQ-Int4"; MERGE="gen-sft-free" ;;
-  closedcritic) MODELS="Qwen3.5-9B"; MERGE="" ;;
-  unidisc)    MODELS="Qwen3.5-9B"; MERGE="" ;;
-  gfix)       MODELS="Qwen3.5-9B Qwen3.5-35B-A3B-GPTQ-Int4"; MERGE="critic-gan-r2" ;;
-  freedpo)    MODELS="Qwen3.5-9B Qwen3.5-35B-A3B-GPTQ-Int4"; MERGE="gen-sft-free critic-gan-r2 discrim-9b discrim-9b-r2" ;;
+  gentarget3) MODELS=""; MERGE="" ;;
+  grpoh2) MODELS=""; MERGE="" ;;
+  sevrm) MODELS=""; MERGE="" ;;
+  mcgrpo) MODELS=""; MERGE="" ;;
+  rewardexp9) MODELS=""; MERGE="" ;;
+  bigeval) MODELS=""; MERGE="" ;;
+  harvest) MODELS=""; MERGE="" ;;
+  clean) MODELS=""; MERGE="" ;;
+  refuse) MODELS=""; MERGE="" ;;
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
 esac
@@ -68,11 +74,15 @@ log "ready: $(du -sh $A | cut -f1) local"
 S=$A/scripts
 cd $R
 case $ROLE in
-  closedloop) CODE=$R bash $S/run_closedloop.sh; rc=$? ;;
-  closedcritic) CODE=$R ARM=gfree bash $S/run_closedcritic.sh; rc=$? ;;
-  unidisc) CODE=$R bash $S/run_unidisc.sh; rc=$? ;;
-  gfix) CODE=$R bash $S/run_gfix.sh; rc=$? ;;
-  freedpo) CODE=$R bash $S/run_freedpo.sh; rc=$? ;;
+  gentarget3) CODE=$R bash $S/run_gentarget3.sh; rc=$? ;;   # 2026-11-03：种子按上下文重新改对 + 指定类型 + RM2 补 2B 真错
+  grpoh2) CODE=$R bash $S/run_grpo_h2.sh; rc=$? ;;   # 2026-11-04：边界样本 critic（h2）当奖励重跑 2B 回答 GRPO，9B 对比上一版
+  sevrm) CODE=$R bash $S/run_sev.sh; rc=$? ;;   # 2026-11-04：严重程度 RM（Claude 标的 6 选 1）+ 学习曲线
+  mcgrpo) CODE=$R bash $S/run_mcgrpo.sh; rc=$? ;;   # 2B 回答 GRPO（CRITIC / O / ADOUT / STEPS / LR 可用环境变量换）
+  rewardexp9) CODE=$R bash $S/run_rewardexp9.sh; rc=$? ;;   # 错误生成器 GRPO（奖励版本见脚本，a7 为当前选定生成器）
+  bigeval) CODE=$R bash $S/run_bigeval.sh; rc=$? ;;   # 生成器检查点放大评测
+  harvest) CODE=$R bash $S/run_harvest.sh; rc=$? ;;   # 选定生成器造数据 + 边界版 critic 重训
+  clean) CODE=$R bash $S/run_clean.sh; rc=$? ;;   # 清洗后的边界样本 critic（h2 / h2n）
+  refuse) CODE=$R bash $S/run_refuse.sh; rc=$? ;;   # 拒答标签修正 critic（ref）+ 证据段探针
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"
@@ -81,7 +91,9 @@ log "role $ROLE exit $rc"
 cd $R && find outputs -type f -newer $A/.run_start > $FS/runs/$RUN/new_outputs.txt
 cp $A/*.log $FS/runs/$RUN/ 2>/dev/null
 for d in $A/ckpt/*/; do d=${d%/}; n=$(basename $d)
-  [ -f $d/adapter/adapter_model.safetensors ] && [ $d/adapter/adapter_model.safetensors -nt $A/.run_start ] || continue
+  # 文件存储里没有、或本机的比存档新就存（不按 .run_start：排队重启过的机器会漏存之前训好的，2026-10-28 踩过）
+  f=$d/adapter/adapter_model.safetensors; [ -f $f ] || continue
+  [ -f $FS/adapters/$n/adapter/adapter_model.safetensors ] && [ ! $f -nt $FS/adapters/$n/adapter/adapter_model.safetensors ] && continue
   mkdir -p $FS/adapters/$n && rsync -a $d/adapter $FS/adapters/$n/ \
     && cp $d/run_manifest.json $d/sft_meta.json $FS/adapters/$n/ 2>/dev/null && log "adapter $n saved to file storage"
 done

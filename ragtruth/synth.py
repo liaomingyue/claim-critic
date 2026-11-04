@@ -227,11 +227,73 @@ Output only one JSON object, nothing else:
 {{"plan": "which sentence you chose, why a real assistant could get it wrong, and how you introduce the error", "idx": <number of the chosen sentence>, "type": "conflict or baseless", "tactic": "the way you introduced the error", "sentence": "the rewritten sentence", "evidence": "...", "reason": "...", "original_evidence": "...", "original_reason": "..."}}"""
 
 
-def build_prompt_free(resp: dict, examples: list[dict]) -> str:
-    return FREE_PROMPT.format(input=render_response(resp), conflict_def=TYPE_DEF["conflict"],
-                              baseless_def=TYPE_DEF["baseless"], conflict_tactics="; ".join(TACTICS["conflict"]),
-                              baseless_tactics="; ".join(TACTICS["baseless"]),
-                              examples=format_examples(examples) or "(none)", tips=TIPS)
+# 定向版改法（2026-10-29）：RAGTruth++ 有效幻觉里 critic-clean-gfree 仍漏掉的那几类——张冠李戴、跨段拼接、
+# 数字 / 时间 / 确定性的细微改动、顺序、关系反转、把分开的事实无依据地连起来（见 docs/experiment_log.md 的 542 句分析）
+FOCUS_TACTICS = {
+    "conflict": ["attribute a statement, action or property to the wrong person, entity, passage or step (who said or did what)",
+                 "splice a detail from a different part of the source (another passage, step, entity or review) into the claim",
+                 "shift a number, date, duration or count slightly (for example merge or split counts that the source gives separately)",
+                 "strengthen or weaken certainty or scope (possible vs certain, some vs all)",
+                 "change the order of steps or events",
+                 "reverse a relation the source states (different vs the same, before vs after)"],
+    "baseless": ["generalize what one part of the source says to a broader subject",
+                 "link two facts that the source states separately (a cause, a purpose, a lawsuit, a consequence)"],
+}
+FOCUS_NOTE = ("\nPrefer errors that a reader can only catch by checking the source carefully, often across different sentences "
+              "or passages, not errors visible from the rewritten sentence alone.")
+
+
+# 自由版 v2（2026-10-30，用户：「只改一点点」不一定是好方法，只注重多样性）：可以改写一句（大小不限），也可以插入一整句；
+# 去掉「尽量少改」的要求。插入时 idx 是新句子在最终回答里的序号，original_evidence / original_reason 为 null。
+FREE_PROMPT_V2 = (FREE_PROMPT
+    .replace("Choose one sentence of this response and rewrite it so that it contains exactly one error of one of these kinds:",
+             "Introduce exactly one error of one of these kinds into this response, either by rewriting one sentence or by "
+             "inserting one new sentence:")
+    .replace("Choose the sentence, the kind of error and the way of introducing it yourself:",
+             "Choose whether to rewrite or insert, the position, the kind of error and the way of introducing it yourself:")
+    .replace("- change as little as possible; keep the wording, style and length close to the original; the response must still read naturally;",
+             "- the error can be small or large: a word, a phrase, a clause, or a whole added sentence; keep the style of the "
+             "response; the response must still read naturally;")
+    .replace("Then analyse both versions of the chosen sentence against the source",
+             "Then analyse the new or rewritten sentence (and, for a rewrite, the original sentence) against the source")
+    .replace('''- "original_evidence": the part of the source, word for word, that supports the original sentence (null only if it has no factual content).''',
+             '''- "original_evidence": for a rewrite, the part of the source, word for word, that supports the original sentence (null only if it has no factual content); null for an insert.''')
+    .replace('''- "original_reason": one English sentence of at most 30 words describing how the source supports the original sentence.''',
+             '''- "original_reason": for a rewrite, one English sentence of at most 30 words describing how the source supports the original sentence; null for an insert.''')
+    .replace('''"idx": <number of the chosen sentence>,''',
+             '''"op": "rewrite or insert", "idx": <rewrite: number of the chosen sentence; insert: number the new sentence will have in the final response>,''')
+    .replace('''"sentence": "the rewritten sentence",''', '''"sentence": "the rewritten or inserted sentence",'''))
+assert FREE_PROMPT_V2.count('"op"') == 1 and "change as little as possible" not in FREE_PROMPT_V2
+
+
+MINIMAL_LINE = "- change as little as possible; keep the wording, style and length close to the original; the response must still read naturally;"
+# 改动大小不限（2026-11-03，用户：种子集加 100 条不约束只改一点的，核心是改完的句子也要自然）：只改写一句，不插入
+FREE_SIZE_LINE = ("- the error can be small or large: a word, a phrase, a clause or most of the sentence; keep the style of the response; "
+                  "the rewritten sentence must read as if the assistant had written it this way, and the response must still read naturally;")
+assert FREE_PROMPT.count(MINIMAL_LINE) == 1
+# 结合整条回答、尤其上下句（2026-11-03，用户：改写要放在上下文里看，结合整个回答，上句和下句尤其重要）
+CONTEXT_LINE = ("- read the whole response with your rewritten sentence in place, above all the sentence before and the sentence after it: "
+                "together they must read as one passage written in one go; pronouns and connectives (however, also, then) still fit; "
+                "nothing repeats or contradicts the other sentences; the rewritten sentence mentions nothing the response has not introduced;")
+CHOOSE = "Choose the sentence, the kind of error and the way of introducing it yourself:"
+assert FREE_PROMPT.count(CHOOSE) == 1
+
+
+def build_prompt_free(resp: dict, examples: list[dict], focus: bool = False, v2: bool = False, free_size: bool = False,
+                      ctx: bool = False, want_type: str | None = None) -> str:
+    """ctx：加「结合整条回答和上下句」那条；want_type：指定这次造哪种错（定向 GRPO 一半 conflict、一半 baseless，防 baseless 被挤没）。"""
+    tac = FOCUS_TACTICS if focus else TACTICS
+    base = FREE_PROMPT.replace(MINIMAL_LINE, FREE_SIZE_LINE + ("\n" + CONTEXT_LINE if ctx else "")) if free_size else FREE_PROMPT
+    if want_type:
+        base = base.replace(CHOOSE, f"The kind of error must be {want_type}. Choose the sentence and the way of introducing it yourself:")
+    prompt = (FREE_PROMPT_V2 if v2 else base).format(input=render_response(resp), conflict_def=TYPE_DEF["conflict"],
+                                baseless_def=TYPE_DEF["baseless"], conflict_tactics="; ".join(tac["conflict"]),
+                                baseless_tactics="; ".join(tac["baseless"]),
+                                examples=format_examples(examples) or "(none)", tips=TIPS)
+    if focus:
+        anchor = "- baseless: " + "; ".join(tac["baseless"])
+        prompt = prompt.replace(anchor, anchor + FOCUS_NOTE, 1)
+    return prompt
 
 
 def free_examples(pool: dict, task_type: str, rng: random.Random, n: int = 3, exclude_source: str | None = None) -> list[dict]:
@@ -241,8 +303,9 @@ def free_examples(pool: dict, task_type: str, rng: random.Random, n: int = 3, ex
     return rng.sample(cands, min(n, len(cands)))
 
 
-def check_free(obj: dict | None, resp: dict) -> tuple[dict | None, dict, list[str]]:
-    """先解析生成器自己选的句号、类型、改法，组成和指定版一样的种子，再走 check。返回 (种子, 整理后的结果, 问题)。"""
+def check_free(obj: dict | None, resp: dict, **check_kw) -> tuple[dict | None, dict, list[str]]:
+    """先解析生成器自己选的句号、类型、改法，组成和指定版一样的种子，再走 check（check_kw 传给 check，如放宽改动上限）。
+    返回 (种子, 整理后的结果, 问题)。"""
     if obj is None:
         return None, {}, ["output is not a valid JSON object"]
     try:
@@ -255,7 +318,7 @@ def check_free(obj: dict | None, resp: dict) -> tuple[dict | None, dict, list[st
     if kind not in ("conflict", "baseless"):
         return None, {}, ["type must be conflict or baseless"]
     seed = {"resp": resp, "idx": idx, "type": kind, "tactic": str(obj.get("tactic") or "").strip()}
-    res, problems = check(obj, seed)
+    res, problems = check(obj, seed, **check_kw)
     return seed, res, problems
 
 

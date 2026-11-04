@@ -53,7 +53,7 @@ def write_rationales(samples: list[dict], cfg: dict, out: str) -> dict[str, str]
 def build_dataset(samples: list[dict], thinks: dict[str, str] | None, task: str = "claim", tips: bool = False,
                   style: str = "full"):
     """task: claim（医学综述 claim，默认）| ragtruth（逐句，见 ragtruth.task）| ragtruth_resp（回答级，见 ragtruth.resp）
-    | discrim（真实性判别器，见 ragtruth.discrim）| gen（错误生成器，见 ragtruth.realgen）。
+    | discrim（真实性判别器，见 ragtruth.discrim）| gen（错误生成器，见 ragtruth.realgen）| option（单字符选项 RM，见 ragtruth.rm_data）。
     style：ragtruth 为 full | verdict；ragtruth_resp 为 plain | evidence。"""
     from datasets import Dataset
 
@@ -67,6 +67,9 @@ def build_dataset(samples: list[dict], thinks: dict[str, str] | None, task: str 
         if task == "discrim":  # 真实性判别器：自然错误 vs 合成错误（ragtruth.discrim）
             from ragtruth import discrim as dm
             rows.append({"prompt": dm.messages(s), "completion": [{"role": "assistant", "content": dm.target_text(s)}]})
+            continue
+        if task == "option":  # 单字符选项 RM（ragtruth.rm_data）：prompt 是 system + user 消息，completion 是一个选项字母
+            rows.append({"prompt": s["prompt"], "completion": [{"role": "assistant", "content": s["completion"]}]})
             continue
         if task == "gen":  # 错误生成器：prompt / completion 已由 ragtruth.realgen build 拼好（生成器 prompt + 输出 JSON）
             rows.append({"prompt": [{"role": "user", "content": s["prompt"]}],
