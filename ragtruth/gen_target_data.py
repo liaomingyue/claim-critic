@@ -203,6 +203,7 @@ def cmd_harvest(a) -> None:
     from ragtruth.task import render_input
     from train.gen_grpo import chat_prompt
     from train.gen_reward import NO_THINK, context, parse
+    from ragtruth.sev_rm import SEV_SYSTEM
     cls = _clients(a.url)
     tok = AutoTokenizer.from_pretrained(a.base)
     rows = list(read_jsonl(D / a.inp))
@@ -226,11 +227,14 @@ def cmd_harvest(a) -> None:
             if rec is None or rec["op"] != "rewrite":
                 res.append(x)
                 continue
-            p3 = opt(cl, a.rm3, RM3_SYSTEM, audit_synth.render(rec), "ABCD", t3)
+            if a.sev:   # 新循环（2026-11-05）：门槛用严重程度 RM，输入同 sev_rm.prompt（回答里已换成改写句）；原句有错用 sev 的 P(F)，不用 9B 的 orig_p
+                p3 = opt(cl, a.sev, SEV_SYSTEM, audit_synth.render({**rec, "sentences": context(rec)}), "ABCDEF", a.sev_temp)
+            else:
+                p3 = opt(cl, a.rm3, RM3_SYSTEM, audit_synth.render(rec), "ABCD", t3)
             pc = (p3["A"] + p3["B"]) if p3 else 0.0
             x.update({"type": rec["type"], "idx": rec["idx"], "sentence": rec["sentence"], "original": rec["original"], "evidence": rec["evidence"],
                       "reason": rec["reason"], "tactic_raw": rec["tactic_raw"], "p_correct": pc, "p_a": p3["A"] if p3 else 0.0,
-                      "orig_p": r["orig_p"][rec["idx"] - 1], "source": r["source"], "context": context(rec), "sentences_orig": r["sentences"]})
+                      "orig_p": (p3["F"] if p3 else 1.0) if a.sev else r["orig_p"][rec["idx"] - 1], "p_sev": p3 if a.sev else None, "source": r["source"], "context": context(rec), "sentences_orig": r["sentences"]})
             if pc >= a.gate and x["orig_p"] <= 0.5:
                 p1 = opt(cl, a.rm1, RM1_SYSTEM, render_input({"source": rec["source"], "sentences": context(rec), "idx": rec["idx"]}), "ABC", t1)
                 p2 = opt(cl, a.rm2, RM2G_SYSTEM, discrim.render(rec["source"], context(rec), rec["idx"]), "AB", t2)
@@ -368,6 +372,8 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=1, help="harvest：每个 prompt 发几次请求（每次 n = --samples）")
     ap.add_argument("--example_pool", default="", help="build：示例池文件（hardpool 的输出），默认 RAGTruth 真实错句")
     ap.add_argument("--rm1_temp", type=float, default=1.0)
+    ap.add_argument("--sev", default="", help="harvest：vLLM 上严重程度 RM 的名字；给了就用它代替 RM3 做门槛（P(显然) = A + B），原句有错用它的 P(F)")
+    ap.add_argument("--sev_temp", type=float, default=1.0)
     ap.add_argument("--out", default="synth.jsonl", help="synth：输出文件名（在 outputs/rt/gentarget 下）")
     ap.add_argument("--inp", default="synth.jsonl", help="rm2score / rm2data：synth 文件")
     ap.add_argument("--rm2_temp", type=float, default=1.0)

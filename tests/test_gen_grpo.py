@@ -599,3 +599,59 @@ def test_target_reward_boundary7():
     near = _target(p3=0.4, pb=0.25, **f).score(o, row)["reward"]
     border = _target(p1=(0.5, 0.3, 0.2), pn=0.3, **f).score(o, row)["reward"]
     assert obvious == -0.1 and obvious < no_err < near < border
+
+
+def _target_sev(ps, p1=(0.5, 0.25, 0.25), pn=0.5, **kw):
+    from train.gen_reward import TargetRewarder
+    rw = TargetRewarder(None, {"rm1": 1.0, "rm2": 1.0, "sev": 1.0}, type_floor=0.0, shape="sev", gate=0.5, **kw)
+    seen = {}
+
+    def op(model, system, user, opts, priority=0):
+        seen.setdefault(model, user)
+        return {"sev": dict(zip("ABCDEF", ps)), "rm1": dict(zip("ABC", p1)), "rm2": {"A": pn, "B": 1 - pn}}[model]
+    rw.option_p = op
+    rw.seen = seen
+    return rw
+
+
+def test_target_reward_sev_gate_and_shape():
+    """sev：P(显然) = A + B 过门槛才合格；critic 越判不出越高；原句有错（F）记 0；不用 RM3、不用 9B 的 orig_p；sev 输入是改后回答。"""
+    o = json.dumps({"idx": 1, "type": "conflict", "tactic": "reverse a relation", "sentence": "A b d."})
+    row = {**ROW_DIV, "orig_p": [0.99, 0.99]}   # 9B 的 orig_p 即使说原句有错也不该影响 sev 版
+    low = _target_sev((0.1, 0.1, 0.3, 0.3, 0.2, 0.0)).score(o, row)
+    assert low["qualified"] is False and abs(low["reward"] - 0.1 * 0.2 / 0.5) < 1e-9
+    orig_bad = _target_sev((0.3, 0.3, 0.0, 0.0, 0.0, 0.6)).score(o, row)
+    assert orig_bad["reward"] == 0.0 and orig_bad.get("orig_flagged")
+    miss = _target_sev((0.5, 0.3, 0.1, 0.1, 0.0, 0.0), p1=(0.9, 0.05, 0.05)).score(o, row)
+    easy = _target_sev((0.5, 0.3, 0.1, 0.1, 0.0, 0.0), p1=(0.05, 0.9, 0.05)).score(o, row)
+    assert miss["qualified"] and miss["reward"] > easy["reward"] > 0
+    nat = _target_sev((0.5, 0.3, 0.1, 0.1, 0.0, 0.0), p1=(0.9, 0.05, 0.05), pn=0.9).score(o, row)
+    assert nat["reward"] > miss["reward"]
+    rw = _target_sev((0.5, 0.3, 0.1, 0.1, 0.0, 0.0))
+    rw.score(o, row)
+    assert "rm3" not in rw.seen and "[S1] A b d." in rw.seen["sev"]   # sev 看的是已经换成改写句的回答
+
+
+def test_target_reward_sev_blind_bonus():
+    """方案 A：critic 判不出（P < 0.5）的合格样本固定加 blind_bonus；判出的不加；没过门槛的保底按 base_fail。"""
+    o = json.dumps({"idx": 1, "type": "conflict", "tactic": "reverse a relation", "sentence": "A b d."})
+    row = {**ROW_DIV, "orig_p": [0.0, 0.0]}
+    sev_ok = (0.5, 0.3, 0.1, 0.1, 0.0, 0.0)
+    base = _target_sev(sev_ok, p1=(0.9, 0.05, 0.05)).score(o, row)["reward"]
+    blind = _target_sev(sev_ok, p1=(0.9, 0.05, 0.05), blind_bonus=0.5).score(o, row)["reward"]
+    seen = _target_sev(sev_ok, p1=(0.05, 0.9, 0.05), blind_bonus=0.5).score(o, row)
+    assert abs(blind - base - 0.5) < 1e-9 and seen["reward"] < 0.1
+    low = _target_sev((0.1, 0.1, 0.3, 0.3, 0.2, 0.0), base_fail=0.02, blind_bonus=0.5).score(o, row)
+    assert abs(low["reward"] - 0.02 * 0.2 / 0.5) < 1e-9
+
+
+def test_target_reward_sev_band_bonus():
+    """加分只给 critic P 在 [0.3, 0.7] 的边界样本。"""
+    o = json.dumps({"idx": 1, "type": "conflict", "tactic": "reverse a relation", "sentence": "A b d."})
+    row = {**ROW_DIV, "orig_p": [0.0, 0.0]}
+    sev_ok = (0.5, 0.3, 0.1, 0.1, 0.0, 0.0)
+    kw = dict(blind_bonus=0.5, blind_lo=0.3, blind_thr=0.7)
+    mid = _target_sev(sev_ok, p1=(0.5, 0.25, 0.25), **kw).score(o, row)["reward"]
+    far = _target_sev(sev_ok, p1=(0.9, 0.05, 0.05), **kw).score(o, row)["reward"]
+    hi = _target_sev(sev_ok, p1=(0.1, 0.45, 0.45), **kw).score(o, row)["reward"]
+    assert mid > 0.5 and far < 0.2 and hi < 0.2   # P 0.1 / 0.9 都远离边界，不加分、难度项也小

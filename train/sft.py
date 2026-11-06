@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 import time
 from pathlib import Path
 
@@ -70,6 +72,9 @@ def build_dataset(samples: list[dict], thinks: dict[str, str] | None, task: str 
             continue
         if task == "option":  # 单字符选项 RM（ragtruth.rm_data）：prompt 是 system + user 消息，completion 是一个选项字母
             rows.append({"prompt": s["prompt"], "completion": [{"role": "assistant", "content": s["completion"]}]})
+            continue
+        if task == "policy_text":  # 回答策略 SFT（2026-11-05，S1 / S2）：prompt 是 GRPO 采样时同一段聊天模板文本（ans_data.policy_prompt，关思考），completion 是回答 + <|im_end|>
+            rows.append({"prompt": s["prompt"], "completion": s["completion"]})
             continue
         if task == "gen":  # 错误生成器：prompt / completion 已由 ragtruth.realgen build 拼好（生成器 prompt + 输出 JSON）
             rows.append({"prompt": [{"role": "user", "content": s["prompt"]}],
@@ -131,14 +136,37 @@ def main() -> None:
         trainer.save_model(mcfg["output_dir"])
     with open(f"{mcfg['output_dir']}/sft_meta.json", "w", encoding="utf-8") as f:
         json.dump({"mode": args.mode, "n_samples": len(samples), "base_model": cfg["base_model"]}, f)
+    Path(mcfg["output_dir"], "SAVED").write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
     log = trainer.state.log_history
-    manifest.write("run", Path(mcfg["output_dir"]).name, mcfg["output_dir"], {"config_file": args.config, **cfg},
-                   [mcfg["data"], args.config], started=t0,
-                   extra={"mode": args.mode, "n_samples": len(samples), "base_model": cfg["base_model"],
-                          "adapter_dir": f"{mcfg['output_dir']}/adapter" if peft_config else None,
-                          "train": {"steps": trainer.state.global_step,
-                                    "runtime_s": next((x["train_runtime"] for x in log if "train_runtime" in x), None),
-                                    "final_loss": next((x["loss"] for x in reversed(log) if "loss" in x), None)}})
+
+    def _manifest():
+        manifest.write("run", Path(mcfg["output_dir"]).name, mcfg["output_dir"], {"config_file": args.config, **cfg},
+                       [mcfg["data"], args.config], started=t0,
+                       extra={"mode": args.mode, "n_samples": len(samples), "base_model": cfg["base_model"],
+                              "adapter_dir": f"{mcfg['output_dir']}/adapter" if peft_config else None,
+                              "train": {"steps": trainer.state.global_step,
+                                        "runtime_s": next((x["train_runtime"] for x in log if "train_runtime" in x), None),
+                                        "final_loss": next((x["loss"] for x in reversed(log) if "loss" in x), None)}})
+    # 2026-11-05：大数据量的 critic（z6000 / z3000）存完模型后进程非零退出或卡住（原因未查明，疑在收尾的清单 / 共享盘写入），
+    # 卡住时 GPU 空闲被看门狗关机。模型存完先写 SAVED；清单放后台线程最多等 120 秒、出错只打印；最后直接退出进程
+    import threading
+    err = []
+    th = threading.Thread(target=lambda: _run_safe(_manifest, err), daemon=True)
+    th.start()
+    th.join(120)
+    if th.is_alive() or err:
+        print("SFT_MANIFEST_SKIPPED", "timeout" if th.is_alive() else err[0], flush=True)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
+
+
+def _run_safe(fn, err: list) -> None:
+    import traceback
+    try:
+        fn()
+    except Exception:  # noqa: BLE001 清单只是记录，失败不影响模型
+        err.append(traceback.format_exc()[-500:])
 
 
 if __name__ == "__main__":

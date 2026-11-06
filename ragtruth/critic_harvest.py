@@ -39,19 +39,35 @@ def main() -> None:
     ap.add_argument("--max_add", type=int, default=1500, help="最多加几条错句（另配同样多的原句）")
     ap.add_argument("--per_prompt", type=int, default=2, help="同一个 prompt 最多取几条，防止一篇原文占太多")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--ids", default="", help="只用这些 harvest id（每行一个；清洗后的白名单），不再按区间筛")
+    ap.add_argument("--min_nat", type=float, default=0.0, help="RM2 P(自然) 至少这么多（循环第 2 步：验证自然）")
+    ap.add_argument("--per_source", type=int, default=0, help="同一篇原文最多几条（0 = 不限；多样性对照，2026-11-05）")
+    ap.add_argument("--top_sources", type=int, default=0, help="只用合格样本最多的前 M 篇原文（0 = 不限；多样性对照的「集中」组）")
+    ap.add_argument("--ids", default="", help="只用这些 harvest id（每行一个；清洗后的白名单），不再按区间筛；"
+                    "可写成「id<TAB>类型」（conflict / baseless）覆盖生成器给的类型（2026-11-05：按 Claude 复核的 mechanism 改正）")
     a = ap.parse_args()
-    allow = {l.strip() for l in open(a.ids, encoding="utf-8") if l.strip()} if a.ids else None
+    fix: dict[str, str] = {}
+    if a.ids:
+        for l in open(a.ids, encoding="utf-8"):
+            k, _, t = l.strip().partition("	")
+            if k:
+                fix[k] = t if t in ("conflict", "baseless") else ""
+    allow = set(fix) if a.ids else None
     keep, seen_sent, per = [], set(), collections.Counter()
-    xs = sorted((x for x in read_jsonl(a.harvest) if x.get("p_halluc") is not None and x["p_correct"] >= a.gate and x["orig_p"] <= 0.5
+    xs = sorted((x for x in read_jsonl(a.harvest) if x.get("p_halluc") is not None and x["p_correct"] >= a.gate and x["orig_p"] <= 0.5 and (x.get("p_natural") or 0.0) >= a.min_nat
                  and (x["id"] in allow if allow is not None else a.lo <= x["p_halluc"] < a.hi)), key=lambda x: x["id"])
+    if a.top_sources:
+        cnt = collections.Counter(x["source_id"] for x in xs)
+        top = {k for k, _ in sorted(cnt.items(), key=lambda kv: (-kv[1], str(kv[0])))[:a.top_sources]}
+        xs = [x for x in xs if x["source_id"] in top]
     rng = random.Random(a.seed)
     rng.shuffle(xs)
+    per_src = collections.Counter()
     for x in xs:
-        if x["sentence"] in seen_sent or per[x["prompt_id"]] >= a.per_prompt:
+        if x["sentence"] in seen_sent or per[x["prompt_id"]] >= a.per_prompt or (a.per_source and per_src[x["source_id"]] >= a.per_source):
             continue
         seen_sent.add(x["sentence"])
         per[x["prompt_id"]] += 1
+        per_src[x["source_id"]] += 1
         keep.append(x)
         if len(keep) >= a.max_add:
             break
@@ -59,6 +75,8 @@ def main() -> None:
     d.mkdir(parents=True, exist_ok=True)
     add = []
     for x in keep:
+        if fix.get(x["id"]):
+            x["type"] = fix[x["id"]]
         g = "gh-" + str(x["source_id"])
         add.append(row(x["id"] + "-err", x["source"], x["context"], int(x["idx"]), RM1_OPT[x["type"]], x["task_type"], g, "harvest_error"))
         add.append(row(x["id"] + "-orig", x["source"], x["sentences_orig"], int(x["idx"]), RM1_OPT["faithful"], x["task_type"], g, "harvest_original"))
@@ -69,10 +87,10 @@ def main() -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     for sp in ("calib.jsonl", "test.jsonl"):
         shutil.copy(base / sp, d / sp)
-    meta = {**json.load(open(base / "meta.json", encoding="utf-8")), "harvest": a.harvest, "band": [a.lo, a.hi], "gate": a.gate,
-            "added_errors": len(keep), "ids_file": a.ids or None, "added_originals": len(keep), "base": a.base,
+    meta = {**json.load(open(base / "meta.json", encoding="utf-8")), "harvest": a.harvest, "band": [a.lo, a.hi], "gate": a.gate, "min_nat": a.min_nat,
+            "added_errors": len(keep), "per_source": a.per_source, "top_sources": a.top_sources, "sources": len({x["source_id"] for x in keep}), "ids_file": a.ids or None, "added_originals": len(keep), "base": a.base,
             "added_by_type": dict(collections.Counter(x["type"] for x in keep)), "added_by_task": dict(collections.Counter(x["task_type"] for x in keep)),
-            "added_bins": {f"{lo}-{hi}": sum(lo <= x["p_halluc"] < hi for x in keep) for lo, hi in ((0.1, 0.3), (0.3, 0.5), (0.5, 0.7))},
+            "added_bins": {f"{lo}-{hi}": sum(lo <= x["p_halluc"] < hi for x in keep) for lo, hi in ((0.0, 0.1), (0.1, 0.3), (0.3, 0.5), (0.5, 0.7), (0.7, 1.01))},
             "train": {"n": len(train), "label": dict(sorted(collections.Counter(r["label"] for r in train).items()))}}
     (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     print("CRITIC_HARVEST", json.dumps(meta, ensure_ascii=False), flush=True)
