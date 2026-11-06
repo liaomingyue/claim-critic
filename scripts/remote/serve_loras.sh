@@ -29,6 +29,9 @@ done
 [ ${#LORAS[@]} -gt 0 ] || { echo "serve_loras: no loras"; exit 1; }
 # 等上一个服务真正放开显存（踩过：pkill 后 sleep 8 不够，启动报显存不足）
 for i in $(seq 1 30); do [ "$(nvidia-smi -i "$GPU" --query-gpu=memory.used --format=csv,noheader,nounits)" -lt 1000 ] && break; sleep 3; done
+# 双机模式（2026-11-04）：推理机的服务经 AutoDL 对外域名访问，VLLM_API_KEY 设了就要求密钥（单机默认不设，行为不变）
+KEYARG=(); AUTH=()
+if [ -n "${VLLM_API_KEY:-}" ] && [ "${VLLM_API_KEY}" != x ]; then KEYARG=(--api-key "$VLLM_API_KEY"); AUTH=(-H "Authorization: Bearer $VLLM_API_KEY"); fi
 MODS=(); LAST=
 for kv in "${LORAS[@]}"; do
   name=${kv%%=*}; src=${kv#*=}; dst=$A/lora/$name
@@ -39,10 +42,10 @@ for kv in "${LORAS[@]}"; do
 done
 CUDA_VISIBLE_DEVICES=$GPU VLLM_ALLOW_RUNTIME_LORA_UPDATING=True nohup vllm serve "$BASE" --served-model-name base --max-model-len 16384 \
   --gpu-memory-utilization "$MEM" --port "$PORT" --limit-mm-per-prompt '{"image":0,"video":0}' --max-logprobs 20 --enable-lora --max-lora-rank "$RANK" \
-  --max-num-batched-tokens "$BATCH" --prefix-match-unit 16 --max-loras 8 --max-cpu-loras 24 "${RETAIN[@]}" "${SCHED[@]}" --lora-modules "${MODS[@]}" > "$LOG" 2>&1 &
+  --max-num-batched-tokens "$BATCH" --prefix-match-unit 16 --max-loras ${MAX_LORAS:-8} --max-cpu-loras ${MAX_CPU_LORAS:-24} "${RETAIN[@]}" "${SCHED[@]}" "${KEYARG[@]}" --lora-modules "${MODS[@]}" > "$LOG" 2>&1 &
 VP=$!
 for i in $(seq 1 120); do
-  curl -s -m 3 "http://127.0.0.1:$PORT/v1/models" | grep -q "\"$LAST\"" && { echo "serve_loras: up on port $PORT after $((i * 10))s: ${LORAS[*]%%=*}"; exit 0; }
+  curl -s -m 3 "${AUTH[@]}" "http://127.0.0.1:$PORT/v1/models" | grep -q "\"$LAST\"" && { echo "serve_loras: up on port $PORT after $((i * 10))s: ${LORAS[*]%%=*}"; exit 0; }
   kill -0 $VP 2>/dev/null || { echo "serve_loras: vllm exited"; grep -a -E "Error|error" "$LOG" | tail -3 | cut -c1-400; exit 1; }
   sleep 10
 done

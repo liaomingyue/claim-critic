@@ -4,7 +4,7 @@
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 RM=${RM:?}; GPU=${GPU:?}; PORT=${PORT:?}
-A=/root/autodl-tmp; LOG=$A/mcrm_$RM.log; MC=/root/autodl-fs/models/MiniCPM5-2B
+A=/root/autodl-tmp; LOG=$A/mcrm_$RM.log; MC=${MC:-/root/autodl-fs/models/MiniCPM5-2B}
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=$GPU
 CK=$A/ckpt; name=$RM-mc; D=outputs/rt/rm/$RM
@@ -21,8 +21,19 @@ ML=$(python -c "import json;print(json.load(open('$D/meta.json'))['max_tokens'])
 mkdir -p configs/rt/exp
 sed -e "s|base_model: .*|base_model: $MC|" -e "s|data: .*|data: $D/train.jsonl|" -e "s|output_dir: .*|output_dir: $CK/$name|" -e "s|max_length: .*|max_length: $ML|" configs/rt/rm_mc.yaml > configs/rt/exp/$name.yaml
 grep -q "base_model: $MC" configs/rt/exp/$name.yaml || fail config
-log "train $name"
-python -u -m train.sft --config configs/rt/exp/$name.yaml --mode coldstart > $A/$name.log 2>&1 || fail train
+# GBL=1：按长度分桶组批（2026-11-05，用户：先做 A；随机 4 条一批补齐后 token 数是实际的 1.31 倍）。默认关 = 原行为
+if [ "${GBL:-0}" = 1 ]; then
+  # transformers 5.x 去掉了 group_by_length，改成 train_sampling_strategy（2026-11-05 第一次跑 TypeError）
+  sed -i 's|^  max_length: .*|&\n  train_sampling_strategy: group_by_length|' configs/rt/exp/$name.yaml
+  grep -q "train_sampling_strategy: group_by_length" configs/rt/exp/$name.yaml || fail config
+fi
+if [ "${SKIP_TRAIN:-0}" = 1 ] && [ -f $CK/$name/model.safetensors ] && [ -f $CK/$name/adapter/adapter_model.safetensors ]; then
+  # 训练已完成、进程在存完模型后才退出（2026-11-05 z6000：存完 model.safetensors 后无报错退出）：跳过训练，接着做后面的步骤
+  log "skip train $name (SKIP_TRAIN, ckpt exists)"
+else
+  log "train $name"
+  python -u -m train.sft --config configs/rt/exp/$name.yaml --mode coldstart > $A/$name.log 2>&1 || fail train
+fi
 log "trained $name"
 mkdir -p /root/autodl-fs/adapters/$name && rsync -a $CK/$name/adapter /root/autodl-fs/adapters/$name/ || fail save
 fix_tok $CK/$name

@@ -31,6 +31,7 @@ from ragtruth import audit_synth, discrim
 from ragtruth.realgen import norm_tactic
 from ragtruth.synth import TACTICS
 from ragtruth.rm_data import RM1_SYSTEM, RM2_SYSTEM, RM2G_SYSTEM, RM3_SYSTEM
+from ragtruth.sev_rm import SEV_SYSTEM
 from ragtruth.rm_eval import option_logprobs, probs
 from ragtruth.synth import parse_json_obj
 from ragtruth.task import render_input
@@ -205,7 +206,7 @@ class TargetRewarder(Rewarder):
         critic 一眼看出的错没有训练价值（它已经会了），扣分；判不出的不加分，避免生成器去钻 critic 的噪声（10-29 定向版失败的原因之一）。
     多样性只看同一 prompt 这组里的位置（place_diversity_target），改法和类型是模型自填的，不进奖励。"""
 
-    def __init__(self, client, temps, w_div=0.2, w_corr=0.5, w_crit=0.3, gate=0.7, err_mode="a", shape="v1", w_real2=0.45, w_hard2=0.45, crit_max=0.98, crit_floor=0.4, rm2_ens=(), gate_lo=None, min_sim=0.0, base_fail=0.1, obvious_pen=0.1, **kw):
+    def __init__(self, client, temps, w_div=0.2, w_corr=0.5, w_crit=0.3, gate=0.7, err_mode="a", shape="v1", w_real2=0.45, w_hard2=0.45, crit_max=0.98, crit_floor=0.4, rm2_ens=(), gate_lo=None, min_sim=0.0, base_fail=0.1, obvious_pen=0.1, blind_bonus=0.0, blind_thr=0.5, blind_lo=0.0, **kw):
         """第二版奖励（2026-11-03，用户：GRPO 打分拉不开差距，要改奖励；骗不过 critic 要想办法；只是理由或证据不对、句子确实错了的不该罚）：
         err_mode="ab"：P(真错) = RM3 的 P(A 合格) + P(B 句子错了但解释不对)，门槛和扣分都用它；
         shape="v2"：真实性和骗过 critic 都用对数几率映射到 [0, 1]（logodds01）的绝对分、都是加分项，按 w_real2 / w_hard2 / w_div 加权平均，
@@ -229,6 +230,9 @@ class TargetRewarder(Rewarder):
         shape="boundary"（实验 A6，用户：critic 很大很小都不意味着好，越接近 0.5 越合适）：critic 系数 = max(crit_floor, 4P(1 − P))，
         0.5 处最高。a0/a1/a4 的 1031 条合格样本按 2B P(判出) 分段：0.3–0.7 的 9B 平均 P 0.81（确实是错、2B 拿不准）、判自然 49%；
         < 0.1 的 9B 也有 85% 判不出、判自然 97%（可能根本不算错）；≥ 0.98 的 428 条 9B 全判出、判自然 1%。
+        shape="sev"（2026-11-04，用户：奖励显然错误、尤其张冠李戴 / 与原文矛盾）：用严重程度 RM（sev，6 选 1）代替 RM3，
+        门槛 P(显然) = A + B ≥ gate（建议 0.5：盲区独立测试过门槛的 93% 确实有错），原句有错用 sev 的 P(F) > orig_max 判；
+        合格的 r = (1 − P(critic 判出)) × (logodds01(P自然) + w_div × 多样性) / (1 + w_div)；没过门槛给 base_fail × P(显然) / gate。
         shape="boundary2"（实验 A7，用户同意）：a6 放大评测（每 prompt 16 次）里 0.9 以上的样本涨了约 2.9 倍、0.3–0.7 只涨 1.05–1.3 倍——
         没过门槛记 0、组里六七成过不了，明显的错（P 0.95 → 系数 0.19、奖励约 0.03）仍高于 0，照样拿正优势。
         改成：P(真错) 没过门槛给基线 base_fail（规则不过、原句有错仍是 0）；合格的 r = 自然度项 × 4P(1 − P)，P ≥ 0.98 记 0。
@@ -238,19 +242,28 @@ class TargetRewarder(Rewarder):
         self.err_mode, self.shape, self.w_real2, self.w_hard2, self.crit_max, self.crit_floor = err_mode, shape, w_real2, w_hard2, crit_max, crit_floor
         self.rm2_ens = tuple(rm2_ens)
         self.gate_lo, self.min_sim, self.base_fail, self.obvious_pen = gate_lo, min_sim, base_fail, obvious_pen
+        self.blind_bonus, self.blind_thr, self.blind_lo = blind_bonus, blind_thr, blind_lo
 
     def raw(self, text: str, row: dict, priority: int = 0) -> dict:
         rec, why = parse(text, row)
         if rec is None:
             return {"why": why}
         rec["tactic"] = focus_tactic(rec["tactic_raw"], rec["type"])
-        p3 = self.option_p("rm3", RM3_SYSTEM, audit_synth.render(rec), "ABCD", priority)
-        pa = p3["A"] if p3 else 0.0
-        pc = (pa + p3["B"]) if p3 and self.err_mode == "ab" else pa   # ab：解释不对但句子确实错了也算
+        if self.shape == "sev":   # 严重程度 RM 代替 RM3：输入和 sev RM 训练时同格式（回答里已经换成改写句，见 ragtruth.sev_rm.prompt）
+            ps = self.option_p("sev", SEV_SYSTEM, audit_synth.render({**rec, "sentences": context(rec)}), "ABCDEF", priority)
+            pa = ps["A"] if ps else 0.0
+            pc = (ps["A"] + ps["B"]) if ps else 0.0   # P(显然错误)
+            p3 = ps
+        else:
+            p3 = self.option_p("rm3", RM3_SYSTEM, audit_synth.render(rec), "ABCD", priority)
+            pa = p3["A"] if p3 else 0.0
+            pc = (pa + p3["B"]) if p3 and self.err_mode == "ab" else pa   # ab：解释不对但句子确实错了也算
         out = {"why": "ok", "type": rec["type"], "op": rec["op"], "idx": rec["idx"], "tactic": rec["tactic"], "tactic_raw": rec["tactic_raw"],
                "p_correct": pc, "p_a": pa, "p_rm3": p3, "original": rec["original"], "sentence": rec["sentence"], "reason": rec["reason"], "evidence": rec["evidence"]}
+        if self.shape == "sev":
+            out["p_orig_halluc"] = p3["F"] if p3 else 0.0   # 原句本身有错：用 sev 的 F（全 2B；不用 9B 预先算的 orig_p，用户 2026-11-04：9B 不能用于筛选）
         if pc >= (self.gate if self.gate_lo is None else self.gate_lo):
-            if rec["op"] == "rewrite":
+            if rec["op"] == "rewrite" and self.shape != "sev":
                 if row.get("orig_p"):
                     out["p_orig_halluc"] = row["orig_p"][rec["idx"] - 1]
                 else:
@@ -264,6 +277,15 @@ class TargetRewarder(Rewarder):
         return out
 
     def combine(self, s: dict) -> float:
+        if self.shape == "sev":   # 新循环（2026-11-04，用户）：门槛 P(显然) ≥ gate 之后，critic 越判不出越高、读起来越自然越高
+            ph = s["p_halluc"]
+            # 区间模式（blind_lo > 0，用户：不要 critic 评分很低的，要离 0.5 近的）：难度项用离 0.5 的接近度（0.5 → 1，0 / 1 → 0）代替 1 − P
+            hard = max(0.0, 1.0 - abs(ph - 0.5) / 0.5) if self.blind_lo > 0 else 1.0 - ph
+            r = hard * (logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (1 + self.w[2])
+            # 盲区加分（2026-11-05，用户选方案 A）：50 步里合格样本 P(critic) 约 0.9、自然度约 0.15，乘出来 0.01–0.02，组内拉不开，
+            # 梯度主要来自没过门槛的保底项（推着过门槛 → 多造 critic 一眼看出的错）。critic 判不出（P < blind_thr）的合格样本固定加 blind_bonus
+            # 用户（2026-11-05）：对 critic 最有用的是离 0.5 近的边界样本（0.3–0.7），加分只给 [blind_lo, blind_thr] 区间
+            return r + (self.blind_bonus if self.blind_lo <= s["p_halluc"] <= self.blind_thr else 0.0)
         if self.shape == "mult":
             return (math.sqrt(logodds01(s["p_natural"]) * logodds01(1 - s["p_halluc"])) + self.w[2] * s["div"]) / (1 + self.w[2])
         if self.shape in ("filter", "soft"):
@@ -325,7 +347,7 @@ class TargetRewarder(Rewarder):
         if pc < (self.gate if self.gate_lo is None else self.gate_lo):
             if self.shape in ("boundary2", "boundary3"):
                 return {**out, "reward": self.base_fail, "qualified": False}
-            if self.shape in ("boundary4", "boundary5", "boundary6", "boundary7"):   # a9 / a10：保底按离真错多近给（用户同意）。a8 固定 0.1：81–100 步 86% 的样本拿保底、合格 22.5% → 13.4%，平均奖励反而升
+            if self.shape in ("boundary4", "boundary5", "boundary6", "boundary7", "sev"):   # a9 / a10：保底按离真错多近给（用户同意）。a8 固定 0.1：81–100 步 86% 的样本拿保底、合格 22.5% → 13.4%，平均奖励反而升
                 return {**out, "reward": self.base_fail * pc / self.gate, "qualified": False}
             return {**out, "reward": 0.0 if self.shape in ("filter", "soft", "mult", "boundary") else 0.1 * pc, "qualified": False}
         if s.get("p_orig_halluc", 0.0) > self.orig_max:

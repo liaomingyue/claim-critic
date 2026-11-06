@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 import queue
 import random
 import re
@@ -24,9 +25,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from train import gen_grpo
-from train.ans_reward import AnswerRewarder, combine, sentences
+from train.ans_reward import AnswerRewarder, combine, sentence_adv, sentences
 from ragtruth.ans_data import policy_prompt
-from train.gen_grpo import Server, load_policy, load_state, push, save_samples, save_state, train_step
+from train.gen_grpo import Server, load_policy, load_state, push, save_samples, save_state, train_step, vllm_headers, vllm_key
 
 
 def load_causal_policy(args):
@@ -96,15 +97,78 @@ def push_all(model, out: Path, servers: list, version: int, keep_versions: int, 
         shutil.rmtree(out / "lora" / f"v{old}", ignore_errors=True)
 
 
+class AsyncPusher:
+    """后台推送 LoRA（2026-11-04，双机模式：推送要上传到推理机，约 1.5–3 秒，不能挡训练）。
+    主线程只做 save_pretrained 到本地目录（内存盘约 0.2 秒，存完的快照不受下一步训练影响），上传 / 热加载 / 卸载旧版本在后台线程；
+    后台加载成功后才把 prod.version 指过去，所以采样永远只用已加载的版本（最多晚一步，在 max_stale 之内）。
+    同一时刻只有一个推送在飞：下一次推送前先等上一次结束；后台出错就在下一次 push / wait 时抛出，训练停下，不会悄悄沿用旧版本。"""
+
+    def __init__(self, servers: list, prod, keep_versions: int, prefix: str = ""):
+        self.servers, self.prod, self.keep, self.prefix = servers, prod, keep_versions, prefix
+        self.th, self.err, self.last_bg = None, None, 0.0
+
+    def wait(self) -> None:
+        if self.th is not None:
+            self.th.join()
+            self.th = None
+        if self.err is not None:
+            raise RuntimeError("async LoRA push failed") from self.err
+
+    def _run(self, out: Path, version: int, path: Path) -> None:
+        import shutil
+        t0 = time.time()
+        try:
+            for s in self.servers:
+                s.load_lora(f"{self.prefix}policy_v{version}", str(path))
+            self.prod.version = version
+            old = version - self.keep
+            if old >= 1:
+                for s in self.servers:
+                    s.unload_lora(f"{self.prefix}policy_v{old}")
+                shutil.rmtree(out / "lora" / f"v{old}", ignore_errors=True)
+        except BaseException as e:  # noqa: BLE001
+            self.err = e
+        self.last_bg = time.time() - t0
+
+    def push(self, model, out: Path, version: int) -> None:
+        self.wait()
+        d = out / "lora" / f"v{version}"
+        model.save_pretrained(str(d), selected_adapters=["policy"])
+        path = d / "policy" if (d / "policy").exists() else d
+        self.th = threading.Thread(target=self._run, args=(out, version, path), daemon=True)
+        self.th.start()
+
+
 def cache_hits(url: str) -> tuple[float, float]:
     """vLLM /metrics 的前缀缓存累计（命中 token，查询 token）。url 可以是逗号分隔的几个服务，加总。"""
     import requests
     if "," in url:
         hs = [cache_hits(u) for u in url.split(",")]
         return sum(h for h, _ in hs), sum(q for _, q in hs)
-    txt = requests.get(url.rsplit("/v1", 1)[0] + "/metrics", timeout=10).text
+    txt = requests.get(url.rsplit("/v1", 1)[0] + "/metrics", headers=vllm_headers(), timeout=10).text
     get = lambda n: sum(float(m) for m in re.findall(rf"^vllm:{n}(?:{{[^}}]*}})? ([\d.e+]+)$", txt, re.M))
     return get("prefix_cache_hits_total"), get("prefix_cache_queries_total")
+
+
+def token_sentence_index(tok, ids: list[int], text: str, spans: list[list[int]]) -> list[int]:
+    """每个回答 token 落在第几句（spans 是 strip 后文本里的字符区间）；不在任何句子里的（空白、结尾符号外）= −1。
+    逐 token 累计解码得到字符终点；解码长度和 text 对不上时按比例缩放（不同分词器的空格处理）。"""
+    lead = len(text) - len(text.lstrip())
+    ends = [len(tok.decode(ids[:k + 1], skip_special_tokens=True)) for k in range(len(ids))]
+    full = ends[-1] if ends else 0
+    if full and full != len(text):
+        ends = [round(e * len(text) / full) for e in ends]
+    out, prev = [], 0
+    for e in ends:
+        mid = (prev + e) / 2 - lead   # token 的中点，换到 strip 后的坐标
+        out.append(next((j for j, (a, b) in enumerate(spans) if a <= mid < b), -1))
+        prev = e
+    return out
+
+
+def token_advantages(a_out: float, sent_adv: list[float], tok_idx: list[int], beta: float) -> list[float]:
+    """每个 token 的优势 = 整段层（组内归一化的结果奖励）+ beta × 所在句子的句子层优势。"""
+    return [a_out + (beta * sent_adv[j] if 0 <= j < len(sent_adv) else 0.0) for j in tok_idx]
 
 
 class Producer:
@@ -118,7 +182,8 @@ class Producer:
 
     def make_batch(self) -> dict:
         from train.gen_reward import group_advantages
-        v = self.version
+        src = getattr(self, "version_src", None)   # 子进程模式：版本号在主进程和子进程共享的整数里
+        v = src.value if src is not None else self.version
         rows = [self.rows[(self.pos + i) % len(self.rows)] for i in range(self.a.prompts_per_step)]
         self.pos += self.a.prompts_per_step
         name = "policy_v0" if v == 0 else f"{self.a.version_prefix}policy_v{v}"
@@ -126,16 +191,32 @@ class Producer:
         t0 = time.time()
         # 发 token id（含分词器默认的特殊符，MiniCPM 是开头的 <s>），训练侧用同一份 id。vLLM 自己分词会加 <s>、训练侧原来不加，第 1 步截断比例 22%（2026-11-02）
         ids = [self.tok(p)["input_ids"] for p in prompts]
-        gens = list(self.gen_pool.map(lambda kp: self.servers[kp[0] % len(self.servers)].sample(name, kp[1], self.a.n, self.a.max_tokens, self.a.temperature), enumerate(ids)))
-        t1 = time.time()
-        scored = list(self.score_pool.map(lambda x: self.rw.score_group(*x), zip(rows, gens)))
+        if getattr(self.a, "pipeline", 0):
+            # 每个 prompt 生成完立刻打分，生成和打分重叠（2026-11-05，用户：采样端也优化；原来整批生成完再整批打分，约 7 + 12 秒）
+            def one(k):
+                a = time.time()
+                g = self.servers[k % len(self.servers)].sample(name, ids[k], self.a.n, self.a.max_tokens, self.a.temperature)
+                b = time.time()
+                return g, self.rw.score_group(rows[k], g), b - a, time.time() - b
+            res = list(self.gen_pool.map(one, range(len(rows))))
+            gens, scored = [r[0] for r in res], [r[1] for r in res]
+            t1 = t0 + max(r[2] for r in res)   # t_gen = 最慢的生成；t_rm = 其余的墙钟时间
+        else:
+            gens = list(self.gen_pool.map(lambda kp: self.servers[kp[0] % len(self.servers)].sample(name, kp[1], self.a.n, self.a.max_tokens, self.a.temperature), enumerate(ids)))
+            t1 = time.time()
+            scored = list(self.score_pool.map(lambda x: self.rw.score_group(*x), zip(rows, gens)))
         samples = []
+        beta = getattr(self.a, "sent_beta", 0.0)
         for r, p, gs, ss in zip(rows, prompts, gens, scored):
             adv = group_advantages([s["reward"] for s in ss], [None] * len(ss))
             pids = self.tok(p)["input_ids"]
             for g, s, a in zip(gs, ss, adv):
+                if beta > 0 and s.get("ps") and s.get("spans") and g.get("ids"):
+                    # 分步奖励（2026-11-05，用户：单独优化出错的那一句）：错句只罚自己的 token
+                    sa = sentence_adv(s["ps"], s["sent_base"], s["sent_sigma"], self.a.sent_mode, self.a.sent_gamma)
+                    a = token_advantages(a, sa, token_sentence_index(self.tok, g["ids"], g["text"], s["spans"]), beta)
                 samples.append({"prompt_id": r["id"], "task_type": r["task_type"], "prompt_ids": pids, **g, **s, "adv": a})
-        return {"version": v, "samples": samples, "t_gen": t1 - t0, "t_rm": time.time() - t1}
+        return {"version": v, "samples": samples, "t_gen": t1 - t0, "t_rm": time.time() - t1, "pos": self.pos}
 
     def run(self) -> None:
         fails = 0
@@ -167,6 +248,118 @@ class Producer:
             except queue.Empty:
                 if self.dead is not None:
                     raise RuntimeError("producer died") from self.dead
+
+
+def build_rewarder(args) -> AnswerRewarder:
+    from openai import OpenAI
+    temp = json.load(open(args.critic_report, encoding="utf-8"))["temperature"]
+    sat_temp = json.load(open(args.sat_report, encoding="utf-8"))["temperature"] if args.sat_model else 1.0
+    refuse_temp = json.load(open(args.refuse_report, encoding="utf-8"))["temperature"] if args.refuse_model else 1.0
+    rw = AnswerRewarder([OpenAI(base_url=u, api_key=vllm_key(), timeout=600, max_retries=3) for u in args.vllm_url.split(",")], args.critic, temp,
+                        ThreadPoolExecutor(args.rm_concurrency), args.sat_model, args.sat_kind, sat_temp, args.sat_w, args.refuse_model, refuse_temp, args.refuse_w,
+                        getattr(args, "reward_shape", "legacy"), getattr(args, "count_k", 3.0), getattr(args, "lam_any", 0.5), getattr(args, "lam_cnt", 0.5),
+                        getattr(args, "sigma_floor", 0.1), getattr(args, "count_ratio", 0.0), getattr(args, "count_min", 2.0))
+    rw.group_pool = ThreadPoolExecutor(args.rm_concurrency)
+    return rw
+
+
+def _producer_proc(args, out: str, start_pos: int, vval, bq, cmd, ack) -> None:
+    """子进程（2026-11-05，用户：训练慢、怀疑是锁）：采样 / 打分 / 快评都在这里，训练进程独占自己的 GIL。
+    实测同进程里 16 个解析 JSON 的线程就能让训练线程拿不到锁、GPU 0%；真实训练 t_train 24 秒，单独跑同样的计算 10.4 秒。"""
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(args.base)
+    servers = [Server(u) for u in (args.policy_url or args.vllm_url).split(",")]
+    rw = build_rewarder(args)
+    prod = Producer(args, tok, servers, rw)
+    prod.pos, prod.q, prod.version_src = start_pos, bq, vval
+    qe = QuickEval(args, tok, servers, rw, Path(out)) if args.eval_k > 0 else None
+
+    def run_prod():
+        prod.run()
+        if prod.dead is not None:
+            bq.put({"__dead__": repr(prod.dead)[:500]})
+    threading.Thread(target=run_prod, daemon=True).start()
+    while True:
+        c = cmd.get()
+        if c[0] == "eval" and qe:
+            qe.submit(c[1], Path(c[2]) if c[2] else None)
+        elif c[0] == "first" and qe:
+            qe.first = first_from_samples(Path(c[1]), args.eval_k)
+        elif c[0] == "stop":
+            prod.stop = True
+            if qe:
+                qe.wait()
+            ack.put("done")
+            return
+
+
+class ProcProducer:
+    """主进程这边的代理，接口同 Producer（get / version / pos），另管子进程的启动和收尾。"""
+
+    def __init__(self, args, out: Path):
+        import multiprocessing as mp
+        self.ctx, self.a, self.out = mp.get_context("spawn"), args, out
+        self._v = self.ctx.Value("i", 0)
+        self.pos, self.p = 0, None
+        self.q = self.ctx.Queue(maxsize=max(1, args.max_stale - 1))
+        self.cmd, self.ack = self.ctx.Queue(), self.ctx.Queue()
+        self.target = _producer_proc   # 测试里换成假的子进程
+
+    @property
+    def version(self) -> int:
+        return self._v.value
+
+    @version.setter
+    def version(self, v: int) -> None:
+        self._v.value = int(v)
+
+    def start(self) -> None:   # load_state 设好 pos 之后再启动
+        self.p = self.ctx.Process(target=self.target, args=(self.a, str(self.out), self.pos, self._v, self.q, self.cmd, self.ack), daemon=True)
+        self.p.start()
+
+    def get(self) -> dict:
+        while True:
+            try:
+                b = self.q.get(timeout=30)
+            except queue.Empty:
+                if self.p is not None and not self.p.is_alive():
+                    raise RuntimeError(f"producer process died (exit {self.p.exitcode})")
+                continue
+            if "__dead__" in b:
+                raise RuntimeError("producer died: " + b["__dead__"])
+            self.pos = b.get("pos", self.pos)
+            return b
+
+    def shutdown(self, timeout: float = 7200) -> None:
+        self.cmd.put(("stop",))
+        try:
+            self.ack.get(timeout=timeout)   # 等子进程把排着的快评做完
+        except queue.Empty:
+            pass
+        self.p.join(60)
+        if self.p.is_alive():
+            self.p.terminate()
+
+
+class EvalProxy:
+    """主进程这边的快评代理：submit / first / wait 转成发给子进程的命令。"""
+
+    def __init__(self, prod: ProcProducer):
+        self.prod = prod
+
+    def submit(self, step: int, path: Path | None) -> None:
+        self.prod.cmd.put(("eval", step, str(path) if path else ""))
+
+    @property
+    def first(self):
+        return None
+
+    @first.setter
+    def first(self, _v) -> None:   # 主进程原来直接算好赋值；子进程自己从文件读
+        self.prod.cmd.put(("first", str(self.prod.out / f"quick_samples_{self.prod.a.version_prefix}s0.jsonl")))
+
+    def wait(self) -> None:   # 由 shutdown 等
+        pass
 
 
 def sat_stats(xs: list[dict]) -> dict:
@@ -355,11 +548,15 @@ def run(args) -> None:
     temp = json.load(open(args.critic_report, encoding="utf-8"))["temperature"]
     sat_temp = json.load(open(args.sat_report, encoding="utf-8"))["temperature"] if args.sat_model else 1.0
     refuse_temp = json.load(open(args.refuse_report, encoding="utf-8"))["temperature"] if args.refuse_model else 1.0
-    rw = AnswerRewarder([OpenAI(base_url=u, api_key="x", timeout=600, max_retries=3) for u in args.vllm_url.split(",")], args.critic, temp, ThreadPoolExecutor(args.rm_concurrency), args.sat_model, args.sat_kind, sat_temp, args.sat_w,
+    rw = AnswerRewarder([OpenAI(base_url=u, api_key=vllm_key(), timeout=600, max_retries=3) for u in args.vllm_url.split(",")], args.critic, temp, ThreadPoolExecutor(args.rm_concurrency), args.sat_model, args.sat_kind, sat_temp, args.sat_w,
                         args.refuse_model, refuse_temp, args.refuse_w)
     rw.group_pool = ThreadPoolExecutor(args.rm_concurrency)
-    prod = Producer(args, tok, servers, rw)
-    qe = QuickEval(args, tok, servers, rw, out) if args.eval_k > 0 else None
+    if args.proc_producer:   # 采样 / 打分 / 快评放子进程（训练进程独占 GIL）
+        prod = ProcProducer(args, out)
+        qe = EvalProxy(prod) if args.eval_k > 0 else None
+    else:
+        prod = Producer(args, tok, servers, rw)
+        qe = QuickEval(args, tok, servers, rw, out) if args.eval_k > 0 else None
     lora_out = Path(args.push_dir)   # 热加载的 LoRA 放内存盘：共享盘写 5 秒 + 首次加载 4 秒，内存盘合计 0.5 秒（2026-11-02 实测）
     version, first = 0, 1
     if args.resume:
@@ -368,21 +565,25 @@ def run(args) -> None:
         push_all(model, lora_out, servers, version, args.keep_versions, args.version_prefix)
         prod.version = version
         if qe:   # 接着训：基线从第 0 步样本恢复，补评切换时没评完的检查点
-            qe.first = first_from_samples(out / f"quick_samples_{args.version_prefix}s0.jsonl", args.eval_k)
+            qe.first = first_from_samples(out / f"quick_samples_{args.version_prefix}s0.jsonl", args.eval_k) if not args.proc_producer else True
             done = {json.loads(l)["step"] for l in open(out / "quick_eval.jsonl", encoding="utf-8")}
             ck = out / "ckpt" / f"step{st['step']}"
             if ck.exists() and st["step"] not in done:
                 qe.submit(st["step"], ck)
     elif qe and args.eval_start:
         qe.submit(0, None)
-    threading.Thread(target=prod.run, daemon=True).start()
+    if args.proc_producer:
+        prod.start()
+    else:
+        threading.Thread(target=prod.run, daemon=True).start()
     log = open(out / "log.jsonl", "a", encoding="utf-8")
-    trip = TripWire() if args.trip else None
+    trip = TripWire(kl_max=args.trip_kl) if args.trip else None
     if trip and args.resume:   # 报警基线从已有日志恢复，只认恢复点之前的行
         for l in open(out / "log.jsonl", encoding="utf-8"):
             r = json.loads(l)
             if "t_step" in r and r["step"] < first:
                 trip.hist.append(r)
+    pusher = AsyncPusher(servers, prod, args.keep_versions, args.version_prefix) if args.async_push else None
     t_start, last_hits = time.time(), cache_hits(args.vllm_url)
     for step in range(first, args.steps + 1):
         t0 = time.time()
@@ -396,8 +597,12 @@ def run(args) -> None:
         rec.update(train_step(model, opt, batch, version, args))
         version += 1
         t1 = time.time()
-        push_all(model, lora_out, servers, version, args.keep_versions, args.version_prefix)
-        prod.version = version
+        if pusher:   # 后台推送：t_push 是主线程等的时间，t_push_bg 是上一次后台上传 + 加载用的时间
+            pusher.push(model, lora_out, version)
+            rec["t_push_bg"] = round(pusher.last_bg, 1)
+        else:
+            push_all(model, lora_out, servers, version, args.keep_versions, args.version_prefix)
+            prod.version = version
         hits = cache_hits(args.vllm_url)
         rec.update({"cache_hit": round((hits[0] - last_hits[0]) / max(1.0, hits[1] - last_hits[1]), 3), "t_push": round(time.time() - t1, 1), "t_step": round(time.time() - t0, 1), "elapsed_min": round((time.time() - t_start) / 60, 1)})
         last_hits = hits
@@ -410,16 +615,25 @@ def run(args) -> None:
             if qe:
                 qe.submit(step, ck)
         if step % args.state_every == 0:
+            if pusher:
+                pusher.wait()   # 存状态时服务上的版本要和 version 一致，续训才对得上
             save_state(model, opt, rw, prod, step, version, out, args.keep_states)
         reasons = trip.update(rec) if trip else []
         if reasons:
+            if pusher:
+                pusher.wait()
             d = save_state(model, opt, rw, prod, step, version, out, args.keep_states)
             (out / "TRIP.json").write_text(json.dumps({"step": step, "reasons": reasons, "state": str(d)}, ensure_ascii=False, indent=1), encoding="utf-8")
             print("GRPO_TRIPPED", json.dumps({"step": step, "reasons": reasons}, ensure_ascii=False), flush=True)
             break
-    prod.stop = True
-    if qe:
-        qe.wait()
+    if pusher:
+        pusher.wait()
+    if args.proc_producer:
+        prod.shutdown()
+    else:
+        prod.stop = True
+        if qe:
+            qe.wait()
     smi.terminate()
     print("GRPO_DONE", flush=True)
 
@@ -442,6 +656,17 @@ def main() -> None:
     ap.add_argument("--refuse_model", default="", help="拒答 RM（vLLM 上的 LoRA 名）；空 = 拒答一律 0 分")
     ap.add_argument("--refuse_report", default="outputs/rt/rm/refuse/eval/report.json")
     ap.add_argument("--refuse_w", type=float, default=0.4, help="拒答的奖励 = refuse_w × P(可以拒答)")
+    # 奖励形状 + 分步奖励（2026-11-05）。默认 legacy + sent_beta 0 = 旧行为
+    ap.add_argument("--reward_shape", choices=["legacy", "count"], default="legacy", help="legacy：1 − 0.5 平均 P − 0.5 最大 P；count：去同组底噪后计数（ans_reward.count_reward）")
+    ap.add_argument("--count_k", type=float, default=3.0, help="count：期望错句数除以 K（多少句错扣满）")
+    ap.add_argument("--count_ratio", type=float, default=0.0, help="count：> 0 时 K = max(count_min, ratio × 参考回答句数)，没有参考回答用 count_k")
+    ap.add_argument("--count_min", type=float, default=2.0)
+    ap.add_argument("--lam_any", type=float, default=0.5, help="count：P(至少一句超出底噪) 的权重")
+    ap.add_argument("--lam_cnt", type=float, default=0.5, help="count：期望错句数 / K 的权重")
+    ap.add_argument("--sigma_floor", type=float, default=0.1, help="句子层优势除以的同组标准差下限")
+    ap.add_argument("--sent_beta", type=float, default=0.0, help="> 0：句子层优势 × beta 加到这句的 token 上（0 = 整段一个优势，旧行为）")
+    ap.add_argument("--sent_mode", choices=["neg", "center"], default="neg", help="neg：只罚超出底噪的句子；center：干净句子拿正值")
+    ap.add_argument("--sent_gamma", type=float, default=0.0, help="> 0：后一句的负优势按 gamma 传给前一句")
     ap.add_argument("--shadow_temp", type=float, default=1.3)
     ap.add_argument("--steps", type=int, default=300)
     ap.add_argument("--prompts_per_step", type=int, default=16)
@@ -460,6 +685,9 @@ def main() -> None:
     ap.add_argument("--share_impl", default="train.prefix_share", help="prompt 共享的实现：Qwen3.5 用 train.prefix_share，Llama 结构（MiniCPM5-2B）用 train.prefix_share_llama")
     ap.add_argument("--version_prefix", default="")
     ap.add_argument("--push_dir", default="/dev/shm/ans_lora")
+    ap.add_argument("--pipeline", type=int, default=0, help="1：每个 prompt 生成完立刻打分（生成和打分重叠）；0：整批生成完再整批打分（原来的做法）")
+    ap.add_argument("--proc_producer", type=int, default=0, help="1：采样 / 打分 / 快评放子进程，训练进程独占 GIL（2026-11-05 定位：同进程线程抢锁，t_train 24 秒 vs 单独 10.4 秒）")
+    ap.add_argument("--async_push", type=int, default=0, help="1：LoRA 在后台推送（双机模式用；单机默认 0，行为不变）")
     ap.add_argument("--rm_concurrency", type=int, default=64)
     ap.add_argument("--save_every", type=int, default=50)
     ap.add_argument("--eval_k", type=int, default=2)
@@ -470,6 +698,8 @@ def main() -> None:
     ap.add_argument("--keep_states", type=int, default=12)
     ap.add_argument("--resume", default="")
     ap.add_argument("--trip", type=int, default=1)
+    # 2026-11-05：三档 critic 200 步时 ref 组第 98 步 KL 窗口均值 0.101 触发（长度 / 复制 / 拒答 / ok_rate 都正常）→ 可从环境变量放宽，不改正在跑的脚本
+    ap.add_argument("--trip_kl", type=float, default=float(os.environ.get("TRIP_KL", "0.10")))
     ap.add_argument("--make_init", action="store_true")
     ap.add_argument("--policy_url", default="", help="策略模型单独的 vLLM（MiniCPM 在训练卡上）；空 = 和 RM 同一个服务")
     ap.add_argument("--causal", type=int, default=0, help="1 = 纯文本 CausalLM 策略（MiniCPM5-2B）")

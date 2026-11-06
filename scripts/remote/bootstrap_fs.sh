@@ -33,8 +33,14 @@ fi
 
 # 代码：本地最新代码包（scripts.autodl_extra 上传，不含 outputs）解压到共享目录
 if [ -f $A/code_update.tar ]; then
-  tar -xf $A/code_update.tar -C $R || { log "code update FAILED"; exit 1; }
-  find $R/scripts -name '*.sh' -exec sed -i 's/\r$//' {} +
+  # 2026-11-05 坑：直接解压到共享目录 + sed -i 会把所有脚本换成新文件（内容没变也换），别的机器上正在执行的 bash
+  # 读到一半 "error reading input file"（worker6 nat1500 训完 200 步后评测没跑）。改成：先解压到本地、本地去 \r，
+  # 再 rsync -c 按内容比对，只替换真正变了的文件（rsync 写临时文件再改名，正在跑的旧文件保持可读）。
+  ST=$A/code_stage; rm -rf $ST; mkdir -p $ST
+  tar -xf $A/code_update.tar -C $ST || { log "code update FAILED"; exit 1; }
+  find $ST/scripts -name '*.sh' -exec sed -i 's/\r$//' {} +
+  rsync -rc $ST/ $R/ || { log "code sync FAILED"; exit 1; }
+  rm -rf $ST
   # 用完即删：这台机器以后再跑别的角色时，不能把开机时的旧代码再解压一遍、覆盖共享目录里更新的代码（2026-10-28 踩过）
   rm -f $A/code_update.tar
 fi
@@ -51,6 +57,9 @@ case $ROLE in
   harvest) MODELS=""; MERGE="" ;;
   clean) MODELS=""; MERGE="" ;;
   refuse) MODELS=""; MERGE="" ;;
+  pairinfer|pairtrain) MODELS=""; MERGE="" ;;
+  evalmid) MODELS=""; MERGE="" ;;
+  worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 2026-11-05：共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
 esac
@@ -83,6 +92,14 @@ case $ROLE in
   harvest) CODE=$R bash $S/run_harvest.sh; rc=$? ;;   # 选定生成器造数据 + 边界版 critic 重训
   clean) CODE=$R bash $S/run_clean.sh; rc=$? ;;   # 清洗后的边界样本 critic（h2 / h2n）
   refuse) CODE=$R bash $S/run_refuse.sh; rc=$? ;;   # 拒答标签修正 critic（ref）+ 证据段探针
+  # 双机 GRPO（2026-11-04）：配对名从 runs/pair/CURRENT 读（本地 scripts.pair_setup 写），训练机跑 JOB（默认 run_grpo_h2.sh）
+  pairinfer) CODE=$R PAIR=$(cat $FS/runs/pair/CURRENT 2>/dev/null || echo default) bash $S/run_infer_node.sh; rc=$? ;;
+  pairtrain) CODE=$R PAIR=$(cat $FS/runs/pair/CURRENT 2>/dev/null || echo default) bash $S/run_train_node.sh; rc=$? ;;
+  evalmid) CODE=$R STEP=${STEP:-150} bash $S/run_eval_mid.sh; rc=$? ;;
+  worker4|worker5) CODE=$R bash $S/run_worker2.sh; rc=$? ;;
+  worker6|worker7) CODE=$R bash $S/run_worker3.sh; rc=$? ;;   # 2026-11-05：SFT 上限 / 被钻空子 / nat1500 200 步（q4 队列）
+  worker8|worker9) CODE=$R bash $S/run_worker4.sh; rc=$? ;;   # 2026-11-06：纯人工 vs 纯合成 critic（q5 队列）
+  worker1|worker2|worker3) CODE=$R bash $S/run_worker.sh; rc=$? ;;   # 2026-11-05：用户：抢新卡跑队列（h3ctl 评测 / ref / z1500 / S2）   # 2026-11-04：训练中途评一版（9B 补打 dev 快评 + 新旧两版同步数验收对比）
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"

@@ -73,6 +73,43 @@ def combine(ps: list[float]) -> float:
     return 1.0 - 0.5 * sum(ps) / len(ps) - 0.5 * max(ps)
 
 
+# ── 计数 + 去底噪奖励、句子层优势（2026-11-05，用户：一句错和两句错分数要不一样；分步奖励，单独优化出错的那一句）──
+# 旧公式 combine 的问题：第 1 句错扣 0.6、之后每句只多扣 0.1（最大值那一半一次扣满）；平均值那一半会被多写的安全句稀释。
+# 直接改成「P(至少一句错) + 期望错句数 / K」又会把 critic 的底噪按句数累加（Claude 200 条：策略回答里没错的句子 ref 平均 P 0.10、
+# 显然错的中位数才 0.20），8 句全对 0.58 < 4 句带 1 句显然错 0.71，逼模型少写。阈值也不行（显然错的一半在 0.2 以下）。
+# 所以先减掉同组（同一 prompt 的全部回答、全部句子）的平均 P 当底噪 b，只计超出部分 e = max(0, p − b)。
+
+def group_baseline(ps_lists: list[list[float]], sigma_floor: float = 0.1) -> tuple[float, float]:
+    """同组全部句子的平均错误概率 b 和标准差 σ（σ 有下限：一组全对时别把噪声放大）。没有句子返回 (0, floor)。"""
+    xs = [p for ps in ps_lists for p in ps]
+    if not xs:
+        return 0.0, sigma_floor
+    b = sum(xs) / len(xs)
+    sd = (sum((p - b) ** 2 for p in xs) / len(xs)) ** 0.5
+    return b, max(sd, sigma_floor)
+
+
+def count_reward(ps: list[float], b: float, k: float = 3.0, lam_any: float = 0.5, lam_cnt: float = 0.5) -> float:
+    """奖励 = 1 − lam_any × P(至少一句超出底噪) − lam_cnt × min(1, Σe / k)，e = max(0, p − b)。
+    多一句错多扣一份、不随句子数稀释，正确句子（p ≈ b）多写不扣分。"""
+    e = [max(0.0, p - b) for p in ps]
+    none = 1.0
+    for x in e:
+        none *= 1.0 - x
+    return 1.0 - lam_any * (1.0 - none) - lam_cnt * min(1.0, sum(e) / k)
+
+
+def sentence_adv(ps: list[float], b: float, sigma: float, mode: str = "neg", gamma: float = 0.0) -> list[float]:
+    """句子层优势（只打到这一句的 token 上）。neg：只罚超出底噪的句子，−max(0, p − b) / σ，其余 0（不奖励多写）；
+    center：−(p − b) / σ，比同组平均干净的句子拿正值。gamma > 0：把后一句的负值按 gamma 传给前一句（前一句埋下的错）。"""
+    a = [-(max(0.0, p - b) if mode == "neg" else p - b) / sigma for p in ps]
+    if gamma > 0:   # 只传一步、按原始值传，不层层累积
+        raw = list(a)
+        for j in range(len(a) - 1):
+            a[j] += gamma * min(0.0, raw[j + 1])
+    return a
+
+
 def guarded(r: float, sat: float | None, w: float) -> float:
     """满意度只罚不奖：低于 0.5 才扣，不低于 0（硬规则没过的是 0，不能比它还低）。"""
     return r if sat is None else max(0.0, r - w * max(0.0, 0.5 - sat))
@@ -87,12 +124,24 @@ class AnswerRewarder:
     """model：当回报的 critic（vLLM 上的 LoRA 名）。先打第一句再并发其余（同一回答的句子共享前缀，同时发都还没算完，命中不了缓存）。"""
 
     def __init__(self, client, model: str, temp: float, pool, sat_model: str = "", sat_kind: str = "pair", sat_temp: float = 1.0, sat_w: float = 0.0,
-                 refuse_model: str = "", refuse_temp: float = 1.0, refuse_w: float = 0.0):
+                 refuse_model: str = "", refuse_temp: float = 1.0, refuse_w: float = 0.0,
+                 shape: str = "legacy", count_k: float = 3.0, lam_any: float = 0.5, lam_cnt: float = 0.5, sigma_floor: float = 0.1,
+                 count_ratio: float = 0.0, count_min: float = 2.0):
         # client 可以是列表（两张卡各一个同样的服务）：按原文分到固定的服务，同一原文的请求共享前缀缓存
         self.clients = client if isinstance(client, list) else [client]
         self.client, self.model, self.temp, self.pool = self.clients[0], model, temp, pool
         self.sat_model, self.sat_kind, self.sat_temp, self.sat_w = sat_model, sat_kind, sat_temp, sat_w
         self.refuse_model, self.refuse_temp, self.refuse_w = refuse_model, refuse_temp, refuse_w
+        # shape：legacy = combine（旧）；count = 去底噪计数（count_reward）。底噪 b、σ 每组算一次，存进每条样本给句子层优势用
+        self.shape, self.count_k, self.lam_any, self.lam_cnt, self.sigma_floor = shape, count_k, lam_any, lam_cnt, sigma_floor
+        # count_ratio > 0：K = max(count_min, count_ratio × 参考回答句数)（用户：扣满的错句数换成比例；分母用参考回答而不是自己的句数，多写稀释不了）
+        self.count_ratio, self.count_min = count_ratio, count_min
+
+    def count_k_for(self, row: dict) -> float:
+        ref = row.get("ref_text")
+        if self.count_ratio > 0 and ref:
+            return max(self.count_min, self.count_ratio * len(sentences(ref.strip())))
+        return self.count_k
 
     def state_dict(self) -> dict:
         return {}
@@ -156,13 +205,20 @@ class AnswerRewarder:
             o.update(reward=0.0, p_mean=None, p_max=None)
 
         def one(i: int) -> None:
-            ps = self.p_answer(row["source"], sentences(gens[i]["text"].strip()))
-            sat = self.p_sat(row, gens[i]["text"].strip())
-            out[i].update(reward=guarded(combine(ps), sat, self.sat_w), p_mean=sum(ps) / len(ps), p_max=max(ps), ps=[round(p, 4) for p in ps], sat=sat)
+            t = gens[i]["text"].strip()
+            ps = self.p_answer(row["source"], sentences(t))
+            sat = self.p_sat(row, t)
+            out[i].update(p_mean=sum(ps) / len(ps), p_max=max(ps), ps=[round(p, 4) for p in ps], sat=sat, spans=[list(x) for x in split_sentences(t)])
 
         if live:
             one(live[0])
             list(self.group_pool.map(one, live[1:]))
+            b, sd = group_baseline([out[i]["ps"] for i in live], self.sigma_floor)
+            k = self.count_k_for(row)
+            for i in live:
+                o = out[i]
+                h = count_reward(o["ps"], b, k, self.lam_any, self.lam_cnt) if self.shape == "count" else combine(o["ps"])
+                o.update(reward=guarded(h, o["sat"], self.sat_w), sent_base=round(b, 4), sent_sigma=round(sd, 4))
         refused = [o for o in out if o["why"] == "refusal"]
         if refused and self.refuse_model:   # 用户：MiniCPM 偏向拒答，要降拒答率。拒答的奖励 = refuse_w × P(可以拒答)，最高 refuse_w，比一般的好回答低
             pr = self.p_refuse(row)
