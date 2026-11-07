@@ -256,6 +256,39 @@ def cmd_harvest(a) -> None:
                                 ensure_ascii=False), flush=True)
 
 
+def cmd_score9b(a) -> None:
+    """9B 翻转门打分（2026-11-07，用户：错误生成器大概率造出错，但要「改写前无幻觉、改写后有幻觉」双向确认，且零 Claude）：
+    对 harvest 文件里每条改写记录，用 9B 金标 critic 给「错句上下文」(context) 和「原句上下文」(sentences_orig) 各打一次 P(错)=B+C，
+    写 {id, orig_9b, err_9b}。critic_harvest --scores9b 据此卡翻转门（orig_9b≤lo_clean 且 err_9b≥hi_err）。--model 是 vLLM 上 9B critic 的名字。"""
+    from ragtruth.rm_data import RM1_SYSTEM
+    from ragtruth.rm_eval import option_logprobs, probs
+    from ragtruth.task import render_input
+    from train.gen_reward import NO_THINK
+    cls = _clients(a.url)
+    rows = [x for x in read_jsonl(D / a.inp) if x.get("sentence") and x.get("context") and x.get("sentences_orig")]
+
+    def one(cl, src: str, sents: list, i: int):
+        r = cl.chat.completions.create(model=a.model, messages=[{"role": "system", "content": RM1_SYSTEM},
+                                       {"role": "user", "content": render_input({"source": src, "sentences": sents, "idx": i})}],
+                                       max_tokens=8, temperature=0.0, logprobs=True, top_logprobs=20, extra_body=NO_THINK["extra_body"])
+        lp = option_logprobs(r.choices[0], "ABC")
+        p = probs(lp, a.rm1_temp) if lp else None
+        return (p["B"] + p["C"]) if p else None
+
+    def run(x: dict) -> dict:
+        cl = _pick(cls, x["id"])
+        return {"id": x["id"], "err_9b": one(cl, x["source"], x["context"], int(x["idx"])),
+                "orig_9b": one(cl, x["source"], x["sentences_orig"], int(x["idx"]))}
+
+    with ThreadPoolExecutor(64) as ex:
+        out = [r for r in ex.map(run, rows) if r["err_9b"] is not None and r["orig_9b"] is not None]
+    with open(D / a.out, "w", encoding="utf-8") as f:
+        for r in out:
+            f.write(json.dumps(r, ensure_ascii=False) + chr(10))
+    flips = sum(r["orig_9b"] <= 0.1 and r["err_9b"] >= 0.7 for r in out)
+    print("SCORE9B", json.dumps({"scored": len(out), "flip@0.1/0.7": flips, "flip_rate": round(flips / max(1, len(out)), 3)}, ensure_ascii=False), flush=True)
+
+
 def cmd_rm2score(a) -> None:
     """新旧种子生成器对比（2026-11-03，种子换成 2B 自己的错句）：synth 文件里合格的样本用 RM2 打 P(自然)；
     只统计原文不在 RM2 训练集里的（旧 synth 的合格样本有一部分就是 RM2 的训练负例）。"""
@@ -366,7 +399,7 @@ def cmd_rm2data(a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["answers", "build", "hardpool", "synth", "harvest", "rm2score", "rm2data"])
+    ap.add_argument("cmd", choices=["answers", "build", "hardpool", "synth", "harvest", "score9b", "rm2score", "rm2data"])
     ap.add_argument("--rm1", default="rm1")
     ap.add_argument("--rm2", default="rm2")
     ap.add_argument("--rounds", type=int, default=1, help="harvest：每个 prompt 发几次请求（每次 n = --samples）")
@@ -396,7 +429,7 @@ def main() -> None:
     ap.add_argument("--max_chars", type=int, default=12000)
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
-    {"answers": cmd_answers, "build": cmd_build, "synth": cmd_synth, "rm2score": cmd_rm2score, "hardpool": cmd_hardpool, "harvest": cmd_harvest, "rm2data": cmd_rm2data}[a.cmd](a)
+    {"answers": cmd_answers, "build": cmd_build, "synth": cmd_synth, "rm2score": cmd_rm2score, "hardpool": cmd_hardpool, "harvest": cmd_harvest, "score9b": cmd_score9b, "rm2data": cmd_rm2data}[a.cmd](a)
 
 
 if __name__ == "__main__":
