@@ -44,6 +44,10 @@ def main() -> None:
     ap.add_argument("--top_sources", type=int, default=0, help="只用合格样本最多的前 M 篇原文（0 = 不限；多样性对照的「集中」组）")
     ap.add_argument("--ids", default="", help="只用这些 harvest id（每行一个；清洗后的白名单），不再按区间筛；"
                     "可写成「id<TAB>类型」（conflict / baseless）覆盖生成器给的类型（2026-11-05：按 Claude 复核的 mechanism 改正）")
+    ap.add_argument("--scores9b", default="", help="9B 翻转门（gen_target_data score9b 产出的 id→{orig_9b,err_9b} json/jsonl）：要求原句 9B 判 P(错)≤lo_clean "
+                    "且 错句 9B 判 P(错)≥hi_err，即「改写前无幻觉、改写后有幻觉」的独立确认；缺 9B 分的样本丢掉（2026-11-07，用户：宁丢多保精度）")
+    ap.add_argument("--lo_clean", type=float, default=0.1, help="改写前：9B 判原句 P(错) 上限")
+    ap.add_argument("--hi_err", type=float, default=0.7, help="改写后：9B 判错句 P(错) 下限")
     a = ap.parse_args()
     fix: dict[str, str] = {}
     if a.ids:
@@ -52,8 +56,20 @@ def main() -> None:
             if k:
                 fix[k] = t if t in ("conflict", "baseless") else ""
     allow = set(fix) if a.ids else None
+    sc9b = None
+    if a.scores9b:
+        raw = json.load(open(a.scores9b, encoding="utf-8")) if a.scores9b.endswith(".json") else list(read_jsonl(a.scores9b))
+        sc9b = {r["id"]: r for r in raw}
+
+    def flip_ok(x: dict) -> bool:   # 9B 翻转门：原句干净、错句有错；缺分即丢（高精度）
+        if sc9b is None:
+            return True
+        s = sc9b.get(x["id"])
+        return s is not None and (s.get("orig_9b", 1.0) <= a.lo_clean) and (s.get("err_9b", 0.0) >= a.hi_err)
+
     keep, seen_sent, per = [], set(), collections.Counter()
     xs = sorted((x for x in read_jsonl(a.harvest) if x.get("p_halluc") is not None and x["p_correct"] >= a.gate and x["orig_p"] <= 0.5 and (x.get("p_natural") or 0.0) >= a.min_nat
+                 and flip_ok(x)
                  and (x["id"] in allow if allow is not None else a.lo <= x["p_halluc"] < a.hi)), key=lambda x: x["id"])
     if a.top_sources:
         cnt = collections.Counter(x["source_id"] for x in xs)
@@ -88,6 +104,7 @@ def main() -> None:
     for sp in ("calib.jsonl", "test.jsonl"):
         shutil.copy(base / sp, d / sp)
     meta = {**json.load(open(base / "meta.json", encoding="utf-8")), "harvest": a.harvest, "band": [a.lo, a.hi], "gate": a.gate, "min_nat": a.min_nat,
+            "scores9b": a.scores9b or None, "lo_clean": a.lo_clean, "hi_err": a.hi_err,
             "added_errors": len(keep), "per_source": a.per_source, "top_sources": a.top_sources, "sources": len({x["source_id"] for x in keep}), "ids_file": a.ids or None, "added_originals": len(keep), "base": a.base,
             "added_by_type": dict(collections.Counter(x["type"] for x in keep)), "added_by_task": dict(collections.Counter(x["task_type"] for x in keep)),
             "added_bins": {f"{lo}-{hi}": sum(lo <= x["p_halluc"] < hi for x in keep) for lo, hi in ((0.0, 0.1), (0.1, 0.3), (0.3, 0.5), (0.5, 0.7), (0.7, 1.01))},
