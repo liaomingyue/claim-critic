@@ -14,21 +14,22 @@ export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segm
 unset VLLM_API_KEY LORA_SYNC_URL LORA_SYNC_MODE LORA_SYNC_FS_DIR
 [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
 source scripts/remote/models9b.sh; start_9b_bg   # 2026-11-05 用户：先拷马上要用的 2B，9B 后台拷，把时间岔开
-MC=$A/models/MiniCPM5-2B; SRC=outputs/rt/minicpm/grpo; INIT=$FS/adapters/mc-init; CRITIC=${CRITIC:-rm1__mcgold_h3ctl}; STEPS=${STEPS:-300}
-TAG=${TAG:-}; O=outputs/rt/minicpm/r3full$TAG; E=$O/eval; mkdir -p $E   # TAG：换 critic 的对照组（2026-11-05，用户：两个显著不同的 RM 各用 R3 训 RAG）
+MC=$A/models/MiniCPM5-2B; SRC=${SRC:-outputs/rt/minicpm/grpo}; INIT=${INIT:-$FS/adapters/mc-init}; CRITIC=${CRITIC:-rm1__mcgold_h3ctl}; STEPS=${STEPS:-300}
+SAT=${SAT:-sat_pair__mc}; REFUSE=${REFUSE:-refuse}   # 2026-11-06 循环二：起点 / 原文池 / 满意度 / 拒答模型可换（核心集版：INIT=rag-sft-core SAT=sat_pair__core REFUSE=refuse__core）
+TAG=${TAG:-}; O=${O:-outputs/rt/minicpm/r3full$TAG}; E=$O/eval; mkdir -p $E   # TAG：换 critic 的对照组（2026-11-05，用户：两个显著不同的 RM 各用 R3 训 RAG）
 temp() { python -c "import json;print(json.load(open('outputs/rt/rm/$1/eval/report.json'))['temperature'])"; }
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 ad() { [ -f $1/policy/adapter_model.safetensors ] && echo $1/policy || echo $1; }
 RW="--reward_shape count --count_ratio 0.5 --count_min 2 --sat_w 0.8 --sent_beta 0.6 --sent_gamma 0.3"
 free_gpu; mkdir -p $A/s0
 A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $MC --log $A/vllm-r3full.log --priority \
-  critic=$FS/adapters/$CRITIC-mc/adapter sat=$FS/adapters/sat_pair__mc-mc/adapter refuse=$FS/adapters/refuse-mc/adapter policy_v0=$INIT >> $LOG 2>&1 || { log "serve FAILED"; exit 1; }
+  critic=$FS/adapters/$CRITIC-mc/adapter sat=$FS/adapters/$SAT-mc/adapter refuse=$FS/adapters/$REFUSE-mc/adapter policy_v0=$INIT >> $LOG 2>&1 || { log "serve FAILED"; exit 1; }
 LAST=$(ls -d $O/run/state/step* 2>/dev/null | sort -V | tail -n 1)
 log "start r3full: critic $CRITIC, $RW, steps $STEPS ${LAST:+(resume $LAST)}"
 CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal 1 --sys_qa 1 --base $MC --init $INIT --vllm_url http://127.0.0.1:8000/v1 --policy_url http://127.0.0.1:8000/v1 \
   --n 16 --share 1 --share_impl train.prefix_share_llama --share_ckpt 1 --share_mb ${SHARE_MB:-32} --prompts $SRC/train_ref.jsonl --dev $SRC/dev_ref.jsonl \
   --critic_report outputs/rt/rm/$CRITIC/eval/report.json --shadow= \
-  --sat_model sat --sat_kind pair --sat_report outputs/rt/rm/sat_pair__mc/eval/report.json --refuse_model refuse --refuse_report outputs/rt/rm/refuse/eval/report.json --refuse_w 0.4 \
+  --sat_model sat --sat_kind pair --sat_report outputs/rt/rm/$SAT/eval/report.json --refuse_model refuse --refuse_report outputs/rt/rm/$REFUSE/eval/report.json --refuse_w 0.4 \
   $RW --proc_producer 1 --pipeline 1 --lr 5e-6 --steps $STEPS --save_every 50 --state_every 50 --keep_states 2 --eval_k 2 --trip 1 \
   --version_prefix r3f${TAG}_ --push_dir /dev/shm/r3full$TAG --out $O/run ${LAST:+--resume $LAST} >> $A/r3full${TAG}_train.log 2>&1 && log "train done" || log "train FAILED or stopped (see r3full_train.log)"
 grep -ah "QUICK_EVAL\|TRIP" $A/r3full${TAG}_train.log | cut -c1-500 | tee -a $LOG
