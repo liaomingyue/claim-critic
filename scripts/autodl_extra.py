@@ -100,10 +100,13 @@ FS_IMAGE = "image-8abf4719aa"   # 主实例系统盘（含 conda 环境）保存
 CODE_DIRS = ["common", "ragtruth", "train", "eval", "infer", "scripts", "configs"]   # 不含 outputs 和本地密钥文件
 
 
+WITH: list[str] = []   # --with：随代码包一起传的数据文件 / 目录（如本地 Claude 标注），解压进共享代码目录的同一路径
+
+
 def code_tarball() -> bytes:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
-        for d in CODE_DIRS + ["pyproject.toml"]:
+        for d in CODE_DIRS + ["pyproject.toml"] + WITH:
             if Path(d).exists():
                 tar.add(d, filter=lambda t: None if "__pycache__" in t.name or t.name.endswith(".pyc") else t)
     return buf.getvalue()
@@ -150,10 +153,12 @@ def main() -> None:
     ap.add_argument("--max_hours", type=float, default=6, help="超过这么久还没抢到就不再开（主实例排队也快跑完了）")
     ap.add_argument("--notify", nargs="*", default=["email", "toast"])
     ap.add_argument("--exclude_machines", nargs="*", default=[], help="不要开在这些主机上（如网速慢的主机）")
+    ap.add_argument("--with", dest="with_paths", nargs="*", default=[], help="--fs：随代码包上传的数据路径（相对仓库根目录）")
     ap.add_argument("--fs", action="store_true", help="自定义镜像 + 文件存储模式（bootstrap_fs.sh），不经过主实例")
     ap.add_argument("--image", default="", help="用这个镜像 uuid 创建；空：--fs 时用自定义镜像 FS_IMAGE，否则主实例的基础镜像")
     ap.add_argument("--expand_gb_fs", type=int, default=60, help="--fs 模式的数据盘扩容：只放模型副本和新训练的权重")
     args = ap.parse_args()
+    WITH.extend(p for p in args.with_paths if Path(p).exists())
 
     logf = Path("outputs/autodl/extra.log")
     web = Web(args.session)

@@ -59,6 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 2026-11-05：共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -96,6 +97,11 @@ case $ROLE in
   pairinfer) CODE=$R PAIR=$(cat $FS/runs/pair/CURRENT 2>/dev/null || echo default) bash $S/run_infer_node.sh; rc=$? ;;
   pairtrain) CODE=$R PAIR=$(cat $FS/runs/pair/CURRENT 2>/dev/null || echo default) bash $S/run_train_node.sh; rc=$? ;;
   evalmid) CODE=$R STEP=${STEP:-150} bash $S/run_eval_mid.sh; rc=$? ;;
+  core1) CODE=$R bash $S/run_core1.sh; rc=$? ;;   # 2026-11-06：核心集第一阶段（README 第一到五步，2B 全流程 + 9B 自检）
+  loop2co) CODE=$R bash $S/run_loop2co.sh; rc=$? ;;   # 2026-11-06：循环二「只核心集」组（第二台并行）
+  loop2cont) CODE=$R bash $S/run_loop2cont.sh; rc=$? ;;
+  r3) CODE=$R bash $S/run_r3.sh; rc=$? ;;   # 2026-11-07：长句 / 列表句增强 → rm1__core_r3，再用它接着训 100 步
+  r2) CODE=$R bash $S/run_r2.sh; rc=$? ;;   # 2026-11-06：Claude 核验过的盲区 / 边界真错 → rm1__core_r2   # 2026-11-06：接着第一轮 GRPO（只种子集组第 200 步）用 rm1__core_r1 再训 100 步
   worker4|worker5) CODE=$R bash $S/run_worker2.sh; rc=$? ;;
   worker6|worker7) CODE=$R bash $S/run_worker3.sh; rc=$? ;;   # 2026-11-05：SFT 上限 / 被钻空子 / nat1500 200 步（q4 队列）
   worker8|worker9) CODE=$R bash $S/run_worker4.sh; rc=$? ;;   # 2026-11-06：纯人工 vs 纯合成 critic（q5 队列）

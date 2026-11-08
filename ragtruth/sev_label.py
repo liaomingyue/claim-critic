@@ -146,7 +146,7 @@ def cmd_label(a) -> None:
     items = list(read_jsonl(a.items))
     batches = [{"id": f"b{k // a.batch}", "xs": items[k:k + a.batch]} for k in range(0, len(items), a.batch)]
     assert len(batches) <= a.max_calls, f"{len(batches)} calls > max_calls {a.max_calls}"
-    llm = LLM(LLMConfig(model=a.model, provider="claude_cli", effort=a.effort, concurrency=2))
+    llm = LLM(LLMConfig(model=a.model, provider="claude_cli", effort=a.effort, concurrency=a.concurrency))
     raw = Path(a.items).with_name(Path(a.items).stem + "_raw.jsonl")
 
     def run(b: dict) -> dict:
@@ -160,7 +160,7 @@ def cmd_label(a) -> None:
                 "rows": [{"hid": x["id"], **{k: x[k] for k in ("type", "fam", "cell", "p_correct", "p_halluc", "tactic_raw")}, "claude": y, "option": option(y)}
                          for x, y in hit] if ok else None, **({} if ok else {"raw_tail": str(t)[-400:], "got_ids": [str(y.get("id")) for y in ys] if isinstance(ys, list) else None})}
 
-    map_resumable(batches, run, raw, concurrency=2)
+    map_resumable(batches, run, raw, concurrency=a.concurrency)
     rows = [r for b in kept(raw) for r in (b["rows"] or [])]
     out = Path(a.items).with_name(Path(a.items).stem + "_labels.jsonl")
     out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
@@ -187,6 +187,7 @@ def main() -> None:
     ap.add_argument("--max_calls", type=int, default=10)
     ap.add_argument("--model", default="claude-opus-5-5")
     ap.add_argument("--effort", default="high")
+    ap.add_argument("--concurrency", type=int, default=2)
     a = ap.parse_args()
     {"pick": cmd_pick, "pick_v2": cmd_pick_v2, "label": cmd_label}[a.cmd](a)
 

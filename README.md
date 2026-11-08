@@ -107,15 +107,15 @@ RAG 回答的逐句幻觉检测 critic，加两条循环：错误改写模型造
 
 ## 第三步：由核心集派生的数据集（新增 `ragtruth.core_derive`）
 
-「更多样的回答」= RAGTruth 里 6 个模型（GPT-4、GPT-3.5、Mistral-7B、Llama-2 7B / 13B / 70B）在**同一批 831 个原文**上的回答，共 4986 条，其中没有人工幻觉标注的 3432 条。81 个留出原文在每个数据集里都只进评测。带「约」的条数要跑完才知道。
+所有模型只用核心集构成的数据训练（用户，2026-11-06），不用 RAGTruth 其他模型的回答。81 个留出原文在每个数据集里都只进评测。带「约」的条数要跑完才知道。
 
 | # | 数据集 | 怎么来 | 训练 | 评测 | 谁用 |
 | --- | --- | --- | --- | --- | --- |
 | D1 | RAG SFT | prompt = 原文（QA 加系统提示），目标 = 改对后的回答（全对的用原回答，整段重写的用重写） | 726 | 81 | RAG SFT |
 | D2 | RAG GRPO prompt 池 | 831 个原文去掉 81 个留出；参考回答用 RAG SFT 模型重采 | 750 | 验收集 | 循环二 |
 | D3 | 错误改写种子 SFT | 输入 = 改对后的回答，输出 = 把改对句改回原错句，类型 / 证据 / 理由取自 2.2 | 1472 | 155 | 改写模型 v0 |
-| D4 | 错误改写 prompt 池 | 改对后的回答（至少两句）× 两种类型；加更多样回答里没有人工幻觉标注的 | 657 × 2 = 1314，另约 3000 条多样回答 | 70 | 循环一 |
-| D5 | RM2 自然度 | B = 改写模型 v0 在更多样回答上的改写句（过硬规则）；A = 同位置原句 + 核心集真错句 1472；不用人工标注 | 约 6000 | 按原文留出 | 循环一奖励 |
+| D4 | 错误改写 prompt 池 | 核心集改对后的回答（至少两句）× 两种类型 | 657 × 2 = 1314 | 70 | 循环一 GRPO、采集、采样 |
+| D5 | RM2 自然度 | B = 改写模型 v0 在 D4 上的改写句（过硬规则；和该回答 2B 原错句相似度 ≥ 0.9 的去掉，因为那就是自然写出的错）；A = 同位置原句（改对句）+ 核心集真错句 1472；不用人工标注 | 约 4000 | 按原文留出 | 循环一奖励 |
 | D6 | sev | 核心集派生 A–D + 单独标注（第四步） | 约 3700 | 单独标注的 20% | 循环一门槛 |
 | D7 | 满意度（成对） | 2.2 满意度配对 + 程序反例（截断、照抄原文、只留第一句、该答却拒答），A / B 两种顺序 | 约 2500 | 留出派生 | 循环二护栏 |
 | D8 | 拒答 | 只有 QA：原题 = 能答；删掉支持段落 = 答不了（按重合度）；问题配另一篇无关原文 = 答不了 | 约 900 | 留出 QA 39 篇派生 | 循环二 |
@@ -274,6 +274,52 @@ r = max(0, H − 0.8 · max(0, 0.5 − P_sat))   其余
 
 prompt + completion 不超过 14000 字符（约 4096 token）。
 
+## 多模型支持（新增设计）
+
+把模型相关的设置收进 `configs/models/<名字>.yaml`，脚本只认 `MODEL=<名字>`。MiniCPM5-2B 和 Qwen3.5-9B 全流程验证；其他带聊天模板的 Hugging Face 生成模型走通用路径，先过自检。
+
+现在写死在代码里的模型相关部分：
+
+| 位置 | 写死了什么 | 改法 |
+| --- | --- | --- |
+| 约 35 个远端脚本、各配置 | 基座路径 MiniCPM5-2B、适配器后缀 `-mc` | 从模型配置读 |
+| prompt 共享 | MiniCPM 用 `prefix_share_llama`，Qwen3.5 用 `prefix_share`（混合线性注意力） | 按结构选；没有实现的结构关掉共享，慢但能跑 |
+| 加载方式 | MiniCPM 纯文本（`--causal 1`）；Qwen3.5 带视觉塔，要去掉 visual | 配置里写 causal / multimodal |
+| 聊天模板 | `enable_thinking=False`、结束符 `<\|im_end\|>` | 配置里写模板参数和结束符 |
+| 策略 LoRA | 目标层 q / k / v / o / gate / up / down | 配置里写，默认 all-linear |
+| 批大小、显存 | 2B 的 4 × 4、vLLM 0.35 显存 | 配置里写 |
+
+```yaml
+name: qwen3.5-9b
+hf: Qwen/Qwen3.5-9B
+path: /root/autodl-fs/models/Qwen3.5-9B
+suffix: 9b                 # 适配器名：rm1__core-9b
+loader: multimodal         # causal | multimodal（去视觉塔）
+share_impl: train.prefix_share   # 没有就写 none
+chat_kwargs: {enable_thinking: false}
+eos_tokens: ["<|im_end|>"]
+policy_lora: {r: 32, alpha: 64, targets: all-linear}
+rm_batch: [1, 16]          # 每次条数, 累积步数
+vllm: {gpu_mem: 0.45, max_model_len: 16384, strip_visual: true}
+gpus: {sft: 1, rm: 1, grpo: 2}
+```
+
+- 远端脚本开头统一 `source scripts/remote/model_env.sh $MODEL`；`train.sft` 的配置由「任务模板 + 模型配置」拼出。
+- 自检 `python -m scripts.model_check --model <名字>`：聊天模板能渲染；A–F 每个选项字母是单个 token；结束符能停；vLLM 能挂 LoRA 并返回选项 logprob；有共享实现时跑等价性测试。过了才算支持。
+
+| 等级 | 模型 | 说明 |
+| --- | --- | --- |
+| 全流程验证 | MiniCPM5-2B、Qwen3.5-9B | 两条循环都跑过，有 prompt 共享 |
+| 通用路径 | Qwen3、Llama 3、Mistral、Gemma 等带聊天模板的生成模型 | 过自检就能跑；Llama 结构可直接用 `prefix_share_llama`，其余关共享 |
+| 不支持 | 没有聊天模板的基座、编码器-解码器模型 | — |
+
+换模型时的数据：
+
+- 核心集的原回答是「要训的那个模型自己写的」，换模型要重做第一、二步：同样 831 个原文、同样的留出切分，只换写回答的模型。代价是 Claude 改对 + 标注各约 81 次。不重做也能跑，但错误改写模型学的是 2B 的错。
+- 产出按模型分目录：`outputs/rt/<后缀>/core/...`；评测集和提示词所有模型共用。
+- 训 9B 时，9B 金标 critic 和被训模型同家，策略评测以 Claude 金标的验收集和 critic_cap3 为主。
+- 9B 的 SFT 和打分模型训练单张 5090 可以；9B 的 GRPO 要两张（`run_infer_node.sh` + `run_train_node.sh`）。
+
 ## 代码结构和从头复现
 
 别人拿到「代码仓库 + 数据包 + 两个公开模型」就能从头跑。数据包 `python -m scripts.pack_data` → `dist/claim_critic_data.tar`（不进 git，约 58 MB），只含重跑也得不到同样结果的东西：Claude 标注、外部数据原件、评测集；`MANIFEST.json` 记每个文件的行数、字节数、SHA-256，解压后 `python -m scripts.pack_data --check` 核对。
@@ -338,8 +384,10 @@ PYTHONHASHSEED=0 python -m pytest -q        # 全部单测，不需要 GPU、不
 1. 2.2 新增标注：792 条回答、约 81 次 Claude 调用。
 2. sev 单独标注：约 800 条、约 40 次 Claude 调用。
 3. RAG GRPO prompt 池去掉 81 个留出原文（750 个）。
-4. 更多样的回答用 RAGTruth 6 个模型在同一批原文上的回答；RAGTruth 人工标注只用来挑没有幻觉的回答，标签本身不进训练。
+4. ~~更多样的回答~~ 已定：只用核心集回答（RM2 负样本、改写模型 GRPO 和采集池）。
 5. 拒答删段落用词重合门槛定标签，不再每条让 Claude 复判。
 6. 旧 sev / RM3 标签不进新循环。
-7. critic 训练集不放拒答句。
+7. critic 训练集不放拒答句；「没改的句子」1785 句算种子集合，进 critic（Claude 逐句审过、判为正确）。
 8. 数据包不进 GitHub，单独给人。
+9. 换成 9B 时重做核心集（9B 自己写回答 + Claude 改对、标注，约 162 次调用），还是共用 2B 的核心集。
+10. 多模型支持的范围：两个全流程验证 + 通用路径自检，够不够。

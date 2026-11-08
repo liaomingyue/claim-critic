@@ -1,0 +1,14 @@
+# MiniCPM5-2B（openbmb/MiniCPM5-2B，提交 f974000）：当前全流程用的 2B。Llama 结构、纯文本。
+name: minicpm5-2b
+hf: openbmb/MiniCPM5-2B
+path: /root/autodl-fs/models/MiniCPM5-2B
+suffix: mc                       # 适配器名：<名字>-mc（沿用旧名）
+loader: causal                   # causal：AutoModelForCausalLM；multimodal：带视觉塔，训练 / 服务时去掉 visual
+share_impl: train.prefix_share_llama
+chat_kwargs: {enable_thinking: false}
+eos_tokens: ["<|im_end|>"]
+policy_lora: {r: 32, alpha: 64, targets: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]}
+rm_batch: [4, 4]                 # 打分模型训练：每次条数, 累积步数（总批 16）
+vllm: {gpu_mem: 0.35, max_model_len: 16384, strip_visual: false}
+gpus: {sft: 1, rm: 1, grpo: 1}
+check_adapter: /root/autodl-fs/adapters/rm1__mcgold_ref-mc/adapter   # 自检时挂一个已有 LoRA

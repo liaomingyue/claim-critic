@@ -1,0 +1,14 @@
+# Qwen3.5-9B：混合结构（Gated DeltaNet + 全注意力），带视觉塔。9B 金标 critic 的底座；也可当被训模型。
+name: qwen3.5-9b
+hf: Qwen/Qwen3.5-9B
+path: /root/autodl-fs/models/Qwen3.5-9B
+suffix: 9b
+loader: multimodal
+share_impl: train.prefix_share
+chat_kwargs: {enable_thinking: false}
+eos_tokens: ["<|im_end|>"]
+policy_lora: {r: 32, alpha: 64, targets: all-linear}
+rm_batch: [1, 16]
+vllm: {gpu_mem: 0.45, max_model_len: 16384, strip_visual: true}
+gpus: {sft: 1, rm: 1, grpo: 2}   # GRPO 要推理卡 + 训练卡（run_infer_node.sh / run_train_node.sh）
+check_adapter: /root/autodl-fs/adapters/rm1__rm1_gold_9b-9b/adapter
