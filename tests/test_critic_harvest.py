@@ -51,6 +51,33 @@ def test_ids_type_override(tmp_path, monkeypatch):
     assert tr == {"h0-err": "C", "h0-orig": "A", "h1-err": "B", "h1-orig": "A"}
 
 
+def test_flip_gate(tmp_path, monkeypatch):
+    """9B 翻转门（--scores9b）：只留 原句 9B≤lo_clean 且 错句 9B≥hi_err（改写前无幻觉、改写后有幻觉）；原句脏 / 错句不够错 / 缺 9B 分的都丢。"""
+    monkeypatch.setattr(H, "OUT", tmp_path / "rm")
+    base = tmp_path / "rm" / "base"
+    for sp in ("train", "calib", "test"):
+        _w(base / f"{sp}.jsonl", [])
+    (base / "meta.json").write_text("{}", encoding="utf-8")
+    # 五条都过现有门（p_correct/orig_p/区间/p_natural），只有 9B 翻转门区分
+    hv = [{"id": f"h{k}", "prompt_id": f"p{k}", "source_id": "s", "task_type": "QA", "type": "conflict", "idx": 1,
+           "sentence": f"bad {k}", "context": [f"bad {k}"], "sentences_orig": ["good"], "source": "src",
+           "p_correct": 0.9, "orig_p": 0.1, "p_halluc": 0.4, "p_natural": 0.9} for k in range(5)]
+    _w(tmp_path / "hv.jsonl", hv)
+    sc = [{"id": "h0", "orig_9b": 0.05, "err_9b": 0.9},   # 翻转 ✓
+          {"id": "h1", "orig_9b": 0.6, "err_9b": 0.9},    # 原句本来就脏 ✗
+          {"id": "h2", "orig_9b": 0.05, "err_9b": 0.3},   # 改写后没变错 ✗
+          {"id": "h3", "orig_9b": 0.02, "err_9b": 0.8}]   # 翻转 ✓；h4 缺 9B 分 → 丢
+    _w(tmp_path / "sc9b.jsonl", sc)
+    monkeypatch.setattr(sys, "argv", ["x", "--harvest", str(tmp_path / "hv.jsonl"), "--base", "base", "--name", "new",
+                                      "--lo", "0", "--hi", "1.01", "--per_prompt", "1",
+                                      "--scores9b", str(tmp_path / "sc9b.jsonl"), "--lo_clean", "0.1", "--hi_err", "0.7"])
+    H.main()
+    tr = {r["id"]: r["label"] for r in map(json.loads, open(tmp_path / "rm" / "new" / "train.jsonl", encoding="utf-8"))}
+    assert tr == {"h0-err": "B", "h0-orig": "A", "h3-err": "B", "h3-orig": "A"}
+    m = json.loads((tmp_path / "rm" / "new" / "meta.json").read_text(encoding="utf-8"))
+    assert m["added_errors"] == 2 and m["scores9b"] and m["lo_clean"] == 0.1 and m["hi_err"] == 0.7
+
+
 def test_per_source_and_top_sources(tmp_path, monkeypatch):
     """多样性对照：per_source 限每篇原文条数；top_sources 只用合格样本最多的前 M 篇。"""
     monkeypatch.setattr(H, "OUT", tmp_path / "rm")
