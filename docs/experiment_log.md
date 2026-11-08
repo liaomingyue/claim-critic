@@ -1579,3 +1579,21 @@
   - 新 critic r3 本身：RAGTruth++ AUC 0.837 → 0.846 微升；Claude 金标显然错 AUC 0.872 → 0.850 **显著变差**；长句排序略升但只 14 句不算证据。
   - 结论：长句增强主要是**防守**（堵住「合并句子躲 critic」，不再退化），不是进攻（没让 critic 更会抓错，真实回答上反而变弱）。拼接长句不够自然，critic 疑似学到拼接痕迹。从起点（显然错约 6%）两次接着训都没拿到显著收益，照这套 critic 生成器差不多到头。新苗头：照抄原文比例升（0.41 → 0.44），可能是下一个讨好 critic 的方式，要盯。
   - 下一步（待定）：① 瓶颈在 critic 真实召回（现只抓 9B 显然错的三到四成）→ 从策略自己的真实长句挖候选、交 Claude 核实后补进训练集（而非程序拼接），需估 Claude 调用数再批准；② 不动 critic，在奖励里把长句按子句拆开打分，同样堵漏洞且不削弱 critic 主口径。
+
+- **gated/add 生成器 + 合成"盲区错"标签审计**（2026-11-08；代码 `train/gen_reward.py` shape `gated`/`add`、`ragtruth/critic_harvest.py --no_orig`；明细 `analysis/synth-label-audit-1108/`；双机跑完后关机）：
+  - 动机：接 cont3 的"下一步①"，试"骗 critic 造错 → 增广 critic 真实召回"。新奖励：`gated`=sev真错门+critic盲区门为硬门、自然度为唯一优化目标；`add`=critic盲区(主,w_hard2)+自然度(次,w_real2)相加，sev门已卡真错。
+  - 链路：gated GRPO（machine1）→ harvest band[0,0.5)/gate0.5/min_nat0 挑 **4376 真错池→987 盲区错** → 增广 Aug-A（`--no_orig` 纯负样本，train 5591）/ Aug-B（负+原句1:1，train 6578）→ 重训 critic。add GRPO（machine2，WH2=0.6 WR2=0.3）跑完，同弱门预判同样失败，未串增广。
+  - critic 增广结果（同误报率口径 `matchfp.py`，防阈值漂移虚涨）：
+    | critic | 整体召回 | 盲区召回 | Claude金标 AUC |
+    | 基线 rm1__core | 0.555 | — | 0.830 |
+    | Aug-A(+987) | 0.522 | 15.6% | 0.810 |
+    | Aug-B(+987) | 0.516 | 15.6% | 0.810 |
+    - 两组都比基线差（AUC 降 0.02，整体召回降）。固定 recall@0.5 会虚涨成"救回 45% 盲区"，同误报率下才看清是假象。
+  - **决定性诊断**（Claude opus-5-5 独立审 200 条合成错，`judge.py` 批10条，`results/verdicts.jsonl`）：
+    - 错句：faithful **152** / conflict 30 / baseless 18 → **真错仅 48/200 = 24%**，76% 其实没错。
+    - 配对原句：faithful 184/200 = **92%**（Claude 校准合理，不是太严）。
+    - 真错率 vs 盲区深度单调反相关：p_halluc [0,0.1)→14%、[0.1,0.3)→20%、[0.3,0.5)→38%。
+    - 兜底核验（`verify.py`：把生成器的 type/evidence/reason 喂 Claude 复核 152 条 faithful）→ **只翻 2 条(1.3%)**。不是漏看证据判错，是生成器真错产出率本身 ~25%。
+  - 根因=reward hacking：奖励=骗过 critic(盲区)+过 sev(2B,与 critic 同源,边界判错同样弱,gate0.5 形同虚设) → GRPO 坍缩成"造 sev 会误判的非错句"。阈值分析：sev 门封顶 50% 精度@3% 产出，到不了 90%。
+  - 结论：**合成造错整条路线结构性走不通**——瓶颈不是过滤难度（强判别器能干净分开），是生成器 ~25% 真错产出率。盲区最大化 = 对抗性挑标签噪声。
+  - 下一步（用户定调）：放弃合成造错，建**三块判别器**（证据/类型/理由判别）当地基，既做造错 GRPO 奖励（治产出率）也做挖真实错的标注器。先在这 200 条上出三块结构化 Claude 标签，测各块判别力 + 当判别器首批训练数据。见 memory `claim-critic-synth-label-noise`。

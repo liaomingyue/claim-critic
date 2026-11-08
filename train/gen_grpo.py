@@ -1090,7 +1090,7 @@ def main() -> None:
     ap.add_argument("--eval_prompts", default="", help="快评用的预建 prompt 文件（空 = 198 条评测回答 + 自由版 prompt）")
     ap.add_argument("--conflict_range", type=float, nargs=2, default=[0.15, 0.60], help="TripWire：conflict 占比允许范围（定向版以 conflict 为主）")
     ap.add_argument("--err_mode", default="a", choices=["a", "ab"], help="target：P(真错) 只算 RM3 的 A，还是 A + B（解释不对但句子错了）")
-    ap.add_argument("--shape", default="v1", choices=["v1", "v2", "filter", "soft", "mult", "boundary", "boundary2", "boundary3", "boundary4", "boundary5", "boundary6", "boundary7", "sev"], help="target：sev = 严重程度 RM 门槛 + (1 − P(critic)) × 自然度；v2 = 真实性和骗过 critic 都用对数几率绝对分、都加分；filter = 只看真实性，其他过滤")
+    ap.add_argument("--shape", default="v1", choices=["v1", "v2", "filter", "soft", "mult", "boundary", "boundary2", "boundary3", "boundary4", "boundary5", "boundary6", "boundary7", "sev", "gated", "add"], help="target：sev = 严重程度 RM 门槛 + (1 − P(critic)) × 自然度；v2 = 真实性和骗过 critic 都用对数几率绝对分、都加分；filter = 只看真实性，其他过滤；gated = sev门+盲区门→自然度(目标)；add = 盲区(主)+自然度(次)相加")
     ap.add_argument("--crit_max", type=float, default=0.98, help="target filter：critic P(判出) 超过它的过滤掉")
     ap.add_argument("--rm2_ens", default="", help="target：再用这些 RM2（vLLM 里的名字，逗号分隔，温度在 --temps 里给）打 P(自然)，取平均")
     ap.add_argument("--gate_lo", type=float, default=None, help="target：P(真错) 从 gate_lo 到 gate 线性给系数（不设 = 硬门槛）")
