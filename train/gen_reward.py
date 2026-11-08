@@ -249,7 +249,7 @@ class TargetRewarder(Rewarder):
         if rec is None:
             return {"why": why}
         rec["tactic"] = focus_tactic(rec["tactic_raw"], rec["type"])
-        if self.shape == "sev":   # 严重程度 RM 代替 RM3：输入和 sev RM 训练时同格式（回答里已经换成改写句，见 ragtruth.sev_rm.prompt）
+        if self.shape in ("sev", "gated", "add"):   # 严重程度 RM 代替 RM3：输入和 sev RM 训练时同格式（回答里已经换成改写句，见 ragtruth.sev_rm.prompt）
             ps = self.option_p("sev", SEV_SYSTEM, audit_synth.render({**rec, "sentences": context(rec)}), "ABCDEF", priority)
             pa = ps["A"] if ps else 0.0
             pc = (ps["A"] + ps["B"]) if ps else 0.0   # P(显然错误)
@@ -260,10 +260,10 @@ class TargetRewarder(Rewarder):
             pc = (pa + p3["B"]) if p3 and self.err_mode == "ab" else pa   # ab：解释不对但句子确实错了也算
         out = {"why": "ok", "type": rec["type"], "op": rec["op"], "idx": rec["idx"], "tactic": rec["tactic"], "tactic_raw": rec["tactic_raw"],
                "p_correct": pc, "p_a": pa, "p_rm3": p3, "original": rec["original"], "sentence": rec["sentence"], "reason": rec["reason"], "evidence": rec["evidence"]}
-        if self.shape == "sev":
+        if self.shape in ("sev", "gated", "add"):
             out["p_orig_halluc"] = p3["F"] if p3 else 0.0   # 原句本身有错：用 sev 的 F（全 2B；不用 9B 预先算的 orig_p，用户 2026-11-04：9B 不能用于筛选）
         if pc >= (self.gate if self.gate_lo is None else self.gate_lo):
-            if rec["op"] == "rewrite" and self.shape != "sev":
+            if rec["op"] == "rewrite" and self.shape not in ("sev", "gated", "add"):
                 if row.get("orig_p"):
                     out["p_orig_halluc"] = row["orig_p"][rec["idx"] - 1]
                 else:
@@ -277,6 +277,14 @@ class TargetRewarder(Rewarder):
         return out
 
     def combine(self, s: dict) -> float:
+        if self.shape == "gated":   # 2026-11-07（用户）：真错(sev，score() 已卡 pc≥gate)+ critic 盲区 = 硬门；自然度 = 唯一优化目标，不设门（门槛放松）。
+            ph = s["p_halluc"]
+            if not (self.blind_lo <= ph <= self.blind_thr):   # critic 盲区硬门：判出 P 要落在 [blind_lo, blind_thr]（盲区/边界），否则无训练价值记 0
+                return 0.0
+            return (logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (1 + self.w[2])   # 自然度（p_natural 用 rm2__coreerr 服务）+ 多样性
+        if self.shape == "add":   # 2026-11-07（用户）：critic 盲区 = 主目标，自然度 = 次目标，相加；sev门已卡真错。w_hard2>w_real2 让盲区为主
+            blind = max(0.0, 1.0 - s["p_halluc"])   # critic 盲区深度：判不出（P 低）越深
+            return (self.w_hard2 * blind + self.w_real2 * logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (self.w_hard2 + self.w_real2 + self.w[2])
         if self.shape == "sev":   # 新循环（2026-11-04，用户）：门槛 P(显然) ≥ gate 之后，critic 越判不出越高、读起来越自然越高
             ph = s["p_halluc"]
             # 区间模式（blind_lo > 0，用户：不要 critic 评分很低的，要离 0.5 近的）：难度项用离 0.5 的接近度（0.5 → 1，0 / 1 → 0）代替 1 − P
@@ -347,7 +355,7 @@ class TargetRewarder(Rewarder):
         if pc < (self.gate if self.gate_lo is None else self.gate_lo):
             if self.shape in ("boundary2", "boundary3"):
                 return {**out, "reward": self.base_fail, "qualified": False}
-            if self.shape in ("boundary4", "boundary5", "boundary6", "boundary7", "sev"):   # a9 / a10：保底按离真错多近给（用户同意）。a8 固定 0.1：81–100 步 86% 的样本拿保底、合格 22.5% → 13.4%，平均奖励反而升
+            if self.shape in ("boundary4", "boundary5", "boundary6", "boundary7", "sev", "gated", "add"):   # a9 / a10：保底按离真错多近给（用户同意）。a8 固定 0.1：81–100 步 86% 的样本拿保底、合格 22.5% → 13.4%，平均奖励反而升
                 return {**out, "reward": self.base_fail * pc / self.gate, "qualified": False}
             return {**out, "reward": 0.0 if self.shape in ("filter", "soft", "mult", "boundary") else 0.1 * pc, "qualified": False}
         if s.get("p_orig_halluc", 0.0) > self.orig_max:
