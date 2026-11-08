@@ -48,6 +48,8 @@ def main() -> None:
                     "且 错句 9B 判 P(错)≥hi_err，即「改写前无幻觉、改写后有幻觉」的独立确认；缺 9B 分的样本丢掉（2026-11-07，用户：宁丢多保精度）")
     ap.add_argument("--lo_clean", type=float, default=0.1, help="改写前：9B 判原句 P(错) 上限")
     ap.add_argument("--hi_err", type=float, default=0.7, help="改写后：9B 判错句 P(错) 下限")
+    ap.add_argument("--no_orig", action="store_true", help="只加错句（负样本），不配同位置原句（Aug-A：纯负样本注入，验证'合成风格捷径'风险；"
+                    "不加则默认每条错句配一条干净原句 = Aug-B 负+真正样本 1:1 平衡，2026-11-07）")
     a = ap.parse_args()
     fix: dict[str, str] = {}
     if a.ids:
@@ -95,7 +97,8 @@ def main() -> None:
             x["type"] = fix[x["id"]]
         g = "gh-" + str(x["source_id"])
         add.append(row(x["id"] + "-err", x["source"], x["context"], int(x["idx"]), RM1_OPT[x["type"]], x["task_type"], g, "harvest_error"))
-        add.append(row(x["id"] + "-orig", x["source"], x["sentences_orig"], int(x["idx"]), RM1_OPT["faithful"], x["task_type"], g, "harvest_original"))
+        if not a.no_orig:
+            add.append(row(x["id"] + "-orig", x["source"], x["sentences_orig"], int(x["idx"]), RM1_OPT["faithful"], x["task_type"], g, "harvest_original"))
     train = list(read_jsonl(base / "train.jsonl")) + add
     rng.shuffle(train)
     with open(d / "train.jsonl", "w", encoding="utf-8") as f:
@@ -105,7 +108,7 @@ def main() -> None:
         shutil.copy(base / sp, d / sp)
     meta = {**json.load(open(base / "meta.json", encoding="utf-8")), "harvest": a.harvest, "band": [a.lo, a.hi], "gate": a.gate, "min_nat": a.min_nat,
             "scores9b": a.scores9b or None, "lo_clean": a.lo_clean, "hi_err": a.hi_err,
-            "added_errors": len(keep), "per_source": a.per_source, "top_sources": a.top_sources, "sources": len({x["source_id"] for x in keep}), "ids_file": a.ids or None, "added_originals": len(keep), "base": a.base,
+            "added_errors": len(keep), "per_source": a.per_source, "top_sources": a.top_sources, "sources": len({x["source_id"] for x in keep}), "ids_file": a.ids or None, "added_originals": 0 if a.no_orig else len(keep), "no_orig": a.no_orig, "base": a.base,
             "added_by_type": dict(collections.Counter(x["type"] for x in keep)), "added_by_task": dict(collections.Counter(x["task_type"] for x in keep)),
             "added_bins": {f"{lo}-{hi}": sum(lo <= x["p_halluc"] < hi for x in keep) for lo, hi in ((0.0, 0.1), (0.1, 0.3), (0.3, 0.5), (0.5, 0.7), (0.7, 1.01))},
             "train": {"n": len(train), "label": dict(sorted(collections.Counter(r["label"] for r in train).items()))}}
