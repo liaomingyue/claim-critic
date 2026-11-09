@@ -189,7 +189,7 @@ r = h(critic P(有幻觉))
 
 ```bash
 pip install -r requirements.txt && pip install -e .
-python -m scripts.demo_tables               # 不需要 GPU：从 results/ 重出技术分享里的表 1–6
+python -m scripts.demo_tables               # 不需要 GPU：从 results/ 重出技术分享里的表 1–9
 PYTHONHASHSEED=0 python -m pytest -q        # 单测，不需要 GPU、不调用模型
 pip install -r requirements-gpu.txt         # GPU 端（训练 / vLLM），版本同训练机
 ```
