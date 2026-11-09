@@ -19,7 +19,8 @@
 
 | 部分 | 状态 |
 | --- | --- |
-| RAG GRPO：句子级奖励 R3 + 分段接着训 | ✅ 稳定有效。2B 回答含显然错 25.2%（SFT）→ 6.6%（第二段第 100 步） |
+| RAG GRPO：句子级奖励 R3 + 分段接着训 | ✅ 稳定有效。含显然错 25.2%（RAG-SFT）→ 9.8%（S1）→ 6.6%（S2）→ **4.7%（S3-bf）**；含任意错 35.8% → 10.4% |
+| **盲区驱动闭环：第一轮** | ✅ **有效**：补盲区的 critic（bfcl）接着训 RAG，含任意错 16.8% → 10.4%（对起点显著），无钻空子；第二轮进行中 |
 | critic 盲区分析：按 9 个细类统计 RAG 错误和 critic 漏判 | ✅ 已建立，每轮复用 |
 | 定向造错 → 核实 → 补进 critic | ✅ 跑通：补盲区 581 条，critic 显然错 AUC +0.029；只补范围偏移，该类型 AUC +0.030 |
 | 难样本合成：迭代式（GRPO ↔ 采样 ↔ SFT，大提示池温度 0） | 🔄 进行中。难样本（critic 0.1–0.5）产出还低，是当前主攻点 |
@@ -138,7 +139,7 @@
 
 | 模型 | 名字（adapters/） |
 | --- | --- |
-| RAG | rag-sft-core → mc-grpo-r3_core_coreonly → mc-grpo-r3_core_cont（当前最好）→ cont2 / cont3 |
+| RAG | RAG-SFT（rag-sft-core）→ RAG-S1 第 1 段强化（…_coreonly）→ RAG-S2 第 2 段（…_cont）→ RAG-S3-r2 / -r3 / **-bf**（第 3 段的三个平行尝试，…_cont2 / 3 / 4；-bf 当前最好）。命名对照见实验日志 11-09「RAG 模型统一命名」 |
 | critic | rm1__core → rm1__core_r1（+ 循环一采集）→ rm1__core_r2（+ Claude 核实的盲区 581）→ r3（+ 长句增强） |
 | 错误生成器 | gen-core-mc（v1）→ gen-v2-mc（v2：类型条件）→ gen-v2h / v2h2（难样本 SFT）→ g1（GRPO）→ v2h3 |
 | 打分 | sev__v3c0、rm2__v3b、sat_pair__core、refuse__core |

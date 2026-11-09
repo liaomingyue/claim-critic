@@ -140,7 +140,10 @@ def main() -> None:
     ap.add_argument("--temperature", type=float, default=1.0, help="answers：RAG 回答的采样温度")
     ap.add_argument("--concurrency", type=int, default=64)
     ap.add_argument("--thr", type=float, default=0.1, help="clean：critic P(有幻觉) < thr 的句子算干净")
+    ap.add_argument("--out_dir", default="rag_pool", help="outputs/rt/gen_v2_grpo/ 下的目录（第二轮 rag_pool_r2）")
     a = ap.parse_args()
+    global O
+    O = O.parent / a.out_dir
     {"answers": cmd_answers, "clean": cmd_clean}[a.cmd](a)
 
 

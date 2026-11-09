@@ -10,6 +10,7 @@ results/ 里每个文件的来源：
   critic_cap_*.json   ragtruth.critic_cap3：critic 在 Claude 金标三套验收上（去拒答 2061 句 / 显然错 179）的 AUC、召回，按原文 bootstrap
   gen_probe.json      ragtruth.gen_v2_grpo probe：错误生成器各版本在 64 个留出提示 × 32 上的试采漏斗
   blind_check.json    ragtruth.gen_v2_label：盲区候选每类 10 条的 Claude 核实
+  loop2_cont4_cmp.json ragtruth.pol9b_cmp：第一轮闭环（补盲区的 critic 接着训 RAG，RAG-S3-bf）和之前各段 RAG 的对比
 有原始数据包（scripts.pack_data）和打分文件时，可用上面的模块从头重算这些 JSON。
 """
 from __future__ import annotations
@@ -131,7 +132,21 @@ def t6() -> str:
     return "\n".join(out)
 
 
-TABLES = [t1, t2, t3, t4, t5, t6]
+def t7() -> str:
+    d = load("loop2_cont4_cmp.json")
+    rows = [("sft", "RAG-SFT"), ("core200", "RAG-S1 第 1 段强化"), ("cont100", "RAG-S2 第 2 段强化"), ("cont2_100", "RAG-S3-r2（critic r2）"),
+            ("cont3_100", "RAG-S3-r3（critic r3）"), ("cont4_100", "RAG-S3-bf（补过盲区的 critic，第一轮闭环）")]
+    out = [f"### 表 7 闭环转了一圈：RAG 继续变好（{d['answers_paired']} 条配对回答 / {d['sources']} 原文）", "",
+           "| RAG 模型 | 含显然错 | 显然错句 / 条 | 含任意错 | 拒答 | 句数 |", "|---|---|---|---|---|---|"]
+    for k, n in rows:
+        a = d["arms"][k]["all"]
+        out.append(f"| {n} | {a['any_clear']:.1%} | {a['clear']:.3f} | {a['any_err']:.1%} | {a['refuse']:.1%} | {a['sents']:.2f} |")
+    p = d["pairs"]["cont4_v0->cont4_100"]
+    out += ["", f"- 对自己的起点（RAG-S2 同一次重新生成）：含显然错 {ci(p['any_clear'], 100, 1)} 个点，显然错句 {ci(p['clear'])}，含任意错 {ci(p['any_err'], 100, 1)} 个点"]
+    return "\n".join(out)
+
+
+TABLES = [t1, t2, t3, t4, t5, t6, t7]
 
 
 def main() -> None:
