@@ -10,7 +10,9 @@ results/ 里每个文件的来源：
   critic_cap_*.json   ragtruth.critic_cap3：critic 在 Claude 金标三套验收上（去拒答 2061 句 / 显然错 179）的 AUC、召回，按原文 bootstrap
   gen_probe.json      ragtruth.gen_v2_grpo probe：错误生成器各版本在 64 个留出提示 × 32 上的试采漏斗
   blind_check.json    ragtruth.gen_v2_label：盲区候选每类 10 条的 Claude 核实
-  loop2_cont4_cmp.json ragtruth.pol9b_cmp：第一轮闭环（补盲区的 critic 接着训 RAG，RAG-S3-bf）和之前各段 RAG 的对比
+  critic_cap_blindfill*.json  ragtruth.critic_cap3：多类型一起补盲，核实组 / 不核实组（相对 r2，以及两组之差）
+  loop2_cont4_cmp.json / loop2_cont5_ctl_cmp.json  ragtruth.pol9b_cmp：第一轮闭环（RAG-S3-bf）、对照（奖励模型不换的 RAG-S3-r1）
+  loop2_cont6_cmp.json / critic_cap_rd2.json  第二轮闭环（RAG-S4-rd2）和第二轮 critic 的静态评测
 有原始数据包（scripts.pack_data）和打分文件时，可用上面的模块从头重算这些 JSON。
 """
 from __future__ import annotations
@@ -132,21 +134,62 @@ def t6() -> str:
     return "\n".join(out)
 
 
+def _views():
+    return [("clear", "显然错"), ("any", "任意错"), ("type:certainty_or_scope_shift", "范围偏移"), ("type:near_synonym_shift", "近义偏移"),
+            ("type:wrong_attribution", "张冠李戴"), ("type:merged_across_passages", "跨段拼接"), ("type:contradicts_source", "直接矛盾")]
+
+
+def _d(x):
+    return f"{x['d']:+.3f} [{x['dlo']:+.3f}, {x['dhi']:+.3f}]"
+
+
 def t7() -> str:
-    d = load("loop2_cont4_cmp.json")
+    d, cn = load("critic_cap_blindfill.json"), load("critic_cap_blindfill_clnc.json")
+    out = ["### 表 7 多类型一起补，要不要人工核实（AUC 相对 r2 的变化 [90%]）", "",
+           "| 口径 | r2 的 AUC | 核实组 cl | 不核实组 nc | cl − nc |", "|---|---|---|---|---|"]
+    for v, n in _views():
+        if v not in d:
+            continue
+        r = d[v]
+        out.append(f"| {n} | {r['rm1__core_r2']['auc']:.3f} | {_d(r['rm1__core_r2_bfcl'])} | {_d(r['rm1__core_r2_bfnc'])} | {_d(cn[v]['rm1__core_r2_bfcl'])} |")
+    return "\n".join(out)
+
+
+def t8() -> str:
+    d, c = load("loop2_cont4_cmp.json"), load("loop2_cont5_ctl_cmp.json")
     rows = [("sft", "RAG-SFT"), ("core200", "RAG-S1 第 1 段强化"), ("cont100", "RAG-S2 第 2 段强化"), ("cont2_100", "RAG-S3-r2（critic r2）"),
             ("cont3_100", "RAG-S3-r3（critic r3）"), ("cont4_100", "RAG-S3-bf（补过盲区的 critic，第一轮闭环）")]
-    out = [f"### 表 7 闭环转了一圈：RAG 继续变好（{d['answers_paired']} 条配对回答 / {d['sources']} 原文）", "",
+    out = [f"### 表 8 闭环转了一圈：RAG 继续变好（{d['answers_paired']} 条配对回答 / {d['sources']} 原文）", "",
            "| RAG 模型 | 含显然错 | 显然错句 / 条 | 含任意错 | 拒答 | 句数 |", "|---|---|---|---|---|---|"]
     for k, n in rows:
         a = d["arms"][k]["all"]
         out.append(f"| {n} | {a['any_clear']:.1%} | {a['clear']:.3f} | {a['any_err']:.1%} | {a['refuse']:.1%} | {a['sents']:.2f} |")
-    p = d["pairs"]["cont4_v0->cont4_100"]
-    out += ["", f"- 对自己的起点（RAG-S2 同一次重新生成）：含显然错 {ci(p['any_clear'], 100, 1)} 个点，显然错句 {ci(p['clear'])}，含任意错 {ci(p['any_err'], 100, 1)} 个点"]
+    a = c["arms"]["r1_100"]["all"]
+    out.append(f"| 对照 RAG-S3-r1（从 S2 出发、奖励模型不换、同样 100 步） | {a['any_clear']:.1%} | {a['clear']:.3f} | {a['any_err']:.1%} | {a['refuse']:.1%} | {a['sents']:.2f} |")
+    p, q = d["pairs"]["cont4_v0->cont4_100"], c["pairs"]["r1_100->bf_100"]
+    out += ["", f"- S3-bf 对自己的起点：含显然错 {ci(p['any_clear'], 100, 1)} 个点，显然错句 {ci(p['clear'])}，含任意错 {ci(p['any_err'], 100, 1)} 个点",
+            f"- S3-bf 对同样多训 100 步、奖励模型不换的 S3-r1：含显然错 {ci(q['any_clear'], 100, 1)} 个点，含任意错 {ci(q['any_err'], 100, 1)} 个点"]
     return "\n".join(out)
 
 
-TABLES = [t1, t2, t3, t4, t5, t6, t7]
+def t9() -> str:
+    d, cr = load("loop2_cont6_cmp.json"), load("critic_cap_rd2.json")
+    rows = [("s2", "RAG-S2"), ("s3bf", "RAG-S3-bf（第一轮）"), ("s4_v0", "S4 起点（S3-bf 重新生成）"), ("s4_50", "S4 第 50 步"), ("s4_100", "RAG-S4-rd2 第 100 步（第二轮）")]
+    out = [f"### 表 9 第二轮闭环：收益递减（{d['answers_paired']} 条配对回答）", "",
+           "| RAG 模型 | 含显然错 | 显然错句 / 条 | 含任意错 | 句数 |", "|---|---|---|---|---|"]
+    for k, n in rows:
+        a = d["arms"][k]["all"]
+        out.append(f"| {n} | {a['any_clear']:.1%} | {a['clear']:.3f} | {a['any_err']:.1%} | {a['sents']:.2f} |")
+    p = d["pairs"]["s4_v0->s4_100"]
+    out += ["", f"- S4 对自己的起点：含显然错 {ci(p['any_clear'], 100, 1)} 个点，含任意错 {ci(p['any_err'], 100, 1)} 个点",
+            "", "第二轮 critic（rd2）相对第一轮（bfcl）的 AUC 变化：", "", "| 口径 | bfcl | rd2 | 变化 [90%] |", "|---|---|---|---|"]
+    for v, n in _views():
+        if v in cr:
+            out.append(f"| {n} | {cr[v]['rm1__core_r2_bfcl']['auc']:.3f} | {cr[v]['rm1__core_rd2']['auc']:.3f} | {_d(cr[v]['rm1__core_rd2'])} |")
+    return "\n".join(out)
+
+
+TABLES = [t1, t2, t3, t4, t5, t6, t7, t8, t9]
 
 
 def main() -> None:
