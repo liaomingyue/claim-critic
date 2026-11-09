@@ -1,0 +1,10 @@
+# L0（不需要 GPU）：单测 + 从 results/ 重出技术分享里的表格 + 调 Claude / OpenAI 兼容接口的数据脚本
+#   pip install -r requirements.txt && pip install -e . && python -m scripts.demo_tables
+# 版本 = 本机（Windows，Python 3.10）实际用过的版本
+numpy==2.2.6
+PyYAML==6.0.3
+openai==3.36.1
+anthropic==2.1.0
+paramiko==5.1.0
+requests==2.34.2
+pytest==9.1.1

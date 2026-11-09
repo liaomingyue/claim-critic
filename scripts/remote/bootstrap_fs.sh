@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 2026-11-05：共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -108,6 +108,7 @@ case $ROLE in
   v3c) CODE=$R bash $S/run_v3c.sh; rc=$? ;;   # 2026-11-09：sev 补范围偏移 + 矛盾放宽（v3c / v3c0）
   gengrpo) CODE=$R bash $S/run_gengrpo.sh; rc=$? ;;   # 2026-11-09：生成器 v2 GRPO（sev 奖励，自然度 / critic 门槛），单卡
   scopeno) CODE=$R bash $S/run_scope_noorig.sh; rc=$? ;;   # 2026-11-09：范围偏移不配原句
+  blindfill2) CODE=$R bash $S/run_blind_fill2.sh; rc=$? ;;   # 2026-11-09：补 critic 盲区第二台（g1 采样 + nc 组 critic）
   gengrpoh) CODE=$R bash $S/run_gengrpo_hard.sh; rc=$? ;;   # 2026-11-09：生成器 GRPO，critic 难度主奖励（ge / ge2）
   r2) CODE=$R bash $S/run_r2.sh; rc=$? ;;   # 2026-11-06：Claude 核验过的盲区 / 边界真错 → rm1__core_r2   # 2026-11-06：接着第一轮 GRPO（只种子集组第 200 步）用 rm1__core_r1 再训 100 步
   worker4|worker5) CODE=$R bash $S/run_worker2.sh; rc=$? ;;

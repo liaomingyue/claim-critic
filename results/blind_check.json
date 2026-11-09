@@ -1,0 +1,797 @@
+{
+"note": "critic 0.1-0.5, RM2>=0.5, sev P(err)>=0.5; 10 per requested type; Claude claude-opus-5-5",
+"rows": [
+{
+"mechanism": "number_or_date",
+"p_err": 0.5033099482913046,
+"p_halluc": 0.4692547260433364,
+"severity": "minor",
+"actual": "unsupported_inference",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.7264147499071589,
+"p_halluc": 0.3035995124382041,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "no"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.5169110183442573,
+"p_halluc": 0.1449698886996493,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.9617381951630304,
+"p_halluc": 0.34127136863838164,
+"severity": "clear",
+"actual": "wrong_attribution",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.5281865927761313,
+"p_halluc": 0.35628374878914826,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.6713540879134541,
+"p_halluc": 0.3562837639781099,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.5639725719480134,
+"p_halluc": 0.34411032138945574,
+"severity": "clear",
+"actual": "number_or_date",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.672718567355063,
+"p_halluc": 0.37779028691027305,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.507524358364896,
+"p_halluc": 0.2691604135389958,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.9373623287773312,
+"p_halluc": 0.17983638577174776,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.5173790465525259,
+"p_halluc": 0.4357823343179721,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.5495114687145923,
+"p_halluc": 0.1644416251082699,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.9035470014973199,
+"p_halluc": 0.4862153455701879,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.9459603650390928,
+"p_halluc": 0.36237863516183116,
+"severity": "clear",
+"actual": "contradicts_source",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.52930301230745,
+"p_halluc": 0.3760669421744536,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.7388524972128265,
+"p_halluc": 0.16946473797428127,
+"severity": "minor",
+"actual": "wrong_attribution",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.8470255981234363,
+"p_halluc": 0.13149245490187045,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.9497319975367611,
+"p_halluc": 0.14727425282655082,
+"severity": "clear",
+"actual": "merged_across_passages",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.6850345282972388,
+"p_halluc": 0.18063881739481796,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.5053272873838803,
+"p_halluc": 0.40615829256636615,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.6847178137551466,
+"p_halluc": 0.17442380152410292,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.5108878013125385,
+"p_halluc": 0.392288115730157,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.5482254806075423,
+"p_halluc": 0.12550218931221066,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.5525752868702072,
+"p_halluc": 0.17602170241251228,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.5636316641859875,
+"p_halluc": 0.12590623515942106,
+"severity": "clear",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.9118305748294744,
+"p_halluc": 0.2343208821037167,
+"severity": "clear",
+"actual": "number_or_date",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.6493702917969457,
+"p_halluc": 0.11381125691292976,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.8574004095252077,
+"p_halluc": 0.3406665312187092,
+"severity": "minor",
+"actual": "merged_across_passages",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.7513406963558711,
+"p_halluc": 0.22810277438557014,
+"severity": "minor",
+"actual": "wrong_attribution",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.8706727729031564,
+"p_halluc": 0.3951959115864685,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.5367604061963165,
+"p_halluc": 0.34494053270118585,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.9684984332275849,
+"p_halluc": 0.40920508055540444,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.762025485042822,
+"p_halluc": 0.41584998001280715,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.9477403622201845,
+"p_halluc": 0.31090464961748865,
+"severity": "minor",
+"actual": "unsupported_inference",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.5281865809256828,
+"p_halluc": 0.18126387215474374,
+"severity": "clear",
+"actual": "contradicts_source",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.6748849149307964,
+"p_halluc": 0.3909114960261678,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.521489807865486,
+"p_halluc": 0.17444562848732445,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "no"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.6939628032082241,
+"p_halluc": 0.11924523524394248,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.9013966907943598,
+"p_halluc": 0.29539824815574767,
+"severity": "clear",
+"actual": "wrong_attribution",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.5026951904331727,
+"p_halluc": 0.29970884302467393,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.6470369605010541,
+"p_halluc": 0.2623345290824163,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.6570370938989536,
+"p_halluc": 0.13797404007648828,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.5619441173825728,
+"p_halluc": 0.13797403871543856,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.768640684146545,
+"p_halluc": 0.2533974029526939,
+"severity": "minor",
+"actual": "vague_evaluation_or_addon",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.5620603733004828,
+"p_halluc": 0.42867397912200184,
+"severity": "clear",
+"actual": "contradicts_source",
+"matches": false,
+"natural": "no"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.7264147453121199,
+"p_halluc": 0.26664252881617273,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.7252647026615706,
+"p_halluc": 0.17208011692063507,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.7978523495643015,
+"p_halluc": 0.2899990266134703,
+"severity": "minor",
+"actual": "added_specific_fact",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.6030978597857487,
+"p_halluc": 0.33534168928798846,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.8340585815027559,
+"p_halluc": 0.36615183270962315,
+"severity": "minor",
+"actual": "merged_across_passages",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.6174185598857704,
+"p_halluc": 0.2398716810040954,
+"severity": "minor",
+"actual": "number_or_date",
+"matches": true,
+"natural": "no"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.7031848409373681,
+"p_halluc": 0.35849965486910307,
+"severity": "clear",
+"actual": "contradicts_source",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.6012649896522267,
+"p_halluc": 0.2952595190689587,
+"severity": "minor",
+"actual": "vague_evaluation_or_addon",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.8305910654223587,
+"p_halluc": 0.4891734371377742,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.9091049512330774,
+"p_halluc": 0.3478470780388594,
+"severity": "clear",
+"actual": "added_specific_fact",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.5980631476685234,
+"p_halluc": 0.41584999106659465,
+"severity": "minor",
+"actual": "merged_across_passages",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.5254805367517448,
+"p_halluc": 0.2806424014477182,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.6894572033149193,
+"p_halluc": 0.49100722858459644,
+"severity": "minor",
+"actual": "wrong_attribution",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.7508364125995466,
+"p_halluc": 0.1379740387636716,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.8762719371774396,
+"p_halluc": 0.11738757694640764,
+"severity": "minor",
+"actual": "wrong_attribution",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.8046193972231854,
+"p_halluc": 0.3194953039243803,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.5187518675062922,
+"p_halluc": 0.4730401728680136,
+"severity": "clear",
+"actual": "wrong_attribution",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.5002292082243588,
+"p_halluc": 0.11738758237856242,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.8710617708002423,
+"p_halluc": 0.4745025995312458,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.7838927845782059,
+"p_halluc": 0.3732929839819546,
+"severity": "minor",
+"actual": "merged_across_passages",
+"matches": true,
+"natural": "no"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.7152164409131397,
+"p_halluc": 0.4785635403973602,
+"severity": "minor",
+"actual": "wrong_attribution",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.6420268122716308,
+"p_halluc": 0.432665645110176,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": false,
+"natural": "no"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.8993841826119395,
+"p_halluc": 0.31502816747259954,
+"severity": "minor",
+"actual": "contradicts_source",
+"matches": true,
+"natural": "no"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.663848493552116,
+"p_halluc": 0.18646210518440492,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.7618078366975012,
+"p_halluc": 0.16658180668415534,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.5791140069080559,
+"p_halluc": 0.1828983501027574,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.8629543693217292,
+"p_halluc": 0.4961622211367186,
+"severity": "clear",
+"actual": "wrong_attribution",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.576048425297812,
+"p_halluc": 0.16393632600514157,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "certainty_or_scope_shift",
+"p_err": 0.6274134862782011,
+"p_halluc": 0.19807196915185027,
+"severity": "minor",
+"actual": "unsupported_inference",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.9692561289422055,
+"p_halluc": 0.12732587737204484,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "contradicts_source",
+"p_err": 0.8869648459193438,
+"p_halluc": 0.22810277632903367,
+"severity": "minor",
+"actual": "wrong_attribution",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.5067379247201064,
+"p_halluc": 0.10985826856542427,
+"severity": "minor",
+"actual": "vague_evaluation_or_addon",
+"matches": true,
+"natural": "no"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.6968769160502729,
+"p_halluc": 0.3623786249601493,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.9297080308464168,
+"p_halluc": 0.47764623391589595,
+"severity": "minor",
+"actual": "number_or_date",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.7030293608755793,
+"p_halluc": 0.10918505612347064,
+"severity": "minor",
+"actual": "vague_evaluation_or_addon",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "number_or_date",
+"p_err": 0.6639135544859285,
+"p_halluc": 0.30093850023459445,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.609491125183426,
+"p_halluc": 0.481730138955907,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "added_specific_fact",
+"p_err": 0.7701815946897864,
+"p_halluc": 0.14235078516425828,
+"severity": "minor",
+"actual": "contradicts_source",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "unsupported_inference",
+"p_err": 0.6427102346346857,
+"p_halluc": 0.4514819699588938,
+"severity": "minor",
+"actual": "unsupported_inference",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "merged_across_passages",
+"p_err": 0.607801953277607,
+"p_halluc": 0.14010576403101402,
+"severity": "none",
+"actual": "none",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "near_synonym_shift",
+"p_err": 0.8192882868195118,
+"p_halluc": 0.23202545751865744,
+"severity": "minor",
+"actual": "near_synonym_shift",
+"matches": true,
+"natural": "yes"
+},
+{
+"mechanism": "vague_evaluation_or_addon",
+"p_err": 0.9288004468201184,
+"p_halluc": 0.44020310775567784,
+"severity": "clear",
+"actual": "wrong_attribution",
+"matches": false,
+"natural": "yes"
+},
+{
+"mechanism": "wrong_attribution",
+"p_err": 0.9326137660910808,
+"p_halluc": 0.31949530835576806,
+"severity": "minor",
+"actual": "certainty_or_scope_shift",
+"matches": false,
+"natural": "yes"
+}
+]
+}
