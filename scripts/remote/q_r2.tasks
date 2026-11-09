@@ -1,7 +1,14 @@
 # 第二轮闭环任务队列（2026-11-09）：名字|依赖|命令；同时可领的任务按行序优先（闭环主线在前，sev / RM2 垫底）
+# 用户 2026-11-09：critic2 完成后用它接着训 RAG → rag_s4（RAG-S4-rd2，从 S3-bf 出发）
+# 用户 2026-11-09：对照 RAG-S3-r1（从 S2 接着训、奖励模型不换）→ rag_s3r1
+# 用户 2026-11-09：其他 5 种类型也适度补一些（每类 60）→ sampx_*；select / critic2 改为 9 种类型（r2_task_b.sh）
 pool|file:/root/autodl-fs/adapters/mc-grpo-r3_core_cont4/step100|bash scripts/remote/r2_task.sh pool
 samp_v2h3|pool|bash scripts/remote/r2_task.sh samp_v2h3
 samp_g1|pool|bash scripts/remote/r2_task.sh samp_g1
-select|samp_v2h3,samp_g1|bash scripts/remote/r2_task.sh select
-critic2|file:outputs/rt/gen_v2_grpo/blind_fill_r2/labels.jsonl|bash scripts/remote/r2_task.sh critic2
+sampx_v2h3|pool|bash scripts/remote/r2_task_b.sh sampx_v2h3
+sampx_g1|pool|bash scripts/remote/r2_task_b.sh sampx_g1
+select|samp_v2h3,samp_g1,sampx_v2h3,sampx_g1|bash scripts/remote/r2_task_b.sh select
+critic2|file:outputs/rt/gen_v2_grpo/blind_fill_r2/labels.jsonl|bash scripts/remote/r2_task_b.sh critic2
+rag_s3r1||bash scripts/remote/run_rag_ctl.sh
+rag_s4|critic2|bash scripts/remote/run_rag_s4.sh
 sevrm2||bash scripts/remote/r2_task.sh sevrm2
