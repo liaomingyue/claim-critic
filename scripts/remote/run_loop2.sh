@@ -34,6 +34,8 @@ EOF
 fi
 log "R3 GRPO arm $ARM: init $INIT critic ${CRITIC:?} steps ${STEPS:-200}"
 SRC=$P INIT=$INIT CRITIC=$CRITIC SAT=${SAT:-sat_pair__core} REFUSE=${REFUSE:-refuse__core} STEPS=${STEPS:-200} EVAL_STEPS="${EVAL_STEPS:-50 100 200}" EVAL_V0=${EVAL_V0:-1} \
-  TAG=_core_$ARM O=$C/loop2_$ARM bash $S/run_r3full.sh >> $LOG 2>&1
+  TAG=_core_$ARM O=${O_LOCAL:-$C/loop2_$ARM} bash $S/run_r3full.sh >> $LOG 2>&1
+# 2026-11-09 用户：训练只读写本地盘（O_LOCAL），结束后整份同步到共享盘
+[ -n "${O_LOCAL:-}" ] && mkdir -p $C/loop2_$ARM && rsync -a $O_LOCAL/ $C/loop2_$ARM/ && log "synced $O_LOCAL -> $C/loop2_$ARM"
 grep -a "R3FULL_DONE\|FAILED" $A/r3full_core_$ARM.log | tail -3
 log "LOOP2_DONE $ARM"

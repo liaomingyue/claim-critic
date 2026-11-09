@@ -37,6 +37,18 @@ def write(p: Path, rows: list[dict]) -> None:
     p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
 
 
+def configure(a) -> None:
+    """第二轮起（2026-11-09 用户：开始第二轮，看能不能迭代式上升）：目录、提示池、要核实的类型可换。"""
+    global B, POOLS, VERIFY, CONTROL
+    B = O / a.round
+    if a.pools:
+        POOLS = dict(x.split("=", 1) for x in a.pools)
+    if a.verify is not None:
+        VERIFY = {k: int(v) for k, v in (x.split("=") for x in a.verify)}
+    if a.control is not None:
+        CONTROL = {k: int(v) for k, v in (x.split("=") for x in a.control)}
+
+
 def load_pools() -> list[dict]:
     return [{**r, "id": f"{t}:{r['id']}", "resp_id": f"{t}:{r['resp_id']}"} for t, f in POOLS.items() for r in read_jsonl(O / f)]
 
@@ -100,6 +112,11 @@ def cmd_select(a) -> None:
     items, stat = [], {}
     for m, n in {**VERIFY, **CONTROL}.items():
         xs = sorted(by[m], key=lambda x: (-x["p_err"], x["id"], x["sentence"]))
+        if a.strat:   # 第二轮：一半取 sev 最高的（≥ 0.9），一半从 0.5–0.9 的难段随机取（第一轮只取最高的，盲区里最好认的那批，区分度提升小）
+            hi_ = [x for x in xs if x["p_err"] >= 0.9]
+            lo_ = [x for x in xs if x["p_err"] < 0.9]
+            random.Random(f"blind_fill|strat|{m}").shuffle(lo_)
+            xs = [y for pair in zip(hi_, lo_) for y in pair] + hi_[len(lo_):] + lo_[len(hi_):]   # 交替取，任一段不够时用另一段补
         per, pick = collections.Counter(), []
         for x in xs:
             sid = source_of(x["resp_id"])
@@ -109,7 +126,8 @@ def cmd_select(a) -> None:
             pick.append(x)
             if len(pick) >= n:
                 break
-        stat[m] = {"cand": len(xs), "picked": len(pick), "sev_min": round(pick[-1]["p_err"], 3) if pick else None}
+        stat[m] = {"cand": len(xs), "picked": len(pick), "sev_min": round(min(x["p_err"] for x in pick), 3) if pick else None,
+                   "picked_sev_lt_0.9": sum(x["p_err"] < 0.9 for x in pick)}
         for x in pick:
             p = prompts[x["id"]]
             ctx = list(p["sentences"])
@@ -136,14 +154,15 @@ def cmd_build(a) -> None:
             "nc_real": sum(lab[k].get("severity") in ("clear", "minor") for k in ctl_nc), "nc_good": len(set(ctl_nc) & set(ctl_cl)),
             "by_mech": {m: {"labeled": sum(it[k]["mechanism"] == m for k in lab), "good": sum(it[k]["mechanism"] == m and good(k) for k in lab),
                             "real": sum(it[k]["mechanism"] == m and lab[k].get("severity") in ("clear", "minor") for k in lab)} for m in {**VERIFY, **CONTROL}}}
-    for arm, keys in (("cl", ver + ctl_cl), ("nc", ver + ctl_nc)):
+    arms = (("cl", ver + ctl_cl), ("nc", ver + ctl_nc)) if CONTROL else (("cl", ver),)
+    for arm, keys in arms:
         add = []
         for k in keys:
             x, c = it[k], lab[k]
             t = c.get("type") if c.get("type") in ("conflict", "baseless") and (arm == "cl" or k in ver) else "conflict"
             sid = source_of(x["resp_id"])
             add.append(row(k.replace("/", "_").replace(":", "_") + "-err", x["source"], x["context"], int(x["idx"]), RM1_OPT[t], x["task_type"], "bf-" + sid, f"blind_fill_{arm}_error"))
-        base, d = OUT / a.base, OUT / f"{a.base}_bf{arm}"
+        base, d = OUT / a.base, OUT / (a.name or f"{a.base}_bf{arm}")
         d.mkdir(parents=True, exist_ok=True)
         train = list(read_jsonl(base / "train.jsonl")) + add
         random.Random(f"blind_fill|{arm}|shuffle").shuffle(train)
@@ -167,7 +186,14 @@ def main() -> None:
     ap.add_argument("--concurrency", type=int, default=128)
     ap.add_argument("--per_source", type=int, default=3)
     ap.add_argument("--base", default="rm1__core_r2")
+    ap.add_argument("--round", default="blind_fill", help="outputs/rt/gen_v2_grpo/ 下的目录（第二轮 blind_fill_r2）")
+    ap.add_argument("--pools", nargs="*", default=None, help="前缀=提示池文件（O 下），如 g=rag_pool_r2/prompts.jsonl")
+    ap.add_argument("--verify", nargs="*", default=None, help="类型=条数：全部交 Claude、只留核实过的")
+    ap.add_argument("--control", nargs="*", default=None, help="类型=条数：核实 vs 不核实对照（空 = 不做对照）")
+    ap.add_argument("--strat", action="store_true", help="select：一半 sev ≥ 0.9、一半 0.5–0.9")
+    ap.add_argument("--name", default="", help="build：新 critic 的名字（默认 <base>_bf<arm>）")
     a = ap.parse_args()
+    configure(a)
     {"sample": cmd_sample, "select": cmd_select, "build": cmd_build}[a.cmd](a)
 
 
