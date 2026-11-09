@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 2026-11-05：共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -101,6 +101,14 @@ case $ROLE in
   loop2co) CODE=$R bash $S/run_loop2co.sh; rc=$? ;;   # 2026-11-06：循环二「只核心集」组（第二台并行）
   loop2cont) CODE=$R bash $S/run_loop2cont.sh; rc=$? ;;
   r3) CODE=$R bash $S/run_r3.sh; rc=$? ;;   # 2026-11-07：长句 / 列表句增强 → rm1__core_r3，再用它接着训 100 步
+  gen9b) CODE=$R bash $S/run_gen9b.sh; rc=$? ;;   # 2026-11-08：同一份种子集训 9B 错误改写模型 + 在 2B 抽检过的提示上采样
+  sevfilter) CODE=$R bash $S/run_sevfilter.sh; rc=$? ;;   # 2026-11-08：sev__core 当过滤器的精确率（对 Claude 审计结论）
+  sevgen) CODE=$R bash $S/run_sevgen.sh; rc=$? ;;   # 2026-11-08：sev 第二版（生成器真实输出 + Claude 统一审计）训练 + 新旧逐条打分
+  sevvar) CODE=$R bash $S/run_sevvar.sh; rc=$? ;;   # 2026-11-08：sev 变体（改动标记 / 不给解释）
+  v3c) CODE=$R bash $S/run_v3c.sh; rc=$? ;;   # 2026-11-09：sev 补范围偏移 + 矛盾放宽（v3c / v3c0）
+  gengrpo) CODE=$R bash $S/run_gengrpo.sh; rc=$? ;;   # 2026-11-09：生成器 v2 GRPO（sev 奖励，自然度 / critic 门槛），单卡
+  scopeno) CODE=$R bash $S/run_scope_noorig.sh; rc=$? ;;   # 2026-11-09：范围偏移不配原句
+  gengrpoh) CODE=$R bash $S/run_gengrpo_hard.sh; rc=$? ;;   # 2026-11-09：生成器 GRPO，critic 难度主奖励（ge / ge2）
   r2) CODE=$R bash $S/run_r2.sh; rc=$? ;;   # 2026-11-06：Claude 核验过的盲区 / 边界真错 → rm1__core_r2   # 2026-11-06：接着第一轮 GRPO（只种子集组第 200 步）用 rm1__core_r1 再训 100 步
   worker4|worker5) CODE=$R bash $S/run_worker2.sh; rc=$? ;;
   worker6|worker7) CODE=$R bash $S/run_worker3.sh; rc=$? ;;   # 2026-11-05：SFT 上限 / 被钻空子 / nat1500 200 步（q4 队列）

@@ -1,393 +1,203 @@
-# claim-critic（RAGTruth 主线，loop-v1）
+# claim-critic：RAG 逐句幻觉 critic 与「盲区驱动」的迭代优化闭环
 
-RAG 回答的逐句幻觉检测 critic，加两条循环：错误改写模型造边界错误来扩充 critic，critic 再当奖励训练 RAG 回答模型。
+对 RAG 回答做逐句幻觉检测的 critic（判每句话有没有原文依据），并用它驱动一个闭环：
 
-整个项目只有一个起始数据集：**2B 自己写的 RAG 回答 + Claude 逐句改对和标注**（下称核心集）。其余数据集都从它派生，训练用的模型全部是 MiniCPM5-2B（下称 2B）。
+- critic 当奖励训练 RAG 回答模型；
+- 再按错误类型分析 RAG 输出和 critic 的盲区；
+- 针对盲区合成难样本、核实后补进 critic；
+- 用更好的 critic 从上一轮的 RAG 模型接着训。
 
-> 本文是待确认的设计稿（2026-11-06），逐节确认的网页版：https://claude.ai/artifact/NneTnoimA1aoWUZZxgvqNE 。
-> 标「已有」的是现有代码和数据；标「新增」的要按本文新写或新标注。
+训练的全部模型都是 MiniCPM5-2B（下称 2B）+ LoRA。Qwen3.5-9B 金标 critic 只用于评测，不进奖励、不筛训练数据。Claude（claude-opus-5-5）代替人工，负责标注、核实和最终验收。
 
-- 提示词原文：[docs/prompts.md](docs/prompts.md)（`python -m scripts.dump_prompts` 从代码导出）
-- 结果与结论：[docs/results.md](docs/results.md)；完整实验记录：[docs/experiment_log.md](docs/experiment_log.md)
-- 金标标注规范：[docs/gold_standard.md](docs/gold_standard.md)；生成器 GRPO 设计：[docs/gen_grpo.md](docs/gen_grpo.md)
+- 技术分享（做了什么、哪些有效、踩过的坑）：[docs/tech_share.md](docs/tech_share.md)
+- 完整实验记录：[docs/experiment_log.md](docs/experiment_log.md)
+- 结果汇总（截至 11-04）：[docs/results.md](docs/results.md)
+- 提示词原文：[docs/prompts.md](docs/prompts.md)
+- 金标规范：[docs/gold_standard.md](docs/gold_standard.md)
 
-## 总览
+## 现状（2026-11-09）
 
-| 角色 | 模型 | 用在哪 |
-| --- | --- | --- |
-| 训练的全部模型 | MiniCPM5-2B + LoRA | 回答、错误改写、critic、各打分模型 |
-| 评测和监控 | Qwen3.5-9B 金标 critic | 只打分，不进奖励，不筛训练数据 |
-| 标注和验收 | Claude（claude-opus-5-5） | 核心集标注、sev 单独标注、最终验收 |
-
-```
-第一步 2B 写回答 ──► 第二步 Claude 改对 + 标注 ──► 核心集 ──► 第三步 派生 D1–D9 ──► 第五步 训练各模型
-                                                              │
-                         第四步 sev 单独标注（改写模型 v0 的输出）┘
-循环一（错误合成）：改写模型 GRPO ─► 采集边界错句 ─► critic 重训 ─┐
-循环二（RAG 生成）：RAG SFT ─► GRPO（critic + 满意度 + 拒答 + 硬规则）◄┘
-```
-
-每个结果都写明阶段（RAG 生成 / 错误合成 / critic 评测）、数据来源和模型。全部运行 `PYTHONHASHSEED=0` + 固定种子，按原文切分用固定字符串种子，重跑得到同样的数据。
-
-## 第一步：选 base 模型、调提示词、生成回答（RAG 生成，已有）
-
-结论：base 模型是 MiniCPM5-2B，关闭思考，QA 加一句系统提示；在 831 个训练原文上得到 807 条回答。
-
-**1.1 base 模型**
-
-| 项 | 取值 |
+| 部分 | 状态 |
 | --- | --- |
-| 模型 | openbmb/MiniCPM5-2B，提交 f974000，权重 SHA-256 核对过 |
-| 初始策略 | `mc-init`：零初始化 LoRA，输出等于基座 |
-| 思考 | 关闭（`enable_thinking=False`）。开思考每条约 813 token，关闭约 81 token |
+| RAG GRPO：句子级奖励 R3 + 分段接着训 | ✅ 稳定有效。2B 回答含显然错 25.2%（SFT）→ 6.6%（第二段第 100 步） |
+| critic 盲区分析：按 9 个细类统计 RAG 错误和 critic 漏判 | ✅ 已建立，每轮复用 |
+| 定向造错 → 核实 → 补进 critic | ✅ 跑通：补盲区 581 条，critic 显然错 AUC +0.029；只补范围偏移，该类型 AUC +0.030 |
+| 难样本合成：迭代式（GRPO ↔ 采样 ↔ SFT，大提示池温度 0） | 🔄 进行中。难样本（critic 0.1–0.5）产出还低，是当前主攻点 |
+| 错误体系：细类、扩充方法、各类型样本的维护 | 🔄 初版（9 个细类 + 每类的盲区 / 造难能力数据），下一步重点 |
 
-**1.2 调提示词**
+## 闭环
 
-- 问题：关闭思考时 QA 几乎全拒答，100 个原文里的 60 道 QA 拒答 53–54 条（9B 只有 1 条）。
-- 做法：QA 加系统提示 `ragtruth.ans_data.SYSTEM_QA`：有相关信息就给出能支持的最好回答，哪怕不完整；只有完全没有相关内容才拒答。拒答降到 14 / 60。
-- Summary 不加系统提示，user 消息就是 RAGTruth 原 prompt（任务说明 + 原文）。
+```
+            ┌──────────────────────────────────────────────────────────────────────┐
+            ▼                                                                      │
+ ① RAG GRPO（critic 当奖励，R3 句子级奖励；从上一轮 GRPO 模型接着训）                │
+            │ RAG 输出                                                             │
+            ▼                                                                      │
+ ② 分析：RAG 输出 + critic 盲区，按错误体系（9 细类）统计                              │
+            │ 找「RAG 常犯 且 critic 常漏」的类型                                    │
+            ▼                                                                      │
+ ③ 定向造错：错误生成器按类型改写干净句 → 门槛（sev 真错、RM2 自然）                   │
+            │ → 难度筛选（critic 0.1–0.5）；生成器本身迭代（GRPO → 采样 → SFT）       │
+            ▼                                                                      │
+ ④ 核实：Claude（代替人工）判真错 / 类型 / 自然；只有这一步需要人                      │
+            │                                                                      │
+            ▼                                                                      │
+ ⑤ critic 重训（核心集 + 历轮核实样本）→ 按类型复查 critic ──────────────────────────┘
+```
 
-**1.3 原文池**：RAGTruth 官方 train 划分的 QA 和 Summary（没有 Data2txt：验收集只有这两类），排除评测、校准、金标种子、dev 的原文和超过 8000 字符的原文。`python -m ragtruth.ans_data split` → 831 个（QA 433 / Summary 398），`outputs/rt/ansgrpo/train_all.jsonl`。
+| 步 | 做什么 | 入口 | 判定标准 |
+| --- | --- | --- | --- |
+| ① | R3 奖励 GRPO：起点是上一轮 GRPO 的检查点，不从 SFT / base 重来 | `scripts/remote/run_loop2.sh`、`run_loop2cont.sh`（`START=` 上一轮 adapter、`CRITIC=` 新 critic） | 9B 金标：每条回答的显然错句数、含显然错比例；三套验收原文，配对 bootstrap |
+| ② | Claude 金标验收集上，按细类统计 critic 召回；RAG 输出按细类统计错误分布 | `ragtruth/critic_cap3.py --by_type` | 两侧都差的类型优先 |
+| ③ | 生成器 v2：输入原文 + 回答 + 要求的细类，输出改哪句和改写句。GRPO 奖励：门槛（sev P(有错) ≥ 0.9、RM2 自然 ≥ 0.5）+ critic 难度（0.3–0.5 最高，≥ 0.9 为 0） | `ragtruth/gen_v2.py`、`train/gen_reward_v2.py`、`ragtruth/gen_v2_grpo.py`、`ragtruth/gen_pool_rag.py`、`scripts/remote/run_gen_*.sh` | 64 个留出提示 × 32 试采：过门槛样本里 critic < 0.5 的比例、0.1–0.5 条数、类型一致率 |
+| ④ | 难区样本交 Claude：真错 / 实际机制 / 是否等于要求类型 / 自然 | `ragtruth/gen_v2_label.py`、`ragtruth/scope_critic.py` | 真错 + 类型一致 + 自然 |
+| ⑤ | 核实样本（配或不配同位置原句）加进 critic 训练集重训 | `ragtruth/critic_harvest.py`、`ragtruth/scope_critic.py build`、`scripts/remote/run_mcrm.sh` | cap3：显然错 AUC / 误报 10% 召回（主口径）+ 任意错 + 按类型 |
 
-**1.4 生成回答**：`python -m ragtruth.ans_data ref2 --model policy_v0 --sys_qa 1`。温度 0.7，每个原文采 4 条，最长 1024 token，取正常结束、不拒答里长度居中的一条。结果 807 条、3740 句 → `outputs/rt/minicpm/grpo/train_ref.jsonl` 的 `ref_text`。缺的 24 个全是 QA（4 条都拒答或没结束），保留为 GRPO prompt，不进核心集。
+### ① RAG GRPO（循环二）
 
-## 第二步：Claude 改对并标注 → 核心集
+- 奖励 R3：
+  - 整段层：去掉同组底噪，按错句计数，K = max(2, 0.5 × 参考句数)；
+  - 句子层优势：只打到出错的那一句，β = 0.6；后一句的负值按 γ = 0.3 传给前一句；
+  - 满意度只罚不奖（最多扣 0.4），拒答 0.4 × P(可拒答)，外加硬规则。
+  - 公式见下文「奖励公式」。
+- 分段接着训：每轮 critic 更新后，从上一轮 GRPO 检查点接着训 100 步（lr 5e-6，16 prompt × 16），KL 相对新起点，参考回答由新起点重采。
+- 结果（9B 金标，三套验收 595 条配对回答 / 299 原文，`outputs/rt/core/loop2_all_cmp.json`）：
 
-**2.1 逐句改对（已有）**
+| 模型 | 含显然错 | 显然错句 / 条 | 含任意错 | 拒答 |
+| --- | --- | --- | --- | --- |
+| RAG SFT（rag-sft-core） | 25.2% | 0.358 | 35.8% | 27.6% |
+| 第一段：critic rm1__core，200 步 | 9.7% | 0.106 | 21.7% | 6.1% |
+| 一次训完：SFT 起点，critic r1，200 步 | 11.6% | 0.128 | 21.3% | 5.9% |
+| **第二段：第一段起点，critic r1，100 步（cont）** | **6.6%** | **0.072** | 16.8% | 3.5% |
+| 第三段：cont 起点，critic r2，100 步 | 8.1% | 0.081 | 14.6% | 1.5% |
+| 第三段：cont 起点，critic r3（长句增强），100 步 | 5.4% | 0.056 | 14.0% | 2.2% |
 
-- claude-opus-5-5，effort high，提示词 `ragtruth.policy_sft.FIX_SYSTEM`（严格口径：拿不准就算错）。
-- 只改错句，最小改动，保持它在回答里的作用、长度和风格；改不了就删；该答却拒答的整条重写。
-- 每次 10 条，81 次批量 + 7 次单条补漏：`python -m ragtruth.policy_sft s1_fix` → `outputs/rt/minicpm/s1/fix_raw.jsonl`、`fix_single_raw.jsonl`。
+同一个新 critic（r1）下，分段接着训比一次训完少 5.0 个点含显然错 [−7.6, −2.3]（90% 区间）。
 
-| 结果 | 条数 |
+### ③ 难样本合成（错误合成）
+
+- 生成器只在干净句上造错：
+  - 问答对：RAG GRPO 最好版本（cont 第 100 步）在 RAGTruth 训练原文上生成回答。温度 1.0、每个原文 8 条，多样性来自这里。
+  - 干净句：2B critic 逐句打分，P(有幻觉) < 0.1 的句子。
+  - 提示：每个回答 × 9 种类型，每个提示温度 0 只采 1 条。
+- 迭代：
+  1. GRPO 50 步（critic 难度奖励，提示按类型加权）；
+  2. 在大提示池上采样，挑过门槛、critic 0.1–0.5、sev 判要求类型 ≥ 0.5 的样本；
+  3. 难样本 + 原 SFT 数据做 SFT；
+  4. 试采。
+  - 脚本：`scripts/remote/run_gen_b.sh` → `run_gen_c.sh` → `run_gen_d.sh`。
+- 打分模型（都是 2B 单字母选项 + 全局温度校准）：
+  - sev v3c0：要求的那种·显然 / 细微 / 别的错 / 没错；
+  - RM2 v3b：自然度；
+  - critic rm1__core_r2。
+
+### ④ 人只出现在这里
+
+入库前由 Claude 核实，Claude 代替人工；训练中、评测中都不调 Claude。
+
+- 只补范围偏移：核实组该类型 AUC 显著 +0.030，不核实组 +0.007 不显著。
+- 9B 生成器的样本，即使是 Claude 判为真错的 811 条，补进 critic 也没有提升（−0.010）：决定 critic 能否变好的，是「critic 拿不准 + 类型对口」，不只是「真错」。
+
+## 错误体系（初版）
+
+9 个细类，生成器提示、sev、Claude 标注和 critic 按类型评测共用同一套名字（`ragtruth/gen_v2.MECH`、`ragtruth/core_label.py`）。每一类需要维护：定义、critic 召回、RAG 出错率、造难能力、扩充方法，以及已核实的样本库。
+
+| 细类 | critic 漏判占比* | 造难能力（难样本数 / 难样本里还是该类型） | 扩充方法 / 备注 |
+| --- | --- | --- | --- |
+| certainty_or_scope_shift 范围 / 确定性偏移 | 35%（该类漏判率 76%） | 最多（191），类型保持最好 | critic 最大盲区；Claude 标注多为「细微」，主口径看不见，要看任意错口径 |
+| near_synonym_shift 近义偏移 | 15% | 中 | 改一两个词，真假依赖原文 |
+| wrong_attribution 张冠李戴 | 13% | 中 | sev 判类型提升最大（0.53 → 0.81） |
+| contradicts_source 直接矛盾 | 13% | 难：造难后多变成别的类型 | 是「结果」不是「手法」，sev 放宽为「真错即可」 |
+| merged_across_passages 跨段拼接 | 11% | 中 | 生成器产出偏少 |
+| unsupported_inference 无依据推断 | — | 造难后常变类型 | |
+| number_or_date 数字日期 | — | 难样本最少，但多为真错 | |
+| vague_evaluation_or_addon 附加评价 | 1% | 易造，但 critic 本来就会判 | 生成器天然偏好，需降权 |
+| added_specific_fact 添加具体事实 | 1% | 造难后常变类型 | critic 最会判 |
+
+\* 金标 critic 漏掉的 339 个错误里各类型的占比（`docs/experiment_log.md` 11-08「critic 盲区形态」）。
+
+下一步：
+- 把每一类做成一张卡片：定义、正反例、扩充提示、门槛、样本库、各轮指标；
+- 加一个「适合度」模型：给（问题，回答，原文）打分，判断最适合造哪类错，替代现在的「每个回答 × 9 类」。
+
+## 数据与模型
+
+整个项目只有一个起始数据集，即**核心集**：2B 在 831 个 RAGTruth 训练原文上写的回答（807 条），由 Claude 逐句改对并标注类型、严重程度和满意度。其余数据集都从核心集派生，81 个原文留出，只用于评测。
+
+| # | 数据集 | 用途 |
+| --- | --- | --- |
+| D1 | RAG SFT（改对后的回答） | rag-sft-core |
+| D2 | RAG GRPO 原文池 750 | 循环二 |
+| D3 | 种子错误对 1472 / 留出 155 | 错误生成器 SFT |
+| D4 | 改写提示池（核心集回答 657 × 9 细类） | 生成器 GRPO / 试采 |
+| D5 | RM2 自然度（Claude「自然」标签） | 门槛 |
+| D6 | sev（生成器真实输出 + Claude 标注） | 门槛 |
+| D7 / D8 | 满意度 / 拒答 | 循环二护栏 |
+| D9 | critic：真错句 + 同位置改对句 + 没改的句子 | rm1__core；之后 + 核实样本 → r1 / r2 / r3 |
+| — | 大提示池：RAG GRPO 模型回答 × 干净句 × 9 类（690 原文） | 难样本合成（`gen_pool_rag`） |
+
+| 模型 | 名字（adapters/） |
 | --- | --- |
-| 有改动的回答 | 597（共改 1680 句） |
-| 全对的回答 | 195 |
-| 整段重写 | 15 |
-| 每条改几句 | 0 句 195 / 1 句 189 / 2 句 116 / 3 句 89 / ≥ 4 句 203 |
-
-参考（critic 评测，只看不用）：9B 金标 critic 打分，显然错从每条 0.913 句降到 0.099 句。
-
-**2.2 错误类型和满意度标注（新增，约 81 次 Claude 调用，跑前确认）**
-
-输入原文、原回答编号句子和 2.1 的改对句。Claude 不重新判哪句错，只标属性。提示词 `ragtruth.core_label.LABEL_SYSTEM`（草稿）。
-
-每个改动（错句）：
-
-| 字段 | 取值 | 用在哪 |
-| --- | --- | --- |
-| severity | clear 显然 / minor 细微 | sev 数据、种子分层 |
-| type | conflict 与原文矛盾 / baseless 无中生有 | critic 标签 B / C、种子 |
-| mechanism | wrong_attribution 张冠李戴、near_synonym_shift 偷换概念、certainty_or_scope_shift 确定性或范围变化、number_or_date 数字日期、merged_across_passages 跨段拼接、added_specific_fact 添加具体事实、vague_evaluation_or_addon 添加评价、unsupported_inference 无依据推断、contradicts_source 其他矛盾、other | 分类型统计、改法 |
-| evidence / reason | 错句涉及的原文原话；一句理由（≤ 30 词） | 种子的 evidence / reason |
-| fixed_evidence / fixed_reason | 支持改对句的原文原话；理由 | 种子的 original_evidence / original_reason |
-
-每条回答（原回答、改对后各一次）的满意度：answers_task（yes / partial / no）、completeness（complete / missing_some / missing_much）、style（ok / problem）、sentence_form（ok / problem）、overall（good / not_good）、note。满意度不管幻觉，口径同 `SAT_PAIR_SYSTEM`。
-
-有了 2.2，种子的类型、证据、理由直接来自 Claude，不再借旧生成器 gen-seed5-mc 补全。
-
-**2.3 对齐和切分（程序，新增 `ragtruth.core_build`）**
-
-- 切句 `ragtruth.convert.split_sentences`，和 Claude 看到的编号一致。每处改动得到一对：原错句、改对句；上下文是全部改动应用后的句子列表。
-- 按原文留出 10%（种子字符串 `core|holdout`，81 个原文），只用于评测。
-
-| 去掉 | 数量 | 原因 |
-| --- | --- | --- |
-| 整段重写 | 15 条 | 句子对不上 |
-| 删句 | 22 处 | 生成器只有改写，没有插入 |
-| 上下文只剩一句 | 27 处 | 生成器要求至少两句 |
-| 改对句拆成多句 | 4 处 | 一对多 |
-
-| 切分 | 原文 | 可对齐回答 | 错误对 | 没改的句子 |
-| --- | --- | --- | --- | --- |
-| 训练 | 726 | 713（QA 355 / Summary 358） | 1472（Summary 1255 / QA 217） | 1835 |
-| 留出 | 81 | 79（QA 39 / Summary 40） | 155（Summary 138 / QA 17） | 206 |
-
-产出：`outputs/rt/core/core.jsonl`（按回答）、`outputs/rt/core/pairs.jsonl`（1627 对）。
-
-## 第三步：由核心集派生的数据集（新增 `ragtruth.core_derive`）
-
-所有模型只用核心集构成的数据训练（用户，2026-11-06），不用 RAGTruth 其他模型的回答。81 个留出原文在每个数据集里都只进评测。带「约」的条数要跑完才知道。
-
-| # | 数据集 | 怎么来 | 训练 | 评测 | 谁用 |
-| --- | --- | --- | --- | --- | --- |
-| D1 | RAG SFT | prompt = 原文（QA 加系统提示），目标 = 改对后的回答（全对的用原回答，整段重写的用重写） | 726 | 81 | RAG SFT |
-| D2 | RAG GRPO prompt 池 | 831 个原文去掉 81 个留出；参考回答用 RAG SFT 模型重采 | 750 | 验收集 | 循环二 |
-| D3 | 错误改写种子 SFT | 输入 = 改对后的回答，输出 = 把改对句改回原错句，类型 / 证据 / 理由取自 2.2 | 1472 | 155 | 改写模型 v0 |
-| D4 | 错误改写 prompt 池 | 核心集改对后的回答（至少两句）× 两种类型 | 657 × 2 = 1314 | 70 | 循环一 GRPO、采集、采样 |
-| D5 | RM2 自然度 | B = 改写模型 v0 在 D4 上的改写句（过硬规则；和该回答 2B 原错句相似度 ≥ 0.9 的去掉，因为那就是自然写出的错）；A = 同位置原句（改对句）+ 核心集真错句 1472；不用人工标注 | 约 4000 | 按原文留出 | 循环一奖励 |
-| D6 | sev | 核心集派生 A–D + 单独标注（第四步） | 约 3700 | 单独标注的 20% | 循环一门槛 |
-| D7 | 满意度（成对） | 2.2 满意度配对 + 程序反例（截断、照抄原文、只留第一句、该答却拒答），A / B 两种顺序 | 约 2500 | 留出派生 | 循环二护栏 |
-| D8 | 拒答 | 只有 QA：原题 = 能答；删掉支持段落 = 答不了（按重合度）；问题配另一篇无关原文 = 答不了 | 约 900 | 留出 QA 39 篇派生 | 循环二 |
-| D9 | critic（RM1） | 真错句 1472（B / C）+ 同位置改对句 1472（A）+ 没改的句子 1835（A） | 4779 | 校准：留出 516 句 | 循环二奖励 |
-| D9+ | critic + 采集 | D9 + 循环一每轮采集的边界错句和同位置原句 | 约 4779 + 1000 / 轮 | 同 D9 | 循环二奖励 |
-
-D8 删段落：RAGTruth 的 QA 原文都是 3 段。删掉改对回答用到的段落，剩下的重新编号，"three passages" 改成 "two passages"。改对回答和剩余段落的词重合低于门槛 → 答不了，否则 → 能答。门槛用旧的 40 条 Claude 复判过的删段样本定（旧做法 `ragtruth.refuse_data` 每条都要 Claude 复判）。
-
-## 第四步：需要单独标注的数据（RM3 / sev）
-
-sev 判「改写是不是真错、类型和解释对不对」。核心集只有真错，教不了「不是错」和「原句已错」，所以要对改写模型 v0 的输出单独标一批。
-
-| 选项 | 含义 | 生成器奖励里怎么用 |
-| --- | --- | --- |
-| A | 显然错，解释对 | P(A) + P(B) ≥ 0.5 才合格 |
-| B | 显然错，解释不对 | 同上 |
-| C | 细微错，解释对 | 不合格，拿保底分 |
-| D | 细微错，解释不对 | 不合格 |
-| E | 不是错 | 不合格 |
-| F | 原句本来就错 | P(F) > 0.5 记 0 分 |
-
-- 来源一，核心集派生（程序）：改写句 = 原错句，原句 = 改对句，类型 / 证据 / 理由取自 2.2；显然 → A，细微 → C。同一句把类型换成另一种或证据换成同原文另一对的 → B / D。共 2944 行，只进训练。
-- 来源二，单独标注（新增，约 40 次 Claude 调用，跑前确认）：改写模型 v0 在 D4 训练池上的输出，过硬规则的按类型和 critic 分数分层抽约 800 条，每个原文至多 2 条；提示词 `ragtruth.sev_label.SYSTEM`，每次 20 条；原句不对 → F，否则按 severity 和 explanation_ok 得 A–E；按原文 70 / 10 / 20 切训练 / 校准 / 测试，测试只用这部分。
-- 旧的 sev 标签（787 + 504）和 RM3 标签（4358）来自旧生成器和另一批回答，不进新循环，只用来对比。旧 sev__mc 测试 AUC 0.805，是当前最弱的一环。
-
-## 第五步：训练各模型
-
-打分模型都是「单字母选项」：只读答案位置各选项的 logprob，在校准集上拟合一个全局温度，输出校准后的概率。
-
-| 模型 | 数据 | 配置 | 输出 | 新名字 |
-| --- | --- | --- | --- | --- |
-| 错误改写模型 v0 | D3 | `configs/rt/sft_gen_seed5_mc.yaml`：LoRA r16 / α32，all-linear，1 轮，lr 5e-5，批 2 × 累积 2，最长 4096 | JSON：plan、idx、type、tactic、sentence、evidence、reason、original_evidence、original_reason | gen-core-mc |
-| RAG SFT | D1 | `configs/rt/sft_policy_mc.yaml`：LoRA r32 / α64，7 个线性层，2 轮，lr 5e-5 | 回答文本 | rag-sft-core |
-| critic（RM1） | D9 | `configs/rt/rm_mc.yaml`：LoRA r16，2 轮，lr 1e-4，批 4 × 累积 4 | A 忠实 / B 矛盾 / C 无依据；P(错) = P(B) + P(C) | rm1__core |
-| RM2 | D5 | 同上 | A 自然 / B 合成 | rm2__core |
-| sev | D6 | 同上 | A–F | sev__core |
-| 满意度 | D7 | 同上 | A / B 哪条更好 | sat_pair__core |
-| 拒答 | D8 | 同上 | A 能答 / B 答不了 | refuse__core |
-
-- 打分模型：`RM=<名字> GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh`（训练、合并、拟合温度，写 `outputs/rt/rm/<名字>/eval/report.json`）。生成类：`python -m train.sft --config <配置> --mode coldstart`。
-- 顺序：先训改写模型 v0、RAG SFT、critic、满意度、拒答（只依赖核心集）；再用改写模型 v0 采样，造 RM2 负样本和 sev 待标样本，然后训 RM2、sev。
-
-## 循环一：错误合成（改写模型 GRPO → 采集 → critic 重训）
-
-代码 `train/gen_grpo.py` + `train/gen_reward.py`（`TargetRewarder`，`shape=sev`），脚本 `scripts/remote/run_gensev.sh`。
-
-1. 起点：第 1 轮从 gen-core-mc，之后从上一轮的检查点接着训。
-2. GRPO：D4 训练池，每步 16 个 prompt × 16 条，lr 5e-6，50 步；快评不好就再续 50 步。
-3. 快评：留出 70 个 prompt × 4 次，看解析成功率、合格率、critic 分数分布、自然度。
-4. 采集：最后的检查点在 D4 训练池上每个 prompt 采 8 条（`gen_target_data harvest --sev ... --gate 0.5`）。
-5. 入库：`critic_harvest --lo 0 --hi 1.01 --gate 0.5 --min_nat 0.3`，每轮最多约 550 对；每对是错句（B / C）+ 同位置原句（A）。
-6. 抽检（可选）：Claude 抽 100 对，在后台跑，不停训练。
-7. 重训 critic：D9 + 历轮采集 → `rm1__core_r<轮次>`，给循环二用。
-
-奖励（P_ok = sev 的 P(A) + P(B)，P_F = sev 的 P(F)，p = critic 对改写句的 P(错)，q = RM2 的 P(自然)，d = 多样性）：
-
-```
-r = 0                                                 没过硬规则，或 P_F > 0.5
-r = b · P_ok / 0.5                                    P_ok < 0.5（保底）
-r = h(p) · (L(q) + w_d · d) / (1 + w_d) + bonus · 1[l ≤ p ≤ u]     其余
-```
-
-- 硬规则：能解析出 JSON；句号在范围内；类型是 conflict / baseless，指定了类型就必须一致；改写句不等于原句，也不等于回答里另一句；不超过原句 3 倍且多出不超过 300 字符；不出现 hallucination、faithful、"the source" 这类点破题目的词。
-- L(q)：对数几率线性映射到 [0, 1]（±8 截断，`logodds01`）。h(p)：普通模式 1 − p；区间模式 1 − |p − 0.5| / 0.5。d：同一 prompt 16 条里同一句号被改 n 次，每条 1 / √n。
-- 优势：同一 prompt 内减同类型的均值，再除以组内标准差。
-
-| 参数 | 前 50 步 | 续训 50 步（区间模式） |
-| --- | --- | --- |
-| 保底 b | 0.1 | 0.02 |
-| w_d | 0.1 | 0.1 |
-| bonus，[l, u] | 0 | 0.5，[0.3, 0.7] |
-
-进奖励：sev__core（门槛）、rm1__core（critic）、rm2__core（自然度）、硬规则。只监控：无（9B 不进奖励、不筛样本）。本轮合不合格看 critic 重训后「显然错召回」有没有涨。
-
-## 循环二：RAG 生成（回答 GRPO，R3 奖励）
-
-代码 `train/ans_grpo.py` + `train/ans_reward.py`（`--reward_shape count`），脚本 `scripts/remote/run_r3full.sh`。
-
-1. 起点 rag-sft-core（对照组从 mc-init）。
-2. 参考回答：起点模型在 D2 上重采（`ans_data ref2`），定长度范围、满意度参考和 K。
-3. GRPO：D2，每步 16 个 prompt × 16 条，lr 5e-6，200 步，第 50 / 100 / 200 步存检查点；单卡，策略 vLLM 占 0.35 显存，RM 挂在同一服务上；TripWire 打开。
-4. 评测：各检查点在验收集上生成，9B 金标 critic 打分，算被钻空子的程度。
-
-奖励（p_i = critic 对第 i 句的 P(错)；b、σ = 同一 prompt 全部回答全部句子的 P 均值和标准差，σ 下限 0.1；e_i = max(0, p_i − b)；n_ref = 参考回答句数）：
-
-```
-H = 1 − 0.5 · (1 − Π_i (1 − e_i)) − 0.5 · min(1, Σ_i e_i / K)，  K = max(2, 0.5 · n_ref)
-r = 0                                   没过硬规则
-r = 0.4 · P(可拒答)                      拒答（只 QA）
-r = max(0, H − 0.8 · max(0, 0.5 − P_sat))   其余
-```
-
-- 去底噪：只算超出同组平均的部分，否则 critic 对正确句的底噪（平均 0.10）按句数累加，逼模型少写。
-- 计数：多一句错多扣一份；K 用参考回答的句数，多写安全句稀释不了。
-- 句子层优势：整段优势之外，第 i 句的 token 再加 β × (−e_i / σ)，β = 0.6；后一句的负值按 γ = 0.3 传给前一句。
-- 满意度只罚不奖：P_sat = sat_pair 判「新回答比参考回答好」，低于 0.5 才扣，最多扣 0.4。
-- 硬规则（没过记 0）：空回答或截断；长度在参考回答字符数的 0.5–1.5 倍之外；照抄原文（连续 6 词在原文里的占比 QA ≥ 0.9、Summary ≥ 0.5）；结尾没有句末标点；原文没有中文而回答夹中文。
-
-进奖励：rm1__core_r<轮次>、sat_pair__core、refuse__core、硬规则。只监控：9B 金标 critic（rm1__rm1_gold_9b）。
-
-| 组 | 起点 | critic |
-| --- | --- | --- |
-| 主组 | rag-sft-core | rm1__core_r1 |
-| 只核心集 | rag-sft-core | rm1__core（D9） |
-| 只 SFT | rag-sft-core | 不做 GRPO |
-| 旧基线 | mc-init | rm1__mcgold_h3ctl（已有结果 r3full） |
+| RAG | rag-sft-core → mc-grpo-r3_core_coreonly → mc-grpo-r3_core_cont（当前最好）→ cont2 / cont3 |
+| critic | rm1__core → rm1__core_r1（+ 循环一采集）→ rm1__core_r2（+ Claude 核实的盲区 581）→ r3（+ 长句增强） |
+| 错误生成器 | gen-core-mc（v1）→ gen-v2-mc（v2：类型条件）→ gen-v2h / v2h2（难样本 SFT）→ g1（GRPO）→ v2h3 |
+| 打分 | sev__v3c0、rm2__v3b、sat_pair__core、refuse__core |
+| 评测 | rm1__rm1_gold_9b（9B，只评测） |
 
 ## 评测
 
-三个阶段各有固定的评测集，全部和训练原文不重叠。评测里不调 Claude；最终验收要用 Claude 时先确认。
+三个阶段各有固定评测集，都和训练原文不重叠；评测中不调 Claude。
 
-| 数据 | 内容 | 规模 | 标签 | 文件 |
-| --- | --- | --- | --- | --- |
-| 验收集 a | 2B GRPO 第 300 步在验收原文上的回答，温度 1.0 | 100 条 / 68 原文 / 414 句（显然错 30） | Claude 金标 v1 逐句 | `outputs/rt/minicpm/grpo300/{answers,final}.jsonl` |
-| 验收集 b | 同上，温度 0.7 | 100 条 / 100 原文 / 386 句（显然错 45） | 同上 | `outputs/rt/minicpm/grpo300b/` |
-| 验收集 c | 剩余没用过的 RAGTruth 测试原文 × 3 种子，温度 0.7 | 396 条 / 132 原文 / 1722 句（显然错 164） | 同上 | `outputs/rt/minicpm/grpo300c/` |
-| RAGTruth++ | RAGTruth 测试集重标版 | 校准 427 句、测试 2306 句 | 人工 ++ 标签 | `outputs/rt/rm/rm1/{calib,test}.jsonl` |
-| 核心集留出 | 81 个原文 | 错误对 155、没改句 206、改写 prompt 70 | Claude 改对 + 2.2 | `outputs/rt/core/`（新增） |
-| sev 测试 | 单独标注的 20% | 约 160 | Claude 6 选 1 | 新增 |
+- **RAG 生成**：三套验收原文（a：100 条，T 1.0；b：100 条，T 0.7；c：132 原文 × 3 种子，T 0.7；共约 596 条）。每个策略在同样的原文和种子上重新生成，9B 金标 critic 逐句打分（p ≥ 0.9 记显然错），按原文聚类 bootstrap（`ragtruth/pol9b_cmp.py`）。
+- **critic**：cap3（三套验收回答的 Claude 金标，去掉拒答，2061 句，其中显然错 179），`ragtruth/critic_cap3.py`。
+  - 主口径：显然错 vs 没错的 AUC、误报 10% 时的召回；
+  - 附加：任意错（含细微）口径、按细类（`--by_type`）、RAGTruth++ 2306 句。
+- **错误合成**：64 个留出提示 × 32 试采（`gen_v2_grpo probe`），看各道门槛的通过率、过门槛样本的 critic 分布、全 0 组比例；训练中每 10 步看门槛通过率（`scripts/gate_stats.py`）。
 
-验收的 596 条回答只定义「原文 + 种子 + 温度」，每个策略在同样的原文和种子上重新生成（`ragtruth.mc_accept_gen`），按回答 id 配对。金标提示词 `ragtruth.gold.SYSTEM`。
+## 奖励公式
 
-- **RAG 生成**：9B 金标 critic 逐句打分，p ≥ 0.9 记显然错。每条回答的指标：含显然错比例、显然错句数、含任意错（p ≥ 0.5）、拒答率、字符数、句数。按原文聚类 bootstrap（2000 次，90% 区间）配对比：`ragtruth.pol9b_cmp`。被钻空子：只看 9B 判显然错的句子，比较奖励 critic 在起点回答和第 200 步回答上的召回。最终验收（可选）：Claude 金标标同一批 100 个原文-种子（`ragtruth.accept_compare`）。
-- **critic 评测**：主口径 `ragtruth.critic_cap3`：三套验收回答的 Claude 金标，显然错 vs 没错，去掉细微错和拒答句，共 2061 句、显然错 179；AUC（90% 区间）、误报 10% / 5% 时的召回、和基线的配对差，召回优先。辅助：RAGTruth++ 测试 2306 句、核心集留出 516 句。
-- **错误合成**：
+**RAG GRPO（R3，`train/ans_reward.py`）**。记号：p_i = critic 对第 i 句的 P(错)；b、σ = 同组所有回答所有句子的 P 均值和标准差（σ 下限 0.1）；e_i = max(0, p_i − b)。
 
-| 对象 | 数据 | 指标 |
-| --- | --- | --- |
-| 改写模型 | 留出 70 个 prompt × 4 次 | 解析成功率、过 sev 门槛比例、critic 分数分段（< 0.3 / 0.3–0.7 / > 0.7）、RM2 判自然比例 |
-| sev | sev 测试 | 显然 vs 其余 AUC；门槛 0.5 时入库样本里真错的比例 |
-| RM2 | 按原文留出 | 自然 vs 合成 AUC；核心集真错句被判自然的比例 |
-| 满意度、拒答 | 各自留出 | 准确率、AUC、校准误差 |
-
-## 提示词
-
-全部原文在 [docs/prompts.md](docs/prompts.md)，由 `python -m scripts.dump_prompts` 从代码导出。
-
-| 阶段 | 提示词 | 常量 |
-| --- | --- | --- |
-| RAG 生成 | QA 系统提示 | `ans_data.SYSTEM_QA` |
-| 核心集 | 逐句改对（已跑） | `policy_sft.FIX_SYSTEM` |
-| 核心集 | 错误类型和满意度（新增，没跑） | `core_label.LABEL_SYSTEM` |
-| 单独标注 | sev 标注 | `sev_label.SYSTEM` |
-| 单独标注 | 拒答判定 / 改题（新方案只用来定门槛） | `refuse_data.SYSTEM` / `REWRITE_SYSTEM` |
-| 错误合成 | 改写 prompt 模板 + 改法清单 | `synth.FREE_PROMPT` + `FOCUS_TACTICS` |
-| 打分模型 | critic / 自然度 / 严重程度 / 满意度 / 拒答 | `rm_data.RM1_SYSTEM` / `rm_data.RM2G_SYSTEM` / `sev_rm.SEV_SYSTEM` / `sat_build.SAT_PAIR_SYSTEM` / `refuse_data.RM_SYSTEM` |
-| 评测 | 金标逐句标注 | `gold.SYSTEM` |
-
-种子 SFT 一行：prompt = `FREE_PROMPT` 填入原文和**改对后**的编号句子（按 id 的 crc32 一半指定类型；示例句从训练池其他原文的真错句抽）；completion =
-
-```json
-{"plan": "Introduce one conflict error into S3: attribute a statement to the wrong person.", "idx": 3, "type": "conflict",
- "tactic": "<按 2.2 机制映射到 FOCUS_TACTICS，对不上写 other>", "sentence": "<原错句>",
- "evidence": "<2.2 evidence>", "reason": "<2.2 reason>", "original_evidence": "<2.2 fixed_evidence>", "original_reason": "<2.2 fixed_reason>"}
+```
+H = 1 − 0.5 · (1 − Π_i (1 − e_i)) − 0.5 · min(1, Σ_i e_i / K),  K = max(2, 0.5 · n_ref)
+r = 0（没过硬规则）| 0.4 · P(可拒答)（拒答）| max(0, H − 0.8 · max(0, 0.5 − P_sat))
+token 优势 = 整段组内归一化优势 + 0.6 · (−e_i / σ)（只加在第 i 句的 token 上；后一句 × 0.3 传给前一句）
 ```
 
-prompt + completion 不超过 14000 字符（约 4096 token）。
+**错误生成器 GRPO（`train/gen_reward_v2.py`，`--v2_shape hard --hard_shape tri --hard_base 0`）**：
 
-## 多模型支持（新增设计）
-
-把模型相关的设置收进 `configs/models/<名字>.yaml`，脚本只认 `MODEL=<名字>`。MiniCPM5-2B 和 Qwen3.5-9B 全流程验证；其他带聊天模板的 Hugging Face 生成模型走通用路径，先过自检。
-
-现在写死在代码里的模型相关部分：
-
-| 位置 | 写死了什么 | 改法 |
-| --- | --- | --- |
-| 约 35 个远端脚本、各配置 | 基座路径 MiniCPM5-2B、适配器后缀 `-mc` | 从模型配置读 |
-| prompt 共享 | MiniCPM 用 `prefix_share_llama`，Qwen3.5 用 `prefix_share`（混合线性注意力） | 按结构选；没有实现的结构关掉共享，慢但能跑 |
-| 加载方式 | MiniCPM 纯文本（`--causal 1`）；Qwen3.5 带视觉塔，要去掉 visual | 配置里写 causal / multimodal |
-| 聊天模板 | `enable_thinking=False`、结束符 `<\|im_end\|>` | 配置里写模板参数和结束符 |
-| 策略 LoRA | 目标层 q / k / v / o / gate / up / down | 配置里写，默认 all-linear |
-| 批大小、显存 | 2B 的 4 × 4、vLLM 0.35 显存 | 配置里写 |
-
-```yaml
-name: qwen3.5-9b
-hf: Qwen/Qwen3.5-9B
-path: /root/autodl-fs/models/Qwen3.5-9B
-suffix: 9b                 # 适配器名：rm1__core-9b
-loader: multimodal         # causal | multimodal（去视觉塔）
-share_impl: train.prefix_share   # 没有就写 none
-chat_kwargs: {enable_thinking: false}
-eos_tokens: ["<|im_end|>"]
-policy_lora: {r: 32, alpha: 64, targets: all-linear}
-rm_batch: [1, 16]          # 每次条数, 累积步数
-vllm: {gpu_mem: 0.45, max_model_len: 16384, strip_visual: true}
-gpus: {sft: 1, rm: 1, grpo: 2}
+```
+门槛：硬规则 ∧ sev P(有错) ≥ 0.9 ∧ RM2 P(自然) ≥ 0.5，没过 0 分
+h(p) = 0（p < 0.1）| (p − 0.1)/0.2（0.1–0.3）| 1（0.3–0.5）| (0.9 − p)/0.4（0.5–0.9）| 0（≥ 0.9）
+r = h(critic P(有幻觉))
 ```
 
-- 远端脚本开头统一 `source scripts/remote/model_env.sh $MODEL`；`train.sft` 的配置由「任务模板 + 模型配置」拼出。
-- 自检 `python -m scripts.model_check --model <名字>`：聊天模板能渲染；A–F 每个选项字母是单个 token；结束符能停；vLLM 能挂 LoRA 并返回选项 logprob；有共享实现时跑等价性测试。过了才算支持。
+不设保底：保底会让明显错比没过门槛更划算，生成器会往 ≥ 0.9 走。不单调奖励「骗过 critic」：完全骗过的样本大多不是真错。
 
-| 等级 | 模型 | 说明 |
-| --- | --- | --- |
-| 全流程验证 | MiniCPM5-2B、Qwen3.5-9B | 两条循环都跑过，有 prompt 共享 |
-| 通用路径 | Qwen3、Llama 3、Mistral、Gemma 等带聊天模板的生成模型 | 过自检就能跑；Llama 结构可直接用 `prefix_share_llama`，其余关共享 |
-| 不支持 | 没有聊天模板的基座、编码器-解码器模型 | — |
-
-换模型时的数据：
-
-- 核心集的原回答是「要训的那个模型自己写的」，换模型要重做第一、二步：同样 831 个原文、同样的留出切分，只换写回答的模型。代价是 Claude 改对 + 标注各约 81 次。不重做也能跑，但错误改写模型学的是 2B 的错。
-- 产出按模型分目录：`outputs/rt/<后缀>/core/...`；评测集和提示词所有模型共用。
-- 训 9B 时，9B 金标 critic 和被训模型同家，策略评测以 Claude 金标的验收集和 critic_cap3 为主。
-- 9B 的 SFT 和打分模型训练单张 5090 可以；9B 的 GRPO 要两张（`run_infer_node.sh` + `run_train_node.sh`）。
-
-## 代码结构和从头复现
-
-别人拿到「代码仓库 + 数据包 + 两个公开模型」就能从头跑。数据包 `python -m scripts.pack_data` → `dist/claim_critic_data.tar`（不进 git，约 58 MB），只含重跑也得不到同样结果的东西：Claude 标注、外部数据原件、评测集；`MANIFEST.json` 记每个文件的行数、字节数、SHA-256，解压后 `python -m scripts.pack_data --check` 核对。
-
-| 数据包里的文件 | 内容 |
-| --- | --- |
-| `external_data/ragtruth/` | RAGTruth 原件（github.com/ParticleMedia/RAGTruth，MIT） |
-| `external_data/ragtruth_pp/hallucination_spans.csv` | RAGTruth++ 重标 |
-| `outputs/rt/ansgrpo/train_all.jsonl` | 831 个训练原文 |
-| `outputs/rt/minicpm/grpo/train_ref.jsonl` | 2B 原回答（采样有随机性） |
-| `outputs/rt/minicpm/s1/fix_*.jsonl` | Claude 改对 |
-| `outputs/rt/core/label_raw.jsonl`、`sev_label_raw.jsonl` | Claude 新增标注（跑完才有） |
-| `outputs/rt/minicpm/grpo300{,b,c}/{answers,final}.jsonl` | 验收集 + Claude 金标 |
-| `outputs/rt/rm/rm1/{calib,test}.jsonl` | RAGTruth++ 校准和测试 |
-
-模型：openbmb/MiniCPM5-2B（提交 f974000）、Qwen3.5-9B；9B 金标 critic 的 LoRA（rm1__rm1_gold_9b）只用于评测，另外给。
-
-从头跑的顺序（本地 = 不需要 GPU；GPU = 单张 5090）：
-
-| # | 步骤 | 命令 | 在哪 | 状态 |
-| --- | --- | --- | --- | --- |
-| 1 | 原文池 | `python -m ragtruth.ans_data split` | 本地 | 已有 |
-| 2 | 原回答 | `python -m ragtruth.ans_data ref2 --model policy_v0 --sys_qa 1` | GPU | 已有（数据包里给了） |
-| 3 | Claude 改对 | `python -m ragtruth.policy_sft s1_fix` | 本地，Claude | 已有 |
-| 4 | Claude 标类型和满意度 | `python -m ragtruth.core_label run` | 本地，Claude | 提示词已写，脚本待写 |
-| 5 | 核心集对齐和切分 | `python -m ragtruth.core_build` | 本地 | 待写（对齐逻辑在 `gen_seed_rt.candidates`） |
-| 6 | 派生 D1–D4、D7–D9 | `python -m ragtruth.core_derive all` | 本地 | 待写 |
-| 7 | 训改写模型 v0、RAG SFT、critic、满意度、拒答 | `train.sft` / `run_mcrm.sh` | GPU | 脚本已有 |
-| 8 | 改写模型 v0 采样 → D5 负样本、sev 待标样本 | `python -m ragtruth.core_derive rm2` / `sevpool` | GPU | 待写 |
-| 9 | Claude 标 sev 样本 | `python -m ragtruth.sev_label` | 本地，Claude | 已有 |
-| 10 | 训 RM2、sev | `run_mcrm.sh` | GPU | 脚本已有 |
-| 11 | 循环一 | `run_gensev.sh` → `run_harvest.sh` → `run_mcrm.sh` | GPU | 已有，要换模型名 |
-| 12 | 循环二 | `run_r3full.sh`（`INIT=rag-sft-core CRITIC=...`） | GPU | 已有，要加 INIT 参数 |
-| 13 | 评测 | `critic_cap3`、`pol9b_cmp` | GPU + 本地 | 已有 |
-
-| 代码位置 | 内容 |
-| --- | --- |
-| `common/` | 样本格式、JSONL 读写、模型调用封装（OpenAI 兼容 / Anthropic / Claude CLI）、运行清单 |
-| `ragtruth/ans_data.py`、`policy_sft.py`、`core_label.py` | 第一、二步：原文池、原回答、Claude 改对和标注 |
-| `ragtruth/gen_seed_rt.py` | 核心集对齐、种子 SFT 行（要按本文改） |
-| `ragtruth/synth.py`、`gen_target_data.py`、`critic_harvest.py` | 改写 prompt、采集、入库 |
-| `ragtruth/rm_data.py`、`rm_eval.py`、`sev_rm.py`、`sev_label.py`、`sat_build.py`、`refuse_data.py`、`discrim.py` | 各打分模型的数据、提示词、校准和评测 |
-| `ragtruth/critic_cap3.py`、`pol9b_cmp.py`、`mc_accept_gen.py`、`gold.py`、`accept_compare.py` | 评测 |
-| `train/sft.py` | SFT 和单字母打分模型训练（`--mode coldstart`） |
-| `train/gen_grpo.py`、`gen_reward.py` | 循环一 GRPO 和奖励 |
-| `train/ans_grpo.py`、`ans_reward.py`、`prefix_share_llama.py` | 循环二 GRPO、奖励、训练侧 prompt 共享 |
-| `scripts/autodl_*.py`、`remote.py` | AutoDL：抢卡、开机、释放、远程执行 |
-| `scripts/remote/` | GPU 机上的流程脚本；按角色起步 `bootstrap_fs.sh`；多 LoRA vLLM 必须用 `serve_loras.sh` |
-| `scripts/dump_prompts.py`、`pack_data.py` | 导出提示词、打数据包 |
-| `configs/rt/` | 训练超参 |
-| `tests/` | 单测（不需要 GPU） |
+## 复现与运行
 
 ```bash
 pip install -e ".[dev]"
-PYTHONHASHSEED=0 python -m pytest -q        # 全部单测，不需要 GPU、不调用模型
+PYTHONHASHSEED=0 python -m pytest -q        # 单测，不需要 GPU、不调用模型
 ```
 
-远端（AutoDL，文件存储模式）：数据、模型、adapter 都在 `/root/autodl-fs`；登录信息文件（`autodl_web.json`、`autodl_token.txt`、`smtp.json`）不进仓库。`python -m scripts.autodl_extra --fs --roles <角色> --gpus 1 --gpu "RTX 5090"`，角色见 `scripts/remote/bootstrap_fs.sh`。
+- 全部运行用 `PYTHONHASHSEED=0` + 固定字符串种子，重跑得到同样的数据。
+- 数据包（Claude 标注、外部数据原件、评测集）不进 git：`python -m scripts.pack_data` → `dist/claim_critic_data.tar`，附 `MANIFEST.json`（SHA-256）。
+- GPU 端（AutoDL，单张 RTX 5090）：`python -m scripts.autodl_extra --fs --roles <角色> --gpus 1 --gpu "RTX 5090"`，角色见 `scripts/remote/bootstrap_fs.sh`。
+  - 多 LoRA vLLM 一律用 `scripts/remote/serve_loras.sh` 启动。
+  - 训练、试采只读写本地盘 `/root/autodl-tmp`，共享盘 `/root/autodl-fs` 由 `scripts/remote/bg_sync.sh` 在后台同步。
+  - 登录信息文件（`autodl_web.json`、`autodl_token.txt`、`smtp.json`）不进仓库。
 
-## 待确认
-
-1. 2.2 新增标注：792 条回答、约 81 次 Claude 调用。
-2. sev 单独标注：约 800 条、约 40 次 Claude 调用。
-3. RAG GRPO prompt 池去掉 81 个留出原文（750 个）。
-4. ~~更多样的回答~~ 已定：只用核心集回答（RM2 负样本、改写模型 GRPO 和采集池）。
-5. 拒答删段落用词重合门槛定标签，不再每条让 Claude 复判。
-6. 旧 sev / RM3 标签不进新循环。
-7. critic 训练集不放拒答句；「没改的句子」1785 句算种子集合，进 critic（Claude 逐句审过、判为正确）。
-8. 数据包不进 GitHub，单独给人。
-9. 换成 9B 时重做核心集（9B 自己写回答 + Claude 改对、标注，约 162 次调用），还是共用 2B 的核心集。
-10. 多模型支持的范围：两个全流程验证 + 通用路径自检，够不够。
+| 代码位置 | 内容 |
+| --- | --- |
+| `common/` | 样本格式、JSONL、模型调用封装（OpenAI 兼容 / Anthropic）、运行清单 |
+| `ragtruth/core*.py`、`ans_data.py`、`policy_sft.py` | 核心集：原文池、回答、Claude 改对和标注、派生数据 |
+| `ragtruth/gen_v2*.py`、`gen_pool_rag.py`、`sev_gen.py`、`rm2_v3.py` | 错误生成器 v2、大提示池、sev / RM2 |
+| `ragtruth/critic_harvest.py`、`scope_critic.py`、`critic_sevaug.py` | 核实样本入库、定向补 critic |
+| `ragtruth/critic_cap3.py`、`pol9b_cmp.py`、`mc_accept_gen.py`、`gold.py` | 评测 |
+| `train/sft.py` | SFT 和单字母打分模型 |
+| `train/ans_grpo.py`、`ans_reward.py` | RAG GRPO + R3 |
+| `train/gen_grpo.py`、`gen_reward_v2.py` | 错误生成器 GRPO + 难度奖励 |
+| `train/prefix_share_llama.py` | 训练侧 prompt 前缀共享 |
+| `scripts/remote/` | GPU 端流程脚本 |
+| `configs/` | 训练超参、模型配置（`configs/models/`） |
