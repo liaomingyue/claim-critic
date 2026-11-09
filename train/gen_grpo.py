@@ -197,6 +197,8 @@ class Producer:
                     place_diversity_target(scores, self.rw)
                 else:
                     place_diversity(scores, self.rw.w)
+            if hasattr(self.rw, "group_post"):   # 组内后处理（v2sev rank：组内相对难度）
+                self.rw.group_post(scores)
             adv = group_advantages([s["reward"] for s in scores], [s.get("type") for s in scores])
             pids = self.tok(p)["input_ids"]
             for g, s, a in zip(gs, scores, adv):
@@ -237,6 +239,11 @@ def build_rewarder(args):
     from openai import OpenAI
     from train.gen_reward import Rewarder, TargetRewarder, load_temps
     cl = OpenAI(base_url=args.vllm_url, api_key=vllm_key(), timeout=600, max_retries=3)
+    if args.reward == "v2sev":   # 2026-11-09 生成器 v2：sev 主奖励，自然度 / critic 门槛（train.gen_reward_v2）
+        from train.gen_reward_v2 import V2SevRewarder
+        return V2SevRewarder(cl, load_temps(args.temps), nat_gate=args.nat_gate, crit=bool(args.crit_gate), crit_lo=args.crit_lo, crit_hi=args.crit_hi,
+                             fail_scale=args.fail_scale, shape=args.v2_shape, err_gate=args.err_gate,
+                             err_gate_start=args.err_gate_start, hard_shape=args.hard_shape, hard_base=args.hard_base, warm_samples=args.err_gate_warm * args.n * args.prompts_per_step)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
                               err_mode=args.err_mode, shape=args.shape, w_real2=args.w_real2, w_hard2=args.w_hard2, crit_max=args.crit_max, crit_floor=args.crit_floor,
@@ -1082,7 +1089,18 @@ def main() -> None:
     # 定向造错（2026-11-03）
     ap.add_argument("--causal", type=int, default=0, help="1 = 纯文本 CausalLM 底座（MiniCPM5-2B）")
     ap.add_argument("--share_impl", default="train.prefix_share", help="prompt 共享实现；Llama 结构用 train.prefix_share_llama")
-    ap.add_argument("--reward", choices=["default", "target"], default="default", help="target = 真实性主力、正确性和 critic 只扣分（gen_reward.TargetRewarder）")
+    ap.add_argument("--nat_gate", type=float, default=0.5, help="v2sev：RM2 v3 P(自然) 门槛")
+    ap.add_argument("--crit_gate", type=int, default=0, help="v2sev：1 = 另加 critic P(有幻觉) ∈ [crit_lo, crit_hi) 门槛")
+    ap.add_argument("--crit_lo", type=float, default=0.1)
+    ap.add_argument("--crit_hi", type=float, default=0.7)
+    ap.add_argument("--v2_shape", default="sev", choices=["sev", "hard"], help="v2sev：sev = sev 主奖励；hard = critic 难度主奖励、sev 有错 + 自然度门槛")
+    ap.add_argument("--err_gate", type=float, default=0.9, help="v2sev hard：sev P(有错) 门槛（终值）")
+    ap.add_argument("--hard_shape", default="tri", choices=["tri", "low", "rank"], help="v2sev hard：难度系数形状（rank = 组内相对难度 + tri）")
+    ap.add_argument("--hard_base", type=float, default=0.1, help="v2sev hard：过门槛的保底（≥ 0.9 的明显错拿到的分）")
+    ap.add_argument("--err_gate_start", type=float, default=None, help="v2sev hard：动态门槛起点（不设 = 固定 err_gate）")
+    ap.add_argument("--err_gate_warm", type=int, default=0, help="v2sev hard：门槛从起点升到终值用多少步")
+    ap.add_argument("--fail_scale", type=float, default=0.1, help="v2sev：没过门槛时奖励 = fail_scale × sev")
+    ap.add_argument("--reward", choices=["default", "target", "v2sev"], default="default", help="target = 真实性主力、正确性和 critic 只扣分（gen_reward.TargetRewarder）")
     ap.add_argument("--temps", default="", help="RM 温度来源：vLLM 名=RM 目录，逗号分隔；空 = 9B 版")
     ap.add_argument("--w_corr", type=float, default=0.5)
     ap.add_argument("--w_crit", type=float, default=0.3)

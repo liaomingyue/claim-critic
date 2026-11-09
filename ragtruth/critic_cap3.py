@@ -39,15 +39,30 @@ def main() -> None:
     ap.add_argument("--with_refusal", action="store_true", help="保留拒答句（默认去掉）")
     ap.add_argument("--n_boot", type=int, default=1000)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--by_type", action="store_true", help="另按机制报（该机制任意错 vs 没错）")
+    ap.add_argument("--min_type", type=int, default=30, help="--by_type：错误句少于这个数的机制不报")
     a = ap.parse_args()
     names = list(dict.fromkeys([a.base, *a.critics]))
     rows = [dict(x, _set=d[-1]) for d in DIRS for x in read_jsonl(Path(d) / "final.jsonl")]
     sc = {c: {k: v for d in DIRS for k, v in (scores(critic_file(d, c)) or {}).items()} for c in names}
-    xs = [x for x in rows if (a.with_refusal or "unable to answer" not in x["sentence"].lower())
-          and ((x["is_error"] and x["severity"] == "clear") or not x["is_error"]) and all(x["id"] in sc[c] for c in names)]
+    base_rows = [x for x in rows if (a.with_refusal or "unable to answer" not in x["sentence"].lower()) and all(x["id"] in sc[c] for c in names)]
+    # 口径（2026-11-09 用户：两个指标都报）：clear = 显然错 vs 没错（原主口径）；any = 显然 + 细微 vs 没错；type:<机制> = 该机制的任意错 vs 没错
+    views = [("clear", lambda x: x["severity"] == "clear"), ("any", lambda x: True)]
+    if a.by_type:
+        mc = collections.Counter(x["mechanism"] for x in base_rows if x["is_error"])
+        views += [(f"type:{m}", (lambda m: lambda x: x["mechanism"] == m)(m)) for m, n in mc.most_common() if n >= a.min_type]
+    out = {}
+    for vname, keep in views:
+        xs = [x for x in base_rows if not x["is_error"] or keep(x)]
+        out[vname] = run_view(a, names, sc, xs, vname)
+    if a.out:
+        Path(a.out).write_text(json.dumps(out, indent=1), encoding="utf-8")
+
+
+def run_view(a, names, sc, xs, vname) -> dict:
     y = np.array([int(x["is_error"]) for x in xs]); P = {c: np.array([sc[c][x["id"]] for x in xs]) for c in names}
     us, inv = np.unique(np.array([str(x["source_id"]) for x in xs]), return_inverse=True)
-    print("sentences", len(xs), "clear", int(y.sum()), "sources", len(us), "by set", dict(collections.Counter((x["_set"], x["is_error"]) for x in xs)))
+    print(f"\n=== [{vname}] sentences", len(xs), "errors", int(y.sum()), "sources", len(us))
     rng = np.random.default_rng(0)
     W = [np.bincount(rng.integers(0, len(us), len(us)), minlength=len(us))[inv] for _ in range(a.n_boot)]
     one = np.ones(len(y), int)
@@ -59,13 +74,12 @@ def main() -> None:
                        dlo=np.percentile(aa - ab, 5), dhi=np.percentile(aa - ab, 95), p=(aa - ab <= 0).mean(),
                        r10=rec(P[c], y, one, .10), dr=rec(P[c], y, one, .10) - rec(P[a.base], y, one, .10),
                        drlo=np.percentile(r10 - rb, 5), drhi=np.percentile(r10 - rb, 95), r5=rec(P[c], y, one, .05), fp05=float((P[c][y == 0] >= .5).mean()))
-    print(f"critic | clearAUC [90%] | dAUC vs {a.base} [90%] P<=0 | rec@fp10 (d [90%]) | rec@fp5 | fp@0.5")
+    print(f"critic | AUC [90%] | dAUC vs {a.base} [90%] P<=0 | rec@fp10 (d [90%]) | rec@fp5 | fp@0.5")
     for c in sorted(names, key=lambda c: -stat[c]["auc"]):
         s = stat[c]
         print(f"{c:28s} | {s['auc']:.3f} [{s['lo']:.3f},{s['hi']:.3f}] | {s['d']:+.3f} [{s['dlo']:+.3f},{s['dhi']:+.3f}] {s['p']:.3f} | "
               f"{s['r10']:.2f} ({s['dr']:+.2f} [{s['drlo']:+.2f},{s['drhi']:+.2f}]) | {s['r5']:.2f} | {s['fp05']:.3f}")
-    if a.out:
-        Path(a.out).write_text(json.dumps({c: {k: float(v) for k, v in stat[c].items()} for c in names}, indent=1), encoding="utf-8")
+    return {c: {k: float(v) for k, v in stat[c].items()} for c in names}
 
 
 if __name__ == "__main__":

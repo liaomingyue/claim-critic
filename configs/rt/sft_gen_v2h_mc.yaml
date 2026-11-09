@@ -1,0 +1,35 @@
+# 2026-11-09 方向②：难样本热启动——原 SFT 数据（seed_v2_train）+ 现有生成器批量采样里挑出的难样本（过门槛且 critic 0.1–0.7，gen_v2_grpo harvest）。
+# 超参同 sft_gen_v2_mc（1 轮、lr 5e-5、有效批 4），从基座重训一个 LoRA。
+task: gen
+prompt_tips: false
+base_model: /root/autodl-fs/models/MiniCPM5-2B
+use_lora: true
+merge_lora: false
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 1
+  learning_rate: 5.0e-5
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 2
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 4096
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+  model_init_kwargs:
+    dtype: bfloat16
+    device_map: cuda
+
+coldstart:
+  data: outputs/rt/gen_v2_grpo/sft_hard.jsonl
+  output_dir: /root/autodl-tmp/ckpt/gen-v2h-mc
