@@ -194,7 +194,7 @@ PYTHONHASHSEED=0 python -m pytest -q        # 单测，不需要 GPU、不调用
 pip install -r requirements-gpu.txt         # GPU 端（训练 / vLLM），版本同训练机
 ```
 
-三个复现层级（L0 只看结果 / L1 从打分重算 / L2 完整闭环）见 [docs/tech_share.md](docs/tech_share.md) 第 6 节。
+三个复现层级（L0 只看结果 / L1 从逐句打分重算 / L2 完整闭环）、公开的数据和模型（Hugging Face）及许可说明，见 [docs/RELEASE.md](docs/RELEASE.md)。代码许可证：Apache-2.0。
 
 - 全部运行用 `PYTHONHASHSEED=0` + 固定字符串种子，重跑得到同样的数据。
 - 数据包（Claude 标注、外部数据原件、评测集）不进 git：`python -m scripts.pack_data` → `dist/claim_critic_data.tar`，附 `MANIFEST.json`（SHA-256）。
