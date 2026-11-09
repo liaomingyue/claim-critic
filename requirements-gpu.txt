@@ -1,0 +1,15 @@
+# L1 / L2（单张 RTX 5090，CUDA 12.8）：SFT、打分模型、GRPO、vLLM 多 LoRA 服务
+#   pip install -r requirements.txt -r requirements-gpu.txt
+# 版本 = AutoDL 训练机（Python 3.12.3）pip freeze 的实际版本；torch 按 CUDA 版本从 PyTorch 官方源装
+torch==2.13.0
+transformers==5.19.0
+tokenizers==0.23.3
+safetensors==0.8.0
+peft==0.21.2
+trl==1.16.0
+accelerate==1.15.0
+datasets==5.1.0
+vllm==0.32.0
+pandas==3.1.0
+pyarrow==26.0.0
+numpy==2.3.2

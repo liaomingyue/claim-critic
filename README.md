@@ -177,9 +177,13 @@ r = h(critic P(有幻觉))
 ## 复现与运行
 
 ```bash
-pip install -e ".[dev]"
+pip install -r requirements.txt && pip install -e .
+python -m scripts.demo_tables               # 不需要 GPU：从 results/ 重出技术分享里的表 1–6
 PYTHONHASHSEED=0 python -m pytest -q        # 单测，不需要 GPU、不调用模型
+pip install -r requirements-gpu.txt         # GPU 端（训练 / vLLM），版本同训练机
 ```
+
+三个复现层级（L0 只看结果 / L1 从打分重算 / L2 完整闭环）见 [docs/tech_share.md](docs/tech_share.md) 第 6 节。
 
 - 全部运行用 `PYTHONHASHSEED=0` + 固定字符串种子，重跑得到同样的数据。
 - 数据包（Claude 标注、外部数据原件、评测集）不进 git：`python -m scripts.pack_data` → `dist/claim_critic_data.tar`，附 `MANIFEST.json`（SHA-256）。
