@@ -71,16 +71,32 @@ python -m scripts.demo_tables
 ### L1：从原始逐句打分重算所有对比（不需要 GPU）
 
 ```bash
-pip install huggingface_hub
+pip install -r requirements.txt
 python -m scripts.fetch_release --data_repo <用户>/claim-critic-data --only data --parts eval
-# critic 对比（表 3、4、7，以及第二轮 critic 的静态评测）：
-python -m ragtruth.critic_cap3 --critics rm1__core rm1__core_r2 rm1__core_r2_bfcl rm1__core_r2_bfnc rm1__core_rd2 --base rm1__core_r2 --by_type
-# RAG 对比（表 2、8、9）：
-python -m ragtruth.pol9b_cmp --arm s2=outputs/rt/core/loop2_cont/eval:s100 --arm s3bf=outputs/rt/core/loop2_cont4/eval:s100 \
-    --arm s3r1=outputs/rt/core/loop2_cont5/eval:s100 --arm s4=outputs/rt/core/loop2_cont6/eval:s100 --base s2
+C="rm1__core rm1__core_r2 rm1__core_r2_bfcl rm1__core_r2_bfnc rm1__core_rd2"
+E=outputs/rt/core
+# critic：多类型补盲核实 vs 不核实（表 7），以不核实组为基线
+python -m ragtruth.critic_cap3 --critics $C --base rm1__core_r2_bfnc --by_type --out r_clnc.json
+python -m scripts.check_repro r_clnc.json results/critic_cap_blindfill_clnc.json
+# critic：第二轮 rd2 vs 第一轮 bfcl 的静态评测（表 9）
+python -m ragtruth.critic_cap3 --critics $C --base rm1__core_r2_bfcl --by_type --out r_rd2.json
+python -m scripts.check_repro r_rd2.json results/critic_cap_rd2.json
+# RAG：第一轮闭环 + 对照、第二轮（表 8、9）；配对集合由参与的版本共同决定，所以版本列表要和原来一致
+python -m ragtruth.pol9b_cmp --arm sft=$E/loop2_coreonly/eval:v0 --arm s1=$E/loop2_coreonly/eval:s200     --arm s2=$E/loop2_cont/eval:s100 --arm s3r1=$E/loop2_cont5/eval:s100 --arm bf_v0=$E/loop2_cont4/eval:v0     --arm s3bf=$E/loop2_cont4/eval:s100 --arm s4_v0=$E/loop2_cont6/eval:v0 --arm s4_50=$E/loop2_cont6/eval:s50     --arm s4_100=$E/loop2_cont6/eval:s100 --base s3bf --n_boot 1000 --out r_s4.json
+python -m scripts.check_repro r_s4.json results/loop2_cont6_cmp.json
 ```
 
-这一层会从 Claude 金标和逐句打分重新算 AUC、召回和配对 bootstrap 区间，应该和 `results/` 里的一致。
+这一层从 Claude 金标、critic 逐句打分和 9B 逐句打分重新算 AUC、召回和配对 bootstrap 区间。种子固定，所以结果应和 `results/` 里的逐位一致，`check_repro` 会打印 `REPRO_MATCH`。
+
+我们在一个干净目录里实际走过一遍：
+- 从仓库 clone；
+- 用 `fetch_release --local` 解压全部 9 个包，SHA-256 全部一致；
+- 跑 L0；
+- 跑上面三条 L1。
+
+结果是三个文件都逐字段一致（含 bootstrap 区间）。注意两个容易踩的坑：
+- `--base` 不同，差值列就不同；
+- `pol9b_cmp` 只比所有版本都有回答的那些题，少放一个版本，配对条数就可能从 595 变成 596，比例会差零点几个点。
 
 ### L1+：用发布的 LoRA 重新打分（需要单张 GPU）
 
