@@ -14,26 +14,48 @@ export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segm
 unset VLLM_API_KEY LORA_SYNC_URL LORA_SYNC_MODE LORA_SYNC_FS_DIR
 [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
 source scripts/remote/models9b.sh; start_9b_bg   # 先拷马上要用的 2B，9B 后台拷，把时间岔开
-MC=$A/models/MiniCPM5-2B; SRC=${SRC:-outputs/rt/minicpm/grpo}; INIT=${INIT:-$FS/adapters/mc-init}; CRITIC=${CRITIC:-rm1__mcgold_h3ctl}; STEPS=${STEPS:-300}
+# 9B 对照（2×2：策略大小 × 打分模型大小）：POLICY_MODEL / RM_MODEL = minicpm5-2b（默认）| qwen3.5-9b。
+#   打分模型（critic / 满意度 / 拒答）一起换大小；9B 版的名字带 _9b 后缀（数据目录 outputs/rt/rm/<名字>，adapter <名字>-9b）。
+#   GPU 布局：都是 2B 时和原来一样全在 GPU0；否则训练在 GPU0，9B 的服务放 GPU1，2B 策略的采样服务留在 GPU0。
+PM=${POLICY_MODEL:-minicpm5-2b}; RMM=${RM_MODEL:-minicpm5-2b}
+B9=$A/models/Qwen3.5-9B
+{ [ $PM = qwen3.5-9b ] || [ $RMM = qwen3.5-9b ]; } && { ensure_9b || { log "9b copy FAILED"; exit 1; }; }
+if [ $PM = qwen3.5-9b ]; then PB=$B9; PSFX=9b; SHARE_IMPL=train.prefix_share; else PB=$A/models/MiniCPM5-2B; PSFX=mc; SHARE_IMPL=train.prefix_share_llama; fi
+if [ $RMM = qwen3.5-9b ]; then RB=$B9; RS=9b; else RB=$A/models/MiniCPM5-2B; RS=mc; fi
+MC=$PB; SRC=${SRC:-outputs/rt/minicpm/grpo}; INIT=${INIT:-$FS/adapters/mc-init}; CRITIC=${CRITIC:-rm1__mcgold_h3ctl}; STEPS=${STEPS:-300}
 SAT=${SAT:-sat_pair__mc}; REFUSE=${REFUSE:-refuse}   # 循环二：起点 / 原文池 / 满意度 / 拒答模型可换（核心集版：INIT=rag-sft-core SAT=sat_pair__core REFUSE=refuse__core）
 TAG=${TAG:-}; O=${O:-outputs/rt/minicpm/r3full$TAG}; E=$O/eval; mkdir -p $E   # TAG：换 critic 的对照组（两个显著不同的 RM 各用 R3 训 RAG）
 temp() { python -c "import json;print(json.load(open('outputs/rt/rm/$1/eval/report.json'))['temperature'])"; }
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 ad() { [ -f $1/policy/adapter_model.safetensors ] && echo $1/policy || echo $1; }
 RW="--reward_shape count --count_ratio 0.5 --count_min 2 --sat_w 0.8 --sent_beta 0.6 --sent_gamma 0.3"
-free_gpu; mkdir -p $A/s0
-A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $MC --log $A/vllm-r3full.log --priority \
-  critic=$FS/adapters/$CRITIC-mc/adapter sat=$FS/adapters/$SAT-mc/adapter refuse=$FS/adapters/$REFUSE-mc/adapter policy_v0=$INIT >> $LOG 2>&1 || { log "serve FAILED"; exit 1; }
+free_gpu; mkdir -p $A/s0 $A/s1
+RMS="critic=$FS/adapters/$CRITIC-$RS/adapter sat=$FS/adapters/$SAT-$RS/adapter refuse=$FS/adapters/$REFUSE-$RS/adapter"
+if [ $PM = minicpm5-2b ] && [ $RMM = minicpm5-2b ]; then   # 原布局：一个服务，GPU0
+  A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $MC --log $A/vllm-r3full.log --priority $RMS policy_v0=$INIT >> $LOG 2>&1 || { log "serve FAILED"; exit 1; }
+  RMURL=http://127.0.0.1:8000/v1
+elif [ $PM = $RMM ]; then   # 9B × 9B：同一基座，一个服务放 GPU1（策略 + 打分模型），训练独占 GPU0
+  A=$A/s1 bash $S/serve_loras.sh --gpu 1 --port 8000 --mem 0.85 --base $PB --log $A/vllm-r3full.log --priority $RMS policy_v0=$INIT >> $LOG 2>&1 || { log "serve FAILED"; exit 1; }
+  RMURL=http://127.0.0.1:8000/v1
+elif [ $PM = minicpm5-2b ]; then   # 2B 策略 × 9B 打分：策略服务和训练同在 GPU0（同原布局），9B 打分服务放 GPU1
+  A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $PB --log $A/vllm-r3full.log --priority policy_v0=$INIT >> $LOG 2>&1 || { log "serve policy FAILED"; exit 1; }
+  A=$A/s1 bash $S/serve_loras.sh --gpu 1 --port 8001 --mem 0.85 --base $RB --log $A/vllm-r3rm.log --priority $RMS >> $LOG 2>&1 || { log "serve rm FAILED"; exit 1; }
+  RMURL=http://127.0.0.1:8001/v1
+else   # 9B 策略 × 2B 打分：两个服务都在 GPU1（9B 策略 0.55 + 2B 打分 0.3），训练独占 GPU0
+  A=$A/s1 bash $S/serve_loras.sh --gpu 1 --port 8000 --mem 0.55 --base $PB --log $A/vllm-r3full.log --priority policy_v0=$INIT >> $LOG 2>&1 || { log "serve policy FAILED"; exit 1; }
+  A=$A/s0 bash $S/serve_loras.sh --gpu 1 --port 8001 --mem 0.3 --base $RB --log $A/vllm-r3rm.log --priority $RMS >> $LOG 2>&1 || { log "serve rm FAILED"; exit 1; }
+  RMURL=http://127.0.0.1:8001/v1
+fi
 LAST=$(ls -d $O/run/state/step* 2>/dev/null | sort -V | tail -n 1)
 log "start r3full: critic $CRITIC, $RW, steps $STEPS ${LAST:+(resume $LAST)}"
-CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal 1 --sys_qa 1 --base $MC --init $INIT --vllm_url http://127.0.0.1:8000/v1 --policy_url http://127.0.0.1:8000/v1 \
-  --n 16 --share 1 --share_impl train.prefix_share_llama --share_ckpt 1 --share_mb ${SHARE_MB:-32} --prompts $SRC/train_ref.jsonl --dev $SRC/dev_ref.jsonl \
+CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal 1 --sys_qa 1 --base $MC --init $INIT --vllm_url $RMURL --policy_url http://127.0.0.1:8000/v1 \
+  --n 16 --share 1 --share_impl $SHARE_IMPL --share_ckpt 1 --share_mb ${SHARE_MB:-32} --prompts $SRC/train_ref.jsonl --dev $SRC/dev_ref.jsonl \
   --critic_report outputs/rt/rm/$CRITIC/eval/report.json --shadow= \
   --sat_model sat --sat_kind pair --sat_report outputs/rt/rm/$SAT/eval/report.json --refuse_model refuse --refuse_report outputs/rt/rm/$REFUSE/eval/report.json --refuse_w 0.4 \
   $RW --proc_producer 1 --pipeline 1 --lr 5e-6 --steps $STEPS --save_every 50 --state_every 50 --keep_states 2 --eval_k 2 --trip 1 \
   --version_prefix r3f${TAG}_ --push_dir /dev/shm/r3full$TAG --out $O/run ${LAST:+--resume $LAST} >> $A/r3full${TAG}_train.log 2>&1 && log "train done" || log "train FAILED or stopped (see r3full_train.log)"
 grep -ah "QUICK_EVAL\|TRIP" $A/r3full${TAG}_train.log | cut -c1-500 | tee -a $LOG
-mkdir -p $FS/adapters/mc-grpo-r3$TAG && rsync -a $O/run/ckpt/ $FS/adapters/mc-grpo-r3$TAG/ && log "ckpts saved to adapters/mc-grpo-r3$TAG: $(ls $O/run/ckpt | tr '\n' ' ')"
+mkdir -p $FS/adapters/$PSFX-grpo-r3$TAG && rsync -a $O/run/ckpt/ $FS/adapters/$PSFX-grpo-r3$TAG/ && log "ckpts saved to adapters/$PSFX-grpo-r3$TAG: $(ls $O/run/ckpt | tr '\n' ' ')"
 free_gpu
 
 # 独立评测

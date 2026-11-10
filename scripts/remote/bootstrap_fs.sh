@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -111,7 +111,8 @@ case $ROLE in
   blindfill2) CODE=$R bash $S/run_blind_fill2.sh; rc=$? ;;   # 补 critic 盲区第二台（g1 采样 + nc 组 critic）
   round2fill) CODE=$R bash $S/run_round2_fill.sh; rc=$? ;;   # 第二轮闭环：新 RAG 回答 → 造难样本 → 等 Claude → rm1__core_rd2
   round2rag) CODE=$R bash $S/run_round2_rag.sh; rc=$? ;;
-  eval9b) CODE=$R bash $S/run_eval9b_agree.sh; rc=$? ;;   # 9B 评测器和 Claude 金标的一致性
+  eval9b) CODE=$R bash $S/run_eval9b_agree.sh; rc=$? ;;
+  q9bd|q9bs) mkdir -p $FS/runs/q9b; [ -f $FS/runs/q9b/tasks ] || cp $R/scripts/remote/q9b.tasks $FS/runs/q9b/tasks; CODE=$R bash $S/queue_worker.sh $FS/runs/q9b; rc=$? ;;   # 9B 对照实验：q9bd 双卡、q9bs 单卡，同一个队列   # 9B 评测器和 Claude 金标的一致性
   repro_bf|repro_r1) bash $S/run_repro_test.sh rp_${ROLE#repro_}; rc=$? ;;   # 从头复现实测（scripts/repro），见 run_repro_test.sh
   sevrm2) CODE=$R bash $S/run_sevrm2_r1.sh; rc=$? ;;   # sev / RM2 加第一轮盲区 Claude 标注（sev__v3d / rm2__v3d）
   gengrpoh) CODE=$R bash $S/run_gengrpo_hard.sh; rc=$? ;;   # 生成器 GRPO，critic 难度主奖励（ge / ge2）

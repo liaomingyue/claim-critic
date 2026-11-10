@@ -85,7 +85,8 @@ def cmd_probe(a) -> None:
     from train.gen_reward_v2 import V2SevRewarder
     cl = OpenAI(base_url=a.url, api_key="x", timeout=1800, max_retries=3)
     tok = AutoTokenizer.from_pretrained(a.tokenizer)
-    rw = V2SevRewarder(cl, load_temps(a.temps), shape="hard", err_gate=a.err_gate, nat_gate=0.5)   # 统计用默认形状；门槛通过率 / critic 分布与形状无关
+    rcl = OpenAI(base_url=a.rm_url, api_key="x", timeout=1800, max_retries=3) if a.rm_url else cl   # 打分模型可以在另一个服务（9B 生成器配 2B 打分模型）
+    rw = V2SevRewarder(rcl, load_temps(a.temps), shape="hard", err_gate=a.err_gate, nat_gate=0.5)   # 统计用默认形状；门槛通过率 / critic 分布与形状无关
     rows = list(read_jsonl(O / "prompts.jsonl"))[-a.n_prompts:]   # 取末尾，训练 100 步只用到开头的提示
 
     def one(r):
@@ -190,6 +191,7 @@ def main() -> None:
     ap.add_argument("--temperature", type=float, default=1.0, help="harvest：采样温度（0 = 确定性，配 --n 1）")
     ap.add_argument("--prev_hard", default="", help="harvest：上一轮难样本文件（O 下），满足本轮条件的并进来")
     ap.add_argument("--url", default="http://127.0.0.1:8000/v1")
+    ap.add_argument("--rm_url", default="", help="probe：打分模型（sev / RM2 / critic）所在的服务；空 = 和生成器同一个")
     ap.add_argument("--model", default="policy_v0")
     ap.add_argument("--tokenizer", default="")
     ap.add_argument("--temps", default="sev=sev__v3c0,rm2v3=rm2__v3b,rm1=rm1__core_r2")
