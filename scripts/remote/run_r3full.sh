@@ -34,7 +34,11 @@ RW="--reward_shape count --count_ratio 0.5 --count_min 2 --sat_w 0.8 --sent_beta
 free_gpu; mkdir -p $A/s0 $A/s1
 RMS="critic=$FS/adapters/$CRITIC-$RS/adapter sat=$FS/adapters/$SAT-$RS/adapter refuse=$FS/adapters/$REFUSE-$RS/adapter"
 POLURL=http://127.0.0.1:8000/v1; ASYNC=""
-if [ -n "${RM_URL:-}" ]; then   # 双机：推理机上已经挂好策略 + 打分模型（run_infer_node.sh），LoRA 每步后台上传给它热加载
+if [ -n "${RM_URL:-}" ] && [ $PM = minicpm5-2b ]; then   # 多机，2B 策略 × 9B 打分：打分在推理机上，2B 策略的采样服务留在训练卡（同单卡 2B 的布局），LoRA 本机热加载
+  A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $PB --log $A/vllm-r3full.log --priority policy_v0=$INIT >> $LOG 2>&1 || { log "serve policy FAILED"; exit 1; }
+  RMURL=$RM_URL; POLURL=http://127.0.0.1:8000/v1; ASYNC=""
+  log "remote scoring $RM_URL, local 2B policy"
+elif [ -n "${RM_URL:-}" ]; then   # 双机：推理机上已经挂好策略 + 打分模型（run_infer_node.sh），LoRA 每步后台上传给它热加载
   RMURL=$RM_URL; POLURL=$RM_URL; ASYNC="--async_push 1"
   log "remote inference $RM_URL"
 elif [ $PM = minicpm5-2b ] && [ $RMM = minicpm5-2b ]; then   # 原布局：一个服务，GPU0

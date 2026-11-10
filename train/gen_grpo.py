@@ -47,9 +47,11 @@ def lora_sync_url(server_url: str = "") -> str:
     多台推理机：RM_URL 和 LORA_SYNC_URL 都是逗号分隔、顺序一一对应，按这个 vLLM 服务的地址找它自己的同步服务。"""
     import os
     syncs = [s.strip().rstrip("/") for s in os.environ.get("LORA_SYNC_URL", "").split(",") if s.strip()]
+    urls = [u.strip().rstrip("/") for u in os.environ.get("RM_URL", "").split(",") if u.strip()]
+    if server_url and urls and server_url.rstrip("/") not in urls:
+        return ""   # 本机的策略服务（2B 策略 × 9B 打分：策略在训练机上采样，打分在推理机上）：直接热加载，不走同步服务
     if len(syncs) <= 1:
         return syncs[0] if syncs else ""
-    urls = [u.strip().rstrip("/") for u in os.environ.get("RM_URL", "").split(",") if u.strip()]
     if server_url.rstrip("/") in urls and len(urls) == len(syncs):
         return syncs[urls.index(server_url.rstrip("/"))]
     raise RuntimeError(f"LORA_SYNC_URL has {len(syncs)} entries but server {server_url} not matched in RM_URL")

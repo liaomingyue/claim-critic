@@ -12,6 +12,8 @@ base_2b|prep|bash scripts/remote/q9b_base.sh base 2b
 cap3|rm_rm1__core|bash scripts/remote/q9b_task.sh cap3
 pair_infer|ref9,rm_rm1__core,rm_sat_pair__core,rm_refuse__core|bash scripts/remote/q9b_task.sh pair_infer
 pair_train|ref9,rm_rm1__core,rm_sat_pair__core,rm_refuse__core|bash scripts/remote/q9b_task.sh pair_train
+# 2B 策略 × 9B 打分（2B SFT 起点，打分模型换成 9B 版，推理机复用 9B GRPO 那两台）：看更好的 critic 当奖励能多降多少，对照 RAG-S1
+pair_train_p2r9|pair_train|PAIR=q9b JOB=run_p2r9_pair.sh bash scripts/remote/run_train_node.sh
 cmp|pair_train|bash scripts/remote/q9b_task.sh cmp
 cmp2|pair_train,base_9b,base_2b,cap3|bash scripts/remote/q9b_base.sh cmp2
 # 垫底任务：等第二台机器时不让第一台空着（单卡就能做的 9B 对比），排在最后，不抢 GRPO 的先
