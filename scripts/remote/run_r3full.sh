@@ -5,11 +5,11 @@
 # mc-init 起，lr 5e-6，n 16 × 16 prompt，STEPS（默认 300）步，每 50 步存检查点 + 续训状态，TripWire 打开。
 # 训完：第 100 / 200 / 300 步在 200 个验收原文-种子上生成（同 run_after：grpo300 T1.0、grpo300b T0.7，top_p 0.95），9B 金标 critic 打分 → $O/eval/
 set -u
-cd ${CODE:-/root/autodl-fs/code/critic_model}
-A=/root/autodl-tmp; FS=/root/autodl-fs; LOG=$A/r3full${TAG:-}.log; S=scripts/remote
+cd ${CODE:-${FS_ROOT:-/root/autodl-fs}/code/critic_model}
+A=${TMP_ROOT:-/root/autodl-tmp}; FS=${FS_ROOT:-/root/autodl-fs}; LOG=$A/r3full${TAG:-}.log; S=scripts/remote
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 # 看门狗保活（2026-11-05：拷 / 加载 9B 时 GPU 空闲超过 10 分钟被关机）：脚本活着就每分钟 touch，脚本结束循环自己退出
-( while kill -0 $$ 2>/dev/null; do touch /root/autodl-tmp/KEEPALIVE; sleep 60; done ) & KA=$!   # 保活进程 PID：下面的 wait 不能等它（2026-11-05 worker1 生成完卡死在 wait）
+( while kill -0 $$ 2>/dev/null; do touch ${TMP_ROOT:-/root/autodl-tmp}/KEEPALIVE; sleep 60; done ) & KA=$!   # 保活进程 PID：下面的 wait 不能等它（2026-11-05 worker1 生成完卡死在 wait）
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
 unset VLLM_API_KEY LORA_SYNC_URL LORA_SYNC_MODE LORA_SYNC_FS_DIR
 [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }

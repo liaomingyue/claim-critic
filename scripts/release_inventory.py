@@ -61,6 +61,10 @@ def entries() -> list[tuple[str, str, str]]:
     for c in CRITICS + RMS:
         e.append(("models/critic" if c.startswith("rm1") else "models/rm", f"adapters/{c}-mc/adapter", f"LoRA：{c}"))
     e.append(("models/critic", "adapters/rm1__rm1_gold_9b-9b/adapter", "LoRA：9B 金标 critic（只用于评测）"))
+    # 2026-11-10 复现脚本（scripts/repro）需要：9B 金标 critic 的校准温度；闭环 GRPO 的参考回答（起点重采，不发的话复现时会重新采，结果多一层随机性）
+    e.append(("data/rm", C + "outputs/rt/rm/rm1__rm1_gold_9b/eval/report.json", "9B 金标 critic 的校准温度"))
+    for st in ("adapter", "step200", "step100"):
+        e.append(("data/core", C + f"outputs/rt/core/loop2_prompts_{st}", f"闭环 GRPO 原文池 + 起点参考回答（起点 {st}）"))
     for k, v in RAG.items():
         e.append(("models/rag", v, f"LoRA：{k}"))
     for k, v in GEN.items():

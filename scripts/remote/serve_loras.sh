@@ -9,7 +9,7 @@
 #
 # 就绪返回 0，服务留在后台；失败返回 1。工作目录要是代码根目录。
 set -u
-A=${A:-/root/autodl-tmp}
+A=${A:-${TMP_ROOT:-/root/autodl-tmp}}
 GPU=1; PORT=8000; BASE=$A/models/Qwen3.5-9B; LOG=$A/vllm.log; MEM=0.9; RANK=32; BATCH=16384; RETAIN=(); SCHED=(); LORAS=()
 while [ $# -gt 0 ]; do
   case $1 in
