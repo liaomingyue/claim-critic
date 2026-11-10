@@ -1,0 +1,155 @@
+{
+ "runs": {
+  "9B 原始": {
+   "n_sent": 444,
+   "n_answers": 98,
+   "auc_clear": 0.9019906323185012,
+   "auc_any": 0.8608776132404181,
+   "clear": {
+    "rate_9b": 0.35714285714285715,
+    "rate_claude": 0.4489795918367347,
+    "agreement": 0.7448979591836735,
+    "kappa": 0.47447447447447466
+   },
+   "any": {
+    "rate_9b": 0.6326530612244898,
+    "rate_claude": 0.7551020408163265,
+    "agreement": 0.7755102040816326,
+    "kappa": 0.48073217726396916
+   },
+   "claude_on_9b_ge_0.9": {
+    "clear": 26,
+    "minor": 17,
+    "none": 11
+   }
+  },
+  "9B GRPO": {
+   "n_sent": 512,
+   "n_answers": 100,
+   "auc_clear": 0.9584541062801932,
+   "auc_any": 0.8430137302411446,
+   "clear": {
+    "rate_9b": 0.22,
+    "rate_claude": 0.2,
+    "agreement": 0.82,
+    "kappa": 0.4578313253012044
+   },
+   "any": {
+    "rate_9b": 0.45,
+    "rate_claude": 0.64,
+    "agreement": 0.67,
+    "kappa": 0.35797665369649806
+   },
+   "claude_on_9b_ge_0.9": {
+    "clear": 8,
+    "minor": 12,
+    "none": 5
+   }
+  },
+  "2B 基线": {
+   "n_sent": 361,
+   "n_answers": 100,
+   "auc_clear": 0.9233253177602199,
+   "auc_any": 0.8512507817385866,
+   "clear": {
+    "rate_9b": 0.43,
+    "rate_claude": 0.43,
+    "agreement": 0.8,
+    "kappa": 0.5920032639738882
+   },
+   "any": {
+    "rate_9b": 0.51,
+    "rate_claude": 0.7,
+    "agreement": 0.73,
+    "kappa": 0.45564516129032256
+   },
+   "claude_on_9b_ge_0.9": {
+    "clear": 49,
+    "minor": 21,
+    "none": 9
+   }
+  },
+  "2B GRPO（验收 a）": {
+   "n_sent": 414,
+   "n_answers": 100,
+   "auc_clear": 0.9390927624872579,
+   "auc_any": 0.857200604590671,
+   "clear": {
+    "rate_9b": 0.2,
+    "rate_claude": 0.25,
+    "agreement": 0.95,
+    "kappa": 0.857142857142857
+   },
+   "any": {
+    "rate_9b": 0.3,
+    "rate_claude": 0.52,
+    "agreement": 0.78,
+    "kappa": 0.5669291338582678
+   },
+   "claude_on_9b_ge_0.9": {
+    "clear": 21,
+    "minor": 4,
+    "none": 3
+   }
+  }
+ },
+ "pooled": {
+  "n_sent": 1731,
+  "n_answers": 398,
+  "auc_clear": 0.9337826733882609,
+  "auc_any": 0.8634895082313145,
+  "clear": {
+   "rate_9b": 0.3015075376884422,
+   "rate_claude": 0.3316582914572864,
+   "agreement": 0.8291457286432161,
+   "kappa": 0.6055730441879447
+  },
+  "any": {
+   "rate_9b": 0.4723618090452261,
+   "rate_claude": 0.6532663316582915,
+   "agreement": 0.7386934673366834,
+   "kappa": 0.48609455701231624
+  }
+ },
+ "pairs": {
+  "9B 原始>9B GRPO": {
+   "n": 98,
+   "clear": {
+    "diff_9b": -0.14285714285714288,
+    "diff_claude": -0.24489795918367346,
+    "same_sign": true
+   },
+   "any": {
+    "diff_9b": -0.1938775510204082,
+    "diff_claude": -0.12244897959183665,
+    "same_sign": true
+   }
+  },
+  "2B 基线>2B GRPO（验收 a）": {
+   "n": 100,
+   "clear": {
+    "diff_9b": -0.22999999999999998,
+    "diff_claude": -0.18,
+    "same_sign": true
+   },
+   "any": {
+    "diff_9b": -0.21000000000000002,
+    "diff_claude": -0.17999999999999994,
+    "same_sign": true
+   }
+  },
+  "9B GRPO>2B GRPO（验收 a）": {
+   "n": 100,
+   "clear": {
+    "diff_9b": -0.01999999999999999,
+    "diff_claude": 0.04999999999999999,
+    "same_sign": false
+   },
+   "any": {
+    "diff_9b": -0.15000000000000002,
+    "diff_claude": -0.12,
+    "same_sign": true
+   }
+  }
+ }
+}
