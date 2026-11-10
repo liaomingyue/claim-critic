@@ -1,5 +1,5 @@
 #!/bin/bash
-# 复现的路径约定（2026-11-10）。被 setup.sh / r1_rescore.sh / r2_rag.sh source。
+# 复现的路径约定。被 setup.sh / r1_rescore.sh / r2_rag.sh source。
 #   ROOT     代码根目录（git clone 下来的仓库），默认是本脚本往上两级
 #   FS_ROOT  "共享存储"：基座模型和 LoRA 放这里（$FS_ROOT/models、$FS_ROOT/adapters），默认 $ROOT/.repro/store
 #   TMP_ROOT 快速本地盘：vLLM 日志、基座的本地副本、训练中间文件，默认 $ROOT/.repro/work

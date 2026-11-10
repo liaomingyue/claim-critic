@@ -1,4 +1,4 @@
-"""Claude 抽查合成样本的正确性（2026-10-29，用户同意，约 $3）：RM3 打算直接用 35B 的判断，这里看它判对、判错的两组
+"""Claude 抽查合成样本的正确性（约 $3）：RM3 打算直接用 35B 的判断，这里看它判对、判错的两组
 各有没有明显的系统性问题；同时复核反馈 critic 一次都没识破（识破率 = 0）的有效样本：按方案这类先复核再用。
 
 三组（同一个 gen_dpo 目录，默认 outputs/rt/closed/gtarget）：
@@ -12,7 +12,7 @@ Claude 看到原文、整条回答、原句和改句、生成器给的类型 / �
   natural   yes / no：真实助手写这条回答时会不会这样写错
 
 用法：python -m ragtruth.audit_synth --dir outputs/rt/closed/gtarget --tag cleangfree --n 20
-     本地 35B（思考模式）判同一批、和 Claude 比一致率（2026-10-29，用户：先用 35B）：
+     本地 35B（思考模式）判同一批、和 Claude 比一致率（先用 35B）：
      python -m ragtruth.audit_synth --local --model judge --only outputs/rt/closed/gtarget/audit_synth.jsonl          --out outputs/rt/closed/gtarget/audit_synth_35b.jsonl
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ Answer in this format:
 <natural>yes|no</natural>"""
 
 
-# v2（2026-10-29）：35B 思考模式用 v1 时偏宽松（Claude 判「其实没错」的 40 条里 15 条判成正确），且 19% 思考兜圈子到
+# v2：35B 思考模式用 v1 时偏宽松（Claude 判「其实没错」的 40 条里 15 条判成正确），且 19% 思考兜圈子到
 # token 上限没给结论。v2 写清边界并给通用例子（不取自被评测的 83 条），要求简短推理；配合 --samples 多次采样取投票比例当概率。
 SYSTEM_V2 = SYSTEM.replace("Also judge whether", """Where the line is:
 - It is an error (correct, if the type, evidence and reason fit) only if the rewritten sentence makes a specific claim that the source contradicts or does not contain: a changed number, date, name, quantity or order; a fact attributed to the wrong entity, passage or step; a strengthened or weakened certainty or scope ("may" becoming "will", "some" becoming "all"); or a specific added detail the source does not give.
@@ -63,7 +63,7 @@ Keep your reasoning short: check the changed part against the source once, decid
 Also judge whether""")
 
 
-# v3（2026-10-29，用户：边界不明确的偏向严格）：凡是原文没说、也不能直接推出的内容都算错，包括泛泛的目的 / 评价短语
+# v3（边界不明确的偏向严格）：凡是原文没说、也不能直接推出的内容都算错，包括泛泛的目的 / 评价短语
 # 和改变语气、确定性的近义替换；只有意思完全不变的改写才算 not_an_error；拿不准时判为有错。Claude 和 35B 用同一份定义。
 SYSTEM_V3 = SYSTEM.replace("Also judge whether", """Use a strict standard. Where the line is:
 - It is an error (correct, if the type, evidence and reason fit) whenever the rewritten sentence says anything the source does not state and that cannot be directly inferred from it. This includes: a changed number, date, name, quantity or order; a fact attributed to the wrong entity, passage or step; a strengthened or weakened certainty or scope; a specific added detail; and also an added evaluation, purpose, consequence or recommendation the source does not make ("making it a great choice", "suitable for many occasions", "which is helpful for users"), or a near-synonym that shifts the meaning, tone or certainty ("provided" becoming "promised", "may" becoming "is likely to").
@@ -83,7 +83,7 @@ Keep your reasoning short: check the changed part against the source once, decid
 Also judge whether""")
 
 
-# v4（2026-10-29，用户：加一个不确定选项，让 35B 主动说不确定，送 Claude）：在 v3 的严格口径上加 uncertain。
+# v4（加一个不确定选项，让 35B 主动说不确定，送 Claude）：在 v3 的严格口径上加 uncertain。
 # 何时用 uncertain 按 35B 与 Claude 的实际分歧写：意思是否改变取决于理解的近义替换 / 泛泛补充、原句本身可能不被支持、
 # conflict 与 baseless 都说得通、证据只覆盖一部分。uncertain 不进训练标签，只用于分流给 Claude。
 SYSTEM_V4 = (SYSTEM_V3
@@ -100,7 +100,7 @@ SYSTEM_V4 = (SYSTEM_V3
                       "<category>correct|not_an_error|wrong_explanation|original_wrong|uncertain</category>"))
 
 
-# v5（2026-10-30，用户：结合 Claude 的结论改提示词）：35B 判 correct、Claude 不同意的 49 条里，问题集中在
+# v5（结合 Claude 的结论改提示词）：35B 判 correct、Claude 不同意的 49 条里，问题集中在
 #   ① 冲突 / 无依据分不清、照单接受生成器报的类型（约 15）；② 不检查原句，原句里已有原文没说的评价、夸张（13）；
 #   ③ 严格口径用过头，把删减、同指称改写、能直接推出的内容判成错（12）；④ 证据 / 理由没对准真正改错的地方（约 9）。
 # 改成逐步检查、每步单独给结论，最后按规则合成类别；例子都是自编的，不取自这些样本。

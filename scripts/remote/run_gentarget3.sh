@@ -1,5 +1,5 @@
 #!/bin/bash
-# 定向造错 GRPO 第三版（2026-11-03，用户：改对要结合整个回答、上下句尤其重要；弄完直接双卡）。相对第二版：
+# 定向造错 GRPO 第三版（改对要结合整个回答、上下句尤其重要；弄完直接双卡）。相对第二版：
 #   种子：172 条，按整条回答和上下句重新改对（上下句有错一起改、不删）；生成器 prompt 加「结合整条回答和上下句」；
 #   提示池一半指定 baseless、一半指定 conflict（第二版第 75 步 conflict 占 95% 停训）；造错类型和 prompt 不符记 wrong_type、不给分；
 #   RM2（rm2v2__mcgen3）自然一侧补上 Claude 确认的 2B 真错（第二版 RM2 上「错得明显」本身就是区分合成的信号）。
@@ -31,7 +31,7 @@ python -u -m ragtruth.gen_target_data build --free_size 1 --ctx 1 --type_split 1
 log "phase 2"
 if [ ! -f outputs/rt/rm/$RM2/eval/report.json ]; then
   if [ ! -f $O/synth_seed3.jsonl ]; then
-    # 双卡各起一个同样的服务（用户：评测时两张卡一起用），请求按样本 id 分摊。先等两张卡显存放干净（踩过：上一轮的 vLLM 还在退出，起不来）
+    # 双卡各起一个同样的服务（评测时两张卡一起用），请求按样本 id 分摊。先等两张卡显存放干净（踩过：上一轮的 vLLM 还在退出，起不来）
     for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done
     for g in 0 1; do
       A=$A/s$g bash $S/serve_loras.sh --gpu $g --port 800$((g+1)) --base $MC --log $A/vllm-gt3-syn$g.log \

@@ -1,4 +1,4 @@
-"""开源发布打包（2026-11-10）：按 release_inventory 的清单，在 GPU 机上把数据和模型打成 tar，并写 MANIFEST.json（逐文件 SHA-256）。
+"""开源发布打包：按 release_inventory 的清单，在 GPU 机上把数据和模型打成 tar，并写 MANIFEST.json（逐文件 SHA-256）。
 
   python -m scripts.release_pack [--fs /root/autodl-fs] [--out /root/autodl-tmp/release]
 
@@ -104,7 +104,7 @@ def main() -> None:
         else:
             add(group, src, model_name(rel), desc)
             card = Path(a.cards) / model_name(rel) if a.cards else None
-            if card and (card / "README.md").exists():   # 2026-11-10：每个模型的训练数据 / 配置说明（docs/MODELS.md 同源）
+            if card and (card / "README.md").exists():   # 每个模型的训练数据 / 配置说明（docs/MODELS.md 同源）
                 for f in ("README.md", "training.json"):
                     add(group, card / f, f"{model_name(rel)}/{f}", "模型说明：训练数据和训练配置")
     # RAGTruth 原件（MIT）

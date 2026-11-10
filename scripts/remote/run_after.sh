@@ -1,6 +1,6 @@
 #!/bin/bash
-# A 上奖励对照跑完后（2026-11-05）：
-#   ① 新打分器验证（用户：16 个 critic 评测 GPU 只有 33%，要打满）：16 个 critic 一次挂上（MAX_LORAS 16），critic_score_multi 一起打 grpo300c，
+# A 上奖励对照跑完后：
+#   ① 新打分器验证（16 个 critic 评测 GPU 只有 33%，要打满）：16 个 critic 一次挂上（MAX_LORAS 16），critic_score_multi 一起打 grpo300c，
 #      和 C 上旧 critic_score 的结果逐句比（应一致），记耗时、GPU 利用率
 #   ② 奖励对照独立评测（9B 不进奖励，只当评测标签）：v0（mc-init）/ R0–R3 第 50 步在 200 个验收原文-种子上生成（同 run_eval_mid：grpo300 T1.0、grpo300b T0.7，top_p 0.95），
 #      9B 金标 critic（rm1__rm1_gold_9b）逐句打分 → outputs/rt/minicpm/rwexp/eval/

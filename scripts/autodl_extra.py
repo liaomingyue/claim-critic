@@ -8,7 +8,7 @@
 新实例用和主实例相同的基础镜像（conda 环境路径一致，整份 rsync 过来不用重装）。
 登录信息写 outputs/autodl/extra_<角色>.json，用 AUTODL_INFO=该文件 python -m scripts.remote ... 操作那台机器。
 
---fs 模式（2026-10-28 起）：新实例用自定义镜像（--image，环境已在系统盘）+ 文件存储（模型、代码和数据共享），
+--fs 模式：新实例用自定义镜像（--image，环境已在系统盘）+ 文件存储（模型、代码和数据共享），
 不经过主实例：上传本地最新代码包后运行 scripts/remote/bootstrap_fs.sh <角色> <运行名>，结果写回文件存储。
 
 用法：python -m scripts.autodl_extra --roles diag syn9b
@@ -96,7 +96,7 @@ def bg(info: dict, cmd: str, logfile: str) -> None:
     c.close()
 
 
-FS_IMAGE = "image-8abf4719aa"   # 主实例系统盘（含 conda 环境）保存的自定义镜像，2026-10-28；镜像不可用时 bootstrap_fs 从文件存储解压环境包
+FS_IMAGE = "image-8abf4719aa"   # 主实例系统盘（含 conda 环境）保存的自定义镜像；镜像不可用时 bootstrap_fs 从文件存储解压环境包
 CODE_DIRS = ["common", "ragtruth", "train", "eval", "infer", "scripts", "configs"]   # 不含 outputs 和本地密钥文件
 
 
@@ -175,7 +175,7 @@ def main() -> None:
     deadline = time.time() + args.max_hours * 3600
     log(f"want {todo}, image {image}", logf)
     while todo and time.time() < deadline:
-        try:   # 偶发网络超时不能让整个抢机器循环退出（2026-11-04 踩过：抢了 2.5 小时后一次 timed out 就退了）
+        try:   # 偶发网络超时不能让整个抢机器循环退出（踩过：抢了 2.5 小时后一次 timed out 就退了）
             cands = [m for g in args.gpu for m in web.machines(signs, g)
                      if usable(m, expand, args.max_price, args.gpus) and m["machine_id"] not in args.exclude_machines]
         except Exception as e:  # noqa: BLE001
@@ -211,9 +211,9 @@ def main() -> None:
         Path(f"outputs/autodl/extra_{role}.json").write_text(json.dumps(new, ensure_ascii=False, indent=2), encoding="utf-8")
         time.sleep(30)   # sshd 刚起来
         if args.fs:
-            if role == "pairinfer":   # 双机：推理机的对外域名只有平台接口查得到，建好就写进共享盘（不依赖本地会话，2026-11-04 踩过：会话断了训练机空等 1 小时）
+            if role == "pairinfer":   # 双机：推理机的对外域名只有平台接口查得到，建好就写进共享盘（不依赖本地会话，踩过：会话断了训练机空等 1 小时）
                 dom = {"svc6006": inst.get("service_6006_domain"), "svc6008": inst.get("service_6008_domain"), "infer_uuid": inst["uuid"]}
-                # 先等共享盘挂上再写（2026-11-04 踩过：容器刚起时还没挂，写进了被挂载盖住的本地目录，训练机读到旧推理机的域名，404），写完读回核对
+                # 先等共享盘挂上再写（踩过：容器刚起时还没挂，写进了被挂载盖住的本地目录，训练机读到旧推理机的域名，404），写完读回核对
                 got = sh(new, "for i in $(seq 60); do [ -d /root/autodl-fs/models ] && break; sleep 5; done; "
                               "P=/root/autodl-fs/runs/pair/$(cat /root/autodl-fs/runs/pair/CURRENT 2>/dev/null || echo default); mkdir -p $P && rm -f $P/infer_ready $P/train_done $P/infer_failed"
                               f" && echo {shlex.quote(json.dumps(dom))} > $P/domains.json && cat $P/domains.json")

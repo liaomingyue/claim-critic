@@ -1,5 +1,5 @@
 #!/bin/bash
-# MiniCPM5-2B 版的单字母 RM（2026-11-02，用户：整个都用 2B）：RM=rm1__mcgold GPU=0 PORT=8100 bash run_mcrm.sh
+# MiniCPM5-2B 版的单字母 RM（整个都用 2B）：RM=rm1__mcgold GPU=0 PORT=8100 bash run_mcrm.sh
 # 数据和 9B 版完全相同（目录由 run_mc_all.sh 复制），超参 configs/rt/rm_mc.yaml（同 9B 版，只换底座、批大小改成 4 × 4）。合并后校准、出报告，adapter 存共享盘 adapters/$RM-mc。
 set -u
 cd ${CODE:-${FS_ROOT:-/root/autodl-fs}/code/critic_model}
@@ -21,14 +21,14 @@ ML=$(python -c "import json;print(json.load(open('$D/meta.json'))['max_tokens'])
 mkdir -p configs/rt/exp
 sed -e "s|base_model: .*|base_model: $MC|" -e "s|data: .*|data: $D/train.jsonl|" -e "s|output_dir: .*|output_dir: $CK/$name|" -e "s|max_length: .*|max_length: $ML|" configs/rt/rm_mc.yaml > configs/rt/exp/$name.yaml
 grep -q "base_model: $MC" configs/rt/exp/$name.yaml || fail config
-# GBL=1：按长度分桶组批（2026-11-05，用户：先做 A；随机 4 条一批补齐后 token 数是实际的 1.31 倍）。默认关 = 原行为
+# GBL=1：按长度分桶组批（随机 4 条一批补齐后 token 数是实际的 1.31 倍）。默认关 = 原行为
 if [ "${GBL:-0}" = 1 ]; then
-  # transformers 5.x 去掉了 group_by_length，改成 train_sampling_strategy（2026-11-05 第一次跑 TypeError）
+  # transformers 5.x 去掉了 group_by_length，改成 train_sampling_strategy（踩过：第一次跑 TypeError）
   sed -i 's|^  max_length: .*|&\n  train_sampling_strategy: group_by_length|' configs/rt/exp/$name.yaml
   grep -q "train_sampling_strategy: group_by_length" configs/rt/exp/$name.yaml || fail config
 fi
 if [ "${SKIP_TRAIN:-0}" = 1 ] && [ -f $CK/$name/model.safetensors ] && [ -f $CK/$name/adapter/adapter_model.safetensors ]; then
-  # 训练已完成、进程在存完模型后才退出（2026-11-05 z6000：存完 model.safetensors 后无报错退出）：跳过训练，接着做后面的步骤
+  # 训练已完成、进程在存完模型后才退出（踩过，z6000：存完 model.safetensors 后无报错退出）：跳过训练，接着做后面的步骤
   log "skip train $name (SKIP_TRAIN, ckpt exists)"
 else
   log "train $name"

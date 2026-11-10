@@ -1,5 +1,5 @@
 #!/bin/bash
-# gbl 重跑（2026-11-05：第一次 group_by_length 在 transformers 5.x 下 TypeError，改 train_sampling_strategy 后重跑）
+# gbl 重跑（踩过：第一次 group_by_length 在 transformers 5.x 下 TypeError，改 train_sampling_strategy 后重跑）
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; R=rm1__mcgold_ref_gbl; LOG=$A/post.log

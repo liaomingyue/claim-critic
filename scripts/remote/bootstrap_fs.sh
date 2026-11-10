@@ -1,7 +1,7 @@
 #!/bin/bash
-# 新开的 GPU 机器用「自定义镜像 + 文件存储」起步（2026-10-28 起，取代 bootstrap_worker.sh 从主实例经 SSH 拉的做法）：
+# 新开的 GPU 机器用「自定义镜像 + 文件存储」起步（取代 bootstrap_worker.sh 从主实例经 SSH 拉的做法）：
 #   环境：自定义镜像自带；镜像没有时从文件存储的环境包解压（单个大文件，比 rsync 几十万个小文件快得多）
-#   代码和数据：直接在文件存储的 code/critic_model 上跑（用户建议：共用，免拷贝；结果写进去所有机器立刻可见）。
+#   代码和数据：直接在文件存储的 code/critic_model 上跑（共用，免拷贝；结果写进去所有机器立刻可见）。
 #              本地上传的最新代码包先解压到这里。bash 是边跑边读脚本的，所以角色脚本先拷到本地再执行，
 #              防止别的机器同时改代码时打断正在跑的流程；Python 模块启动时已载入，不受影响
 #   模型：基座拷到本地盘（实测比直接从文件存储加载快，见下）；只存了适配器、要完整权重的在本机合并，写本地盘
@@ -33,7 +33,7 @@ fi
 
 # 代码：本地最新代码包（scripts.autodl_extra 上传，不含 outputs）解压到共享目录
 if [ -f $A/code_update.tar ]; then
-  # 2026-11-05 坑：直接解压到共享目录 + sed -i 会把所有脚本换成新文件（内容没变也换），别的机器上正在执行的 bash
+  # 坑：直接解压到共享目录 + sed -i 会把所有脚本换成新文件（内容没变也换），别的机器上正在执行的 bash
   # 读到一半 "error reading input file"（worker6 nat1500 训完 200 步后评测没跑）。改成：先解压到本地、本地去 \r，
   # 再 rsync -c 按内容比对，只替换真正变了的文件（rsync 写临时文件再改名，正在跑的旧文件保持可读）。
   ST=$A/code_stage; rm -rf $ST; mkdir -p $ST
@@ -41,7 +41,7 @@ if [ -f $A/code_update.tar ]; then
   find $ST/scripts -name '*.sh' -exec sed -i 's/\r$//' {} +
   rsync -rc $ST/ $R/ || { log "code sync FAILED"; exit 1; }
   rm -rf $ST
-  # 用完即删：这台机器以后再跑别的角色时，不能把开机时的旧代码再解压一遍、覆盖共享目录里更新的代码（2026-10-28 踩过）
+  # 用完即删：这台机器以后再跑别的角色时，不能把开机时的旧代码再解压一遍、覆盖共享目录里更新的代码（踩过）
   rm -f $A/code_update.tar
 fi
 mkdir -p $A/scripts && cp $R/scripts/remote/*.sh $A/scripts/   # 本次运行用的脚本快照
@@ -60,12 +60,12 @@ case $ROLE in
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
   core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1) MODELS=""; MERGE="" ;;
-  worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 2026-11-05：共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
+  worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
 esac
 # 基座拷到本地盘：顺序拷贝约 100 MB/s（9B 约 3 分钟）；直接从文件存储加载时 transformers 按需随机读，
-# 实测只有约 25 MB/s（9B 光加载就要十几分钟，2026-10-28 第 2 台机器）。已是本地目录或软链接的跳过
+# 实测只有约 25 MB/s（9B 光加载就要十几分钟）。已是本地目录或软链接的跳过
 for m in $MODELS; do
   [ -e $A/models/$m ] && continue
   t0=$(date +%s); rsync -a $FS/models/$m $A/models/ || { log "copy $m FAILED"; exit 1; }
@@ -84,41 +84,41 @@ log "ready: $(du -sh $A | cut -f1) local"
 S=$A/scripts
 cd $R
 case $ROLE in
-  gentarget3) CODE=$R bash $S/run_gentarget3.sh; rc=$? ;;   # 2026-11-03：种子按上下文重新改对 + 指定类型 + RM2 补 2B 真错
-  grpoh2) CODE=$R bash $S/run_grpo_h2.sh; rc=$? ;;   # 2026-11-04：边界样本 critic（h2）当奖励重跑 2B 回答 GRPO，9B 对比上一版
-  sevrm) CODE=$R bash $S/run_sev.sh; rc=$? ;;   # 2026-11-04：严重程度 RM（Claude 标的 6 选 1）+ 学习曲线
+  gentarget3) CODE=$R bash $S/run_gentarget3.sh; rc=$? ;;   # 种子按上下文重新改对 + 指定类型 + RM2 补 2B 真错
+  grpoh2) CODE=$R bash $S/run_grpo_h2.sh; rc=$? ;;   # 边界样本 critic（h2）当奖励重跑 2B 回答 GRPO，9B 对比上一版
+  sevrm) CODE=$R bash $S/run_sev.sh; rc=$? ;;   # 严重程度 RM（Claude 标的 6 选 1）+ 学习曲线
   mcgrpo) CODE=$R bash $S/run_mcgrpo.sh; rc=$? ;;   # 2B 回答 GRPO（CRITIC / O / ADOUT / STEPS / LR 可用环境变量换）
   rewardexp9) CODE=$R bash $S/run_rewardexp9.sh; rc=$? ;;   # 错误生成器 GRPO（奖励版本见脚本，a7 为当前选定生成器）
   bigeval) CODE=$R bash $S/run_bigeval.sh; rc=$? ;;   # 生成器检查点放大评测
   harvest) CODE=$R bash $S/run_harvest.sh; rc=$? ;;   # 选定生成器造数据 + 边界版 critic 重训
   clean) CODE=$R bash $S/run_clean.sh; rc=$? ;;   # 清洗后的边界样本 critic（h2 / h2n）
   refuse) CODE=$R bash $S/run_refuse.sh; rc=$? ;;   # 拒答标签修正 critic（ref）+ 证据段探针
-  # 双机 GRPO（2026-11-04）：配对名从 runs/pair/CURRENT 读（本地 scripts.pair_setup 写），训练机跑 JOB（默认 run_grpo_h2.sh）
+  # 双机 GRPO：配对名从 runs/pair/CURRENT 读（本地 scripts.pair_setup 写），训练机跑 JOB（默认 run_grpo_h2.sh）
   pairinfer) CODE=$R PAIR=$(cat $FS/runs/pair/CURRENT 2>/dev/null || echo default) bash $S/run_infer_node.sh; rc=$? ;;
   pairtrain) CODE=$R PAIR=$(cat $FS/runs/pair/CURRENT 2>/dev/null || echo default) bash $S/run_train_node.sh; rc=$? ;;
   evalmid) CODE=$R STEP=${STEP:-150} bash $S/run_eval_mid.sh; rc=$? ;;
-  core1) CODE=$R bash $S/run_core1.sh; rc=$? ;;   # 2026-11-06：核心集第一阶段（README 第一到五步，2B 全流程 + 9B 自检）
-  loop2co) CODE=$R bash $S/run_loop2co.sh; rc=$? ;;   # 2026-11-06：循环二「只核心集」组（第二台并行）
+  core1) CODE=$R bash $S/run_core1.sh; rc=$? ;;   # 核心集第一阶段（README 第一到五步，2B 全流程 + 9B 自检）
+  loop2co) CODE=$R bash $S/run_loop2co.sh; rc=$? ;;   # 循环二「只核心集」组（第二台并行）
   loop2cont) CODE=$R bash $S/run_loop2cont.sh; rc=$? ;;
-  r3) CODE=$R bash $S/run_r3.sh; rc=$? ;;   # 2026-11-07：长句 / 列表句增强 → rm1__core_r3，再用它接着训 100 步
-  gen9b) CODE=$R bash $S/run_gen9b.sh; rc=$? ;;   # 2026-11-08：同一份种子集训 9B 错误改写模型 + 在 2B 抽检过的提示上采样
-  sevfilter) CODE=$R bash $S/run_sevfilter.sh; rc=$? ;;   # 2026-11-08：sev__core 当过滤器的精确率（对 Claude 审计结论）
-  sevgen) CODE=$R bash $S/run_sevgen.sh; rc=$? ;;   # 2026-11-08：sev 第二版（生成器真实输出 + Claude 统一审计）训练 + 新旧逐条打分
-  sevvar) CODE=$R bash $S/run_sevvar.sh; rc=$? ;;   # 2026-11-08：sev 变体（改动标记 / 不给解释）
-  v3c) CODE=$R bash $S/run_v3c.sh; rc=$? ;;   # 2026-11-09：sev 补范围偏移 + 矛盾放宽（v3c / v3c0）
-  gengrpo) CODE=$R bash $S/run_gengrpo.sh; rc=$? ;;   # 2026-11-09：生成器 v2 GRPO（sev 奖励，自然度 / critic 门槛），单卡
-  scopeno) CODE=$R bash $S/run_scope_noorig.sh; rc=$? ;;   # 2026-11-09：范围偏移不配原句
-  blindfill2) CODE=$R bash $S/run_blind_fill2.sh; rc=$? ;;   # 2026-11-09：补 critic 盲区第二台（g1 采样 + nc 组 critic）
-  round2fill) CODE=$R bash $S/run_round2_fill.sh; rc=$? ;;   # 2026-11-09：第二轮闭环：新 RAG 回答 → 造难样本 → 等 Claude → rm1__core_rd2
+  r3) CODE=$R bash $S/run_r3.sh; rc=$? ;;   # 长句 / 列表句增强 → rm1__core_r3，再用它接着训 100 步
+  gen9b) CODE=$R bash $S/run_gen9b.sh; rc=$? ;;   # 同一份种子集训 9B 错误改写模型 + 在 2B 抽检过的提示上采样
+  sevfilter) CODE=$R bash $S/run_sevfilter.sh; rc=$? ;;   # sev__core 当过滤器的精确率（对 Claude 审计结论）
+  sevgen) CODE=$R bash $S/run_sevgen.sh; rc=$? ;;   # sev 第二版（生成器真实输出 + Claude 统一审计）训练 + 新旧逐条打分
+  sevvar) CODE=$R bash $S/run_sevvar.sh; rc=$? ;;   # sev 变体（改动标记 / 不给解释）
+  v3c) CODE=$R bash $S/run_v3c.sh; rc=$? ;;   # sev 补范围偏移 + 矛盾放宽（v3c / v3c0）
+  gengrpo) CODE=$R bash $S/run_gengrpo.sh; rc=$? ;;   # 生成器 v2 GRPO（sev 奖励，自然度 / critic 门槛），单卡
+  scopeno) CODE=$R bash $S/run_scope_noorig.sh; rc=$? ;;   # 范围偏移不配原句
+  blindfill2) CODE=$R bash $S/run_blind_fill2.sh; rc=$? ;;   # 补 critic 盲区第二台（g1 采样 + nc 组 critic）
+  round2fill) CODE=$R bash $S/run_round2_fill.sh; rc=$? ;;   # 第二轮闭环：新 RAG 回答 → 造难样本 → 等 Claude → rm1__core_rd2
   round2rag) CODE=$R bash $S/run_round2_rag.sh; rc=$? ;;
-  repro_bf|repro_r1) bash $S/run_repro_test.sh rp_${ROLE#repro_}; rc=$? ;;   # 2026-11-10：从头复现实测（scripts/repro），见 run_repro_test.sh
-  sevrm2) CODE=$R bash $S/run_sevrm2_r1.sh; rc=$? ;;   # 2026-11-09：sev / RM2 加第一轮盲区 Claude 标注（sev__v3d / rm2__v3d）
-  gengrpoh) CODE=$R bash $S/run_gengrpo_hard.sh; rc=$? ;;   # 2026-11-09：生成器 GRPO，critic 难度主奖励（ge / ge2）
-  r2) CODE=$R bash $S/run_r2.sh; rc=$? ;;   # 2026-11-06：Claude 核验过的盲区 / 边界真错 → rm1__core_r2   # 2026-11-06：接着第一轮 GRPO（只种子集组第 200 步）用 rm1__core_r1 再训 100 步
+  repro_bf|repro_r1) bash $S/run_repro_test.sh rp_${ROLE#repro_}; rc=$? ;;   # 从头复现实测（scripts/repro），见 run_repro_test.sh
+  sevrm2) CODE=$R bash $S/run_sevrm2_r1.sh; rc=$? ;;   # sev / RM2 加第一轮盲区 Claude 标注（sev__v3d / rm2__v3d）
+  gengrpoh) CODE=$R bash $S/run_gengrpo_hard.sh; rc=$? ;;   # 生成器 GRPO，critic 难度主奖励（ge / ge2）
+  r2) CODE=$R bash $S/run_r2.sh; rc=$? ;;   # Claude 核验过的盲区 / 边界真错 → rm1__core_r2   # 接着第一轮 GRPO（只种子集组第 200 步）用 rm1__core_r1 再训 100 步
   worker4|worker5) CODE=$R bash $S/run_worker2.sh; rc=$? ;;
-  worker6|worker7) CODE=$R bash $S/run_worker3.sh; rc=$? ;;   # 2026-11-05：SFT 上限 / 被钻空子 / nat1500 200 步（q4 队列）
-  worker8|worker9) CODE=$R bash $S/run_worker4.sh; rc=$? ;;   # 2026-11-06：纯人工 vs 纯合成 critic（q5 队列）
-  worker1|worker2|worker3) CODE=$R bash $S/run_worker.sh; rc=$? ;;   # 2026-11-05：用户：抢新卡跑队列（h3ctl 评测 / ref / z1500 / S2）   # 2026-11-04：训练中途评一版（9B 补打 dev 快评 + 新旧两版同步数验收对比）
+  worker6|worker7) CODE=$R bash $S/run_worker3.sh; rc=$? ;;   # SFT 上限 / 被钻空子 / nat1500 200 步（q4 队列）
+  worker8|worker9) CODE=$R bash $S/run_worker4.sh; rc=$? ;;   # 纯人工 vs 纯合成 critic（q5 队列）
+  worker1|worker2|worker3) CODE=$R bash $S/run_worker.sh; rc=$? ;;   # 抢新卡跑队列（h3ctl 评测 / ref / z1500 / S2）   # 训练中途评一版（9B 补打 dev 快评 + 新旧两版同步数验收对比）
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"
@@ -127,7 +127,7 @@ log "role $ROLE exit $rc"
 cd $R && find outputs -type f -newer $A/.run_start > $FS/runs/$RUN/new_outputs.txt
 cp $A/*.log $FS/runs/$RUN/ 2>/dev/null
 for d in $A/ckpt/*/; do d=${d%/}; n=$(basename $d)
-  # 文件存储里没有、或本机的比存档新就存（不按 .run_start：排队重启过的机器会漏存之前训好的，2026-10-28 踩过）
+  # 文件存储里没有、或本机的比存档新就存（不按 .run_start：排队重启过的机器会漏存之前训好的，踩过）
   f=$d/adapter/adapter_model.safetensors; [ -f $f ] || continue
   [ -f $FS/adapters/$n/adapter/adapter_model.safetensors ] && [ ! $f -nt $FS/adapters/$n/adapter/adapter_model.safetensors ] && continue
   mkdir -p $FS/adapters/$n && rsync -a $d/adapter $FS/adapters/$n/ \

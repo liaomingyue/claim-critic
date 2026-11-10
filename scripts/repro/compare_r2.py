@@ -1,4 +1,4 @@
-"""R2 报告：重训的两组 RAG vs 原实验（2026-11-10）。
+"""R2 报告：重训的两组 RAG vs 原实验。
   python -m scripts.repro.compare_r2 --repro <pol9b_cmp 输出> --orig results/loop2_cont5_ctl_cmp.json
 原实验：s2（起点 RAG-S2）、r1_100（对照：奖励仍是 rm1__core_r1）、bf_100（奖励换成补盲后的 rm1__core_r2_bfcl）。
 重训：rp_r1、rp_bf 对应后两组。判据（核心结论"提升来自新 critic"）：rp_bf − rp_r1 在含显然错 / 含任意错比例上都 < 0，且 90% 区间不含 0。

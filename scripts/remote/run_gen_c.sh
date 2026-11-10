@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：先 GRPO 50 步把生成器往难的方向推（奖励不全 0），再从 GRPO 后的模型批量采样挑难样本做 SFT。等 run_gen_b.sh 跑完再开始。
+# 先 GRPO 50 步把生成器往难的方向推（奖励不全 0），再从 GRPO 后的模型批量采样挑难样本做 SFT。等 run_gen_b.sh 跑完再开始。
 #   g1：起点 v2h2，奖励 h4（三角 0.3–0.5 为 1、0.5→0.9 降、无保底；门槛 sev 有错 ≥ 0.9 + 自然 ≥ 0.5），提示按类型加权（prompts_w：
 #       范围偏移 / 近义 / 拼接 / 张冠李戴各约 17%，推断 / 数字 / 附加语各约 9%，矛盾 / 添加事实各约 3%；不含 64 个试采提示），50 步 → 试采
 #   再用 g1 在训练提示上 × 8 采样，同 B 的筛选（0.1–0.5、要求类型 ≥ 0.5，并入前两轮）→ gen-v2h3-mc → 试采
@@ -12,7 +12,7 @@ until grep -aqE 'GEN_B_DONE' $A/gen_b.log 2>/dev/null; do sleep 60; done
 free_gpus() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 source $S/model_env.sh minicpm5-2b && MC=$MODEL_LOCAL
 source $S/bg_sync.sh
-# 训练 / 试采 / 采样只读写本地盘（$A），共享盘（$O、$FS/adapters）由后台同步（2026-11-09 用户）
+# 训练 / 试采 / 采样只读写本地盘（$A），共享盘（$O、$FS/adapters）由后台同步
 V2H2=$A/ckpt/gen-v2h2-mc/adapter; V2H3=$A/ckpt/gen-v2h3-mc/adapter; SEV=sev__v3c0; R=$A/runs
 [ -f $V2H2/adapter_model.safetensors ] || { log "no v2h2, stop"; exit 1; }
 RMS="sev=$FS/adapters/$SEV-mc/adapter rm2v3=$FS/adapters/rm2__v3b-mc/adapter rm1=$FS/adapters/rm1__core_r2-mc/adapter"

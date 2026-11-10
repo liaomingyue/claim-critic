@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：第二轮里其他 5 种类型也适度少量补一些（每类 60）。r2_task.sh 正在被执行（不能改），新增 / 改动的任务放这里：
+# 第二轮里其他 5 种类型也适度少量补一些（每类 60）。r2_task.sh 正在被执行（不能改），新增 / 改动的任务放这里：
 #   r2_task_b.sh <sampx_v2h3|sampx_g1|select|critic2>
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; O=outputs/rt/gen_v2_grpo

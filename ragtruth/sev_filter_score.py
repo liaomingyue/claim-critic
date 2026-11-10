@@ -1,4 +1,4 @@
-"""用 sev__core 给已审计的造错样本打分，看它当「过滤器」（不当奖励）够不够准（2026-11-08，用户：sev 模型就是干这个的）。
+"""用 sev__core 给已审计的造错样本打分，看它当「过滤器」（不当奖励）够不够准（sev 模型就是干这个的）。
 
 输入：outputs/rt/core/gen_audit/items_{pair,seed}.jsonl（有 Claude 审计结论）+ samples_9b_audit.jsonl 全部合格样本（之后可直接按 sev 过滤）。
 sev 输出六选一概率：A 显然错 + 解释对、B 显然错 + 解释不对、C 细微错 + 解释对、D 细微错 + 解释不对、E 没错、F 原句有错。

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：是不是 2B 太差？用同一份种子集 D3 训 9B 错误改写模型，看造错和解释效果。
+# 是不是 2B 太差？用同一份种子集 D3 训 9B 错误改写模型，看造错和解释效果。
 #   ① SFT：Qwen3.5-9B + LoRA，数据 outputs/rt/core/seed_sft_train.jsonl（同 gen-core-mc），配置 configs/rt/sft_gen_core_9b.yaml → adapters/gen-core-9b
 #   ② 采样：在 2B sevpool 抽检过的同一批改写提示上（genpool_audit.jsonl，683 个，随代码上传）每个采 4 条 → outputs/rt/core/samples_9b_audit.jsonl
 #      之后本地配对抽样、交 Claude 审（不在这里调 Claude）。

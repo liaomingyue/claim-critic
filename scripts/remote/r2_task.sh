@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 第二轮闭环的单个任务（由 queue_worker.sh 领取执行）：r2_task.sh <pool|samp_v2h3|samp_g1|select|sevrm2|critic2>
+# 第二轮闭环的单个任务（由 queue_worker.sh 领取执行）：r2_task.sh <pool|samp_v2h3|samp_g1|select|sevrm2|critic2>
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; O=outputs/rt/gen_v2_grpo; B=$O/blind_fill_r2
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; unset VLLM_API_KEY

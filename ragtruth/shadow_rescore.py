@@ -1,4 +1,4 @@
-"""训完补打对照分（2026-11-02，用户：训练外的调用用 9B）：MiniCPM GRPO 训练中只用 2B critic，
+"""训完补打对照分（训练外的调用用 9B）：MiniCPM GRPO 训练中只用 2B critic，
 评测样本（quick_samples_*_s{step}.jsonl）训完再用 9B 金标 critic（rm1__rm1_gold_9b）逐句打一遍，看策略是不是只在迎合 2B critic。
 只打 2B 评测里打过分的回答（停止正常、非空、非拒答），和训练中的口径一致；每步对第 0 步做按原文配对的 bootstrap。
 

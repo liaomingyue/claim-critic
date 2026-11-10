@@ -2,7 +2,7 @@
 
 本页说明公开了哪些数据和模型、它们对应哪个结论，以及怎么从零复现。
 - 结论本身见 [tech_share.md](tech_share.md)；
-- 实验流水账见 [experiment_log.md](experiment_log.md)。
+- 全部实验见 [experiments.md](experiments.md)。
 
 ## 发布内容
 
@@ -74,7 +74,7 @@ python -m scripts.demo_tables
 
 ```bash
 pip install -r requirements.txt
-python -m scripts.fetch_release --data_repo <用户>/claim-critic-data --only data --parts eval
+python -m scripts.fetch_release --data_repo <HF 用户名>/claim-critic-data --only data --parts eval
 C="rm1__core rm1__core_r2 rm1__core_r2_bfcl rm1__core_r2_bfnc rm1__core_rd2"
 E=outputs/rt/core
 # critic：多类型补盲核实 vs 不核实（表 7），以不核实组为基线
@@ -109,7 +109,7 @@ python -m scripts.check_repro r_s4.json results/loop2_cont6_cmp.json
 
 ```bash
 git clone https://github.com/liaomingyue/claim-critic && cd claim-critic
-bash scripts/repro/setup.sh --data_repo <用户>/claim-critic-data --model_repo <用户>/claim-critic-models
+bash scripts/repro/setup.sh --data_repo <HF 用户名>/claim-critic-data --model_repo <HF 用户名>/claim-critic-models
 bash scripts/repro/r1_rescore.sh        # R1：约半小时
 bash scripts/repro/r2_rag.sh            # R2：两组各约 6–8 小时；两台机器可以各跑一组：r2_rag.sh rp_bf / rp_r1，最后 r2_rag.sh cmp
 ```

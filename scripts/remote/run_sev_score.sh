@@ -1,5 +1,5 @@
 #!/bin/bash
-# 推理机空闲时用严重程度 RM 给 harvest h1 过门槛样本打分（2026-11-04，用户：别浪费）。临时挂 sev LoRA、低优先级打分、打完卸载。
+# 推理机空闲时用严重程度 RM 给 harvest h1 过门槛样本打分（推理机空闲别浪费）。临时挂 sev LoRA、低优先级打分、打完卸载。
 set -u
 cd /root/autodl-fs/code/critic_model
 FS=/root/autodl-fs; A=/root/autodl-tmp; LOG=$A/sev_score.log

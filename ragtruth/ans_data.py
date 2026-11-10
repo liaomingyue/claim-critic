@@ -1,4 +1,4 @@
-"""回答 GRPO 的 prompt 池（2026-11-02）。
+"""回答 GRPO 的 prompt 池。
 
 prompt 就是 RAGTruth 原文（含任务说明），9B 直接回答，和 ragtruth.base_eval 同一格式。只用 QA、Summary（评测集只有这两类）。
 不碰：评测集、校准集、金标种子的原文（excluded_sources），以及 critic 训练用过 9B 回答的 300 个原文（critic 在这些原文上偏乐观）。
@@ -20,7 +20,7 @@ from ragtruth.base_eval import pick_pool_sources
 from ragtruth.gold import POOL, excluded_sources
 
 D = Path("outputs/rt/ansgrpo")
-# MiniCPM5-2B 不开思考时 QA 几乎都拒答（60 条里 54 条），用户要求写进系统提示：不是所有题都要拒答（2026-11-02）
+# MiniCPM5-2B 不开思考时 QA 几乎都拒答（60 条里 54 条），所以系统提示里写明：不是所有题都要拒答
 SYSTEM_QA = "Answer the question using the passages. If the passages contain information relevant to the question, give the best answer they support, even if it is partial. Reply that you are unable to answer only when the passages contain nothing relevant to the question."
 
 
@@ -53,7 +53,7 @@ def write(path: Path, rows: list[dict]) -> None:
 
 def filter_ref(rows: list[dict], gens: list[list[dict]], k: int, keep_refusal: bool = False) -> tuple[list[dict], dict]:
     """正常结束的回答的中位长度记 ref_chars；一半以上拒答或截断的 prompt 不训（拒答在这里是对的，罚它会教坏模型）。
-    keep_refusal：有拒答 RM 时这些题留着（用户：MiniCPM 偏向拒答，要教它少拒答），没有正常回答可参考就不设长度参考（ref_chars None，长度规则跳过）。"""
+    keep_refusal：有拒答 RM 时这些题留着（MiniCPM 偏向拒答，要教它少拒答），没有正常回答可参考就不设长度参考（ref_chars None，长度规则跳过）。"""
     from train.ans_reward import REFUSAL
     out, dropped = [], collections.Counter()
     for r, gs in zip(rows, gens):

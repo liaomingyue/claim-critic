@@ -1,4 +1,4 @@
-"""给一批改写样本同时打 rm1（critic）、rm2（自然度）、sev（dne / gen）分，之后本地对照 Claude 标注看各模型靠不靠得住（2026-11-08，用户）。
+"""给一批改写样本同时打 rm1（critic）、rm2（自然度）、sev（dne / gen）分，之后本地对照 Claude 标注看各模型靠不靠得住。
 
 样本文件：outputs/rt/core/<子目录>/items.jsonl（gen_v2_label 格式：aid、source、context、idx、original、sentence、mechanism 等）。
   rm1  rm1__core   RM1_SYSTEM，选项 ABC，p_halluc = P(B) + P(C)

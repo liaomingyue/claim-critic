@@ -1,10 +1,10 @@
 #!/bin/bash
-# 核心集第一阶段（2026-11-06，用户：在一台 AutoDL 单卡 5090 上把 README 第一到五步实际跑起来；先 2B 全流程，9B 只做自检）。
+# 核心集第一阶段（在一台 AutoDL 单卡 5090 上把 README 第一到五步实际跑起来；先 2B 全流程，9B 只做自检）。
 # 不调 Claude（Claude 标注已在本地跑完、随代码包上传）。每一步做完写标记，重跑跳过已完成的。
 #   ① 核心集 build / derive（D1–D4、D7–D9、sev 核心集部分）
 #   ② 2B 自检（分词器 / 模板 / prompt 共享单测 + vLLM 挂 LoRA 取选项 logprob）
 #   ③ 训练：错误改写模型 v0（gen-core-mc）、RAG SFT（rag-sft-core）、critic（rm1__core）、满意度（sat_pair__core）、拒答（refuse__core）
-#   ④ 改写模型 v0 在核心集训练池上采样（每个 prompt 4 条 → D5 RM2 负样本 + sev 待标池；用户：只用核心集回答）；训 RM2（rm2__core）
+#   ④ 改写模型 v0 在核心集训练池上采样（每个 prompt 4 条 → D5 RM2 负样本 + sev 待标池；只用核心集回答）；训 RM2（rm2__core）
 #   ⑤ 9B 自检；RAG SFT 在三套验收原文上生成 + 9B 金标 critic 打分（run_poleval.sh）
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：9B 给生成器 v2 的采样写意思层面描述（新版 sev 输入的一部分，另配完整逐词改动）；不调 Claude、不筛选。
+# 9B 给生成器 v2 的采样写意思层面描述（新版 sev 输入的一部分，另配完整逐词改动）；不调 Claude、不筛选。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/desc9b.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

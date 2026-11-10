@@ -10,12 +10,12 @@
 训练的全部模型都是 MiniCPM5-2B（下称 2B）+ LoRA。Qwen3.5-9B 金标 critic 只用于评测，不进奖励、不筛训练数据。Claude（claude-opus-5-5）代替人工，负责标注、核实和最终验收。
 
 - 技术分享（做了什么、哪些有效、踩过的坑）：[docs/tech_share.md](docs/tech_share.md)
-- 完整实验记录：[docs/experiment_log.md](docs/experiment_log.md)
-- 结果汇总（截至 11-04）：[docs/results.md](docs/results.md)
+- 全部实验（按主题整理：目的、做法、结果、结论）：[docs/experiments.md](docs/experiments.md)
+- 每个模型的训练数据和配置：[docs/MODELS.md](docs/MODELS.md)
 - 提示词原文：[docs/prompts.md](docs/prompts.md)
 - 金标规范：[docs/gold_standard.md](docs/gold_standard.md)
 
-## 现状（2026-11-09）
+## 现状
 
 | 部分 | 状态 |
 | --- | --- |
@@ -77,7 +77,7 @@
 | 模型 | 含显然错 | 显然错句 / 条 | 含任意错 | 拒答 |
 | --- | --- | --- | --- | --- |
 | RAG SFT（rag-sft-core） | 25.2% | 0.358 | 35.8% | 27.6% |
-| 第一段：critic rm1__core，200 步 | 9.7% | 0.106 | 21.7% | 6.1% |
+| 第一段：critic rm1__core，200 步 | 9.8% | 0.106 | 21.7% | 6.0% |
 | 一次训完：SFT 起点，critic r1，200 步 | 11.6% | 0.128 | 21.3% | 5.9% |
 | **第二段：第一段起点，critic r1，100 步（cont）** | **6.6%** | **0.072** | 16.8% | 3.5% |
 | 第三段：cont 起点，critic r2，100 步 | 8.1% | 0.081 | 14.6% | 1.5% |
@@ -125,7 +125,7 @@
 | vague_evaluation_or_addon 附加评价 | 1% | 易造，但 critic 本来就会判 | 生成器天然偏好，需降权 |
 | added_specific_fact 添加具体事实 | 1% | 造难后常变类型 | critic 最会判 |
 
-\* 金标 critic 漏掉的 339 个错误里各类型的占比（`docs/experiment_log.md` 11-08「critic 盲区形态」）。
+\* 金标 critic 漏掉的 339 个错误里各类型的占比（见 [docs/experiments.md](docs/experiments.md) 的 critic 盲区分析）。
 
 下一步：
 - 把每一类做成一张卡片：定义、正反例、扩充提示、门槛、样本库、各轮指标；
@@ -149,7 +149,7 @@
 
 | 模型 | 名字（adapters/） |
 | --- | --- |
-| RAG | RAG-SFT（rag-sft-core）→ RAG-S1 第 1 段强化（…_coreonly）→ RAG-S2 第 2 段（…_cont）→ RAG-S3-r2 / -r3 / **-bf**（第 3 段的三个平行尝试，…_cont2 / 3 / 4；-bf 当前最好）。命名对照见实验日志 11-09「RAG 模型统一命名」 |
+| RAG | RAG-SFT（rag-sft-core）→ RAG-S1 第 1 段强化（…_coreonly）→ RAG-S2 第 2 段（…_cont）→ RAG-S3-r2 / -r3 / **-bf**（第 3 段的三个平行尝试，…_cont2 / 3 / 4；-bf 当前最好）。每个版本的起点、奖励和训练数据见 [docs/MODELS.md](docs/MODELS.md) |
 | critic | rm1__core → rm1__core_r1（+ 循环一采集）→ rm1__core_r2（+ Claude 核实的盲区 581）→ r3（+ 长句增强） |
 | 错误生成器 | gen-core-mc（v1）→ gen-v2-mc（v2：类型条件）→ gen-v2h / v2h2（难样本 SFT）→ g1（GRPO）→ v2h3 |
 | 打分 | sev__v3c0、rm2__v3b、sat_pair__core、refuse__core |

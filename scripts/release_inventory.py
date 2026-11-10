@@ -1,4 +1,4 @@
-"""开源发布清单（2026-11-10 用户：开源，让别人能复现全部结论；L0 + L1 + L2 全部公开，模型和数据放 Hugging Face）。
+"""开源发布清单（让别人能复现全部结论；L0 + L1 + L2 全部公开，模型和数据放 Hugging Face）。
 
 在 GPU 机（共享盘 /root/autodl-fs）上跑：列出要发布的文件、是否存在、大小，写 release/inventory.json。
   python -m scripts.release_inventory [--fs /root/autodl-fs]
@@ -61,11 +61,11 @@ def entries() -> list[tuple[str, str, str]]:
     for c in CRITICS + RMS:
         e.append(("models/critic" if c.startswith("rm1") else "models/rm", f"adapters/{c}-mc/adapter", f"LoRA：{c}"))
     e.append(("models/critic", "adapters/rm1__rm1_gold_9b-9b/adapter", "LoRA：9B 金标 critic（只用于评测）"))
-    # 2026-11-10 复现脚本（scripts/repro）需要：9B 金标 critic 的校准温度；闭环 GRPO 的参考回答（起点重采，不发的话复现时会重新采，结果多一层随机性）
+    # 复现脚本（scripts/repro）需要：9B 金标 critic 的校准温度；闭环 GRPO 的参考回答（起点重采，不发的话复现时会重新采，结果多一层随机性）
     e.append(("data/rm", C + "outputs/rt/rm/rm1__rm1_gold_9b/eval/report.json", "9B 金标 critic 的校准温度"))
     for st in ("rag-sft-core", "step200", "step100"):
         e.append(("data/core", C + f"outputs/rt/core/loop2_prompts_{st}", f"闭环 GRPO 原文池 + 起点参考回答（起点 {st}）"))
-    # 2026-11-10 用户：每个模型要给出具体的训练数据和配置（docs/MODELS.md）。补：9B 金标 critic 的训练集、GRPO 逐步日志
+    # 每个模型要给出具体的训练数据和配置（docs/MODELS.md）。补：9B 金标 critic 的训练集、GRPO 逐步日志
     e.append(("data/rm", C + "outputs/rt/rm/rm1__rm1_gold_9b", "rm1__rm1_gold_9b：train / calib + eval/report.json"))
     for r in EVAL_RAG:
         for f in ("log.jsonl", "quick_eval.jsonl"):

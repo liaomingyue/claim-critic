@@ -1,4 +1,4 @@
-"""回答 GRPO：9B 生成回答，critic 逐句打分当回报，看幻觉能不能降（2026-11-02，用户）。训练框架同 train.gen_grpo：
+"""回答 GRPO：9B 生成回答，critic 逐句打分当回报，看幻觉能不能降。训练框架同 train.gen_grpo：
 
   GPU1：vLLM 挂基座、当回报的 critic、对照 critic（只评测用，不进奖励）和策略 LoRA，训练中热加载；
   GPU0：HF + PEFT 训策略 LoRA（起点 B 全零，等于 9B 原始模型），prompt 共享（--share 1），PPO 截断 − β·KL（相对起点）。
@@ -6,7 +6,7 @@
   python -m train.ans_grpo --make_init --template <已有 r32 LoRA> --out <目录>   # B 全零、A 随机的起点
   python -m train.ans_grpo --init <起点> --out <目录> [--steps 300] [--lr …]
 
-每步 16 prompt × 8 条（温度 1.0，策略梯度要求）；每 50 步在 dev（100 个没参与训练的原文）× 2 次上评（第 50 步之前是 8 次，用户：评测样本减到 1/4）（温度 0.7，同 9B 摸底；种子固定，和第 0 步逐原文配对），
+每步 16 prompt × 8 条（温度 1.0，策略梯度要求）；每 50 步在 dev（100 个没参与训练的原文）× 2 次上评（第 50 步之前是 8 次，后来评测样本减到 1/4）（温度 0.7，同 9B 摸底；种子固定，和第 0 步逐原文配对），
 RM 分同时看对照 critic：回报 critic 的分降、对照不降，就是在骗回报。
 """
 from __future__ import annotations
@@ -98,7 +98,7 @@ def push_all(model, out: Path, servers: list, version: int, keep_versions: int, 
 
 
 class AsyncPusher:
-    """后台推送 LoRA（2026-11-04，双机模式：推送要上传到推理机，约 1.5–3 秒，不能挡训练）。
+    """后台推送 LoRA（双机模式：推送要上传到推理机，约 1.5–3 秒，不能挡训练）。
     主线程只做 save_pretrained 到本地目录（内存盘约 0.2 秒，存完的快照不受下一步训练影响），上传 / 热加载 / 卸载旧版本在后台线程；
     后台加载成功后才把 prod.version 指过去，所以采样永远只用已加载的版本（最多晚一步，在 max_stale 之内）。
     同一时刻只有一个推送在飞：下一次推送前先等上一次结束；后台出错就在下一次 push / wait 时抛出，训练停下，不会悄悄沿用旧版本。"""
@@ -189,10 +189,10 @@ class Producer:
         name = "policy_v0" if v == 0 else f"{self.a.version_prefix}policy_v{v}"
         prompts = [policy_prompt(self.tok, r, self.a.sys_qa) for r in rows]
         t0 = time.time()
-        # 发 token id（含分词器默认的特殊符，MiniCPM 是开头的 <s>），训练侧用同一份 id。vLLM 自己分词会加 <s>、训练侧原来不加，第 1 步截断比例 22%（2026-11-02）
+        # 发 token id（含分词器默认的特殊符，MiniCPM 是开头的 <s>），训练侧用同一份 id。vLLM 自己分词会加 <s>、训练侧原来不加，第 1 步截断比例 22%
         ids = [self.tok(p)["input_ids"] for p in prompts]
         if getattr(self.a, "pipeline", 0):
-            # 每个 prompt 生成完立刻打分，生成和打分重叠（2026-11-05，用户：采样端也优化；原来整批生成完再整批打分，约 7 + 12 秒）
+            # 每个 prompt 生成完立刻打分，生成和打分重叠（采样端也优化；原来整批生成完再整批打分，约 7 + 12 秒）
             def one(k):
                 a = time.time()
                 g = self.servers[k % len(self.servers)].sample(name, ids[k], self.a.n, self.a.max_tokens, self.a.temperature)
@@ -212,7 +212,7 @@ class Producer:
             pids = self.tok(p)["input_ids"]
             for g, s, a in zip(gs, ss, adv):
                 if beta > 0 and s.get("ps") and s.get("spans") and g.get("ids"):
-                    # 分步奖励（2026-11-05，用户：单独优化出错的那一句）：错句只罚自己的 token
+                    # 分步奖励（单独优化出错的那一句）：错句只罚自己的 token
                     sa = sentence_adv(s["ps"], s["sent_base"], s["sent_sigma"], self.a.sent_mode, self.a.sent_gamma)
                     a = token_advantages(a, sa, token_sentence_index(self.tok, g["ids"], g["text"], s["spans"]), beta)
                 samples.append({"prompt_id": r["id"], "task_type": r["task_type"], "prompt_ids": pids, **g, **s, "adv": a})
@@ -264,7 +264,7 @@ def build_rewarder(args) -> AnswerRewarder:
 
 
 def _producer_proc(args, out: str, start_pos: int, vval, bq, cmd, ack) -> None:
-    """子进程（2026-11-05，用户：训练慢、怀疑是锁）：采样 / 打分 / 快评都在这里，训练进程独占自己的 GIL。
+    """子进程（训练慢、怀疑是锁）：采样 / 打分 / 快评都在这里，训练进程独占自己的 GIL。
     实测同进程里 16 个解析 JSON 的线程就能让训练线程拿不到锁、GPU 0%；真实训练 t_train 24 秒，单独跑同样的计算 10.4 秒。"""
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.base)
@@ -557,7 +557,7 @@ def run(args) -> None:
     else:
         prod = Producer(args, tok, servers, rw)
         qe = QuickEval(args, tok, servers, rw, out) if args.eval_k > 0 else None
-    lora_out = Path(args.push_dir)   # 热加载的 LoRA 放内存盘：共享盘写 5 秒 + 首次加载 4 秒，内存盘合计 0.5 秒（2026-11-02 实测）
+    lora_out = Path(args.push_dir)   # 热加载的 LoRA 放内存盘：共享盘写 5 秒 + 首次加载 4 秒，内存盘合计 0.5 秒（实测）
     version, first = 0, 1
     if args.resume:
         st = load_state(model, opt, rw, prod, Path(args.resume))
@@ -656,7 +656,7 @@ def main() -> None:
     ap.add_argument("--refuse_model", default="", help="拒答 RM（vLLM 上的 LoRA 名）；空 = 拒答一律 0 分")
     ap.add_argument("--refuse_report", default="outputs/rt/rm/refuse/eval/report.json")
     ap.add_argument("--refuse_w", type=float, default=0.4, help="拒答的奖励 = refuse_w × P(可以拒答)")
-    # 奖励形状 + 分步奖励（2026-11-05）。默认 legacy + sent_beta 0 = 旧行为
+    # 奖励形状 + 分步奖励。默认 legacy + sent_beta 0 = 旧行为
     ap.add_argument("--reward_shape", choices=["legacy", "count"], default="legacy", help="legacy：1 − 0.5 平均 P − 0.5 最大 P；count：去同组底噪后计数（ans_reward.count_reward）")
     ap.add_argument("--count_k", type=float, default=3.0, help="count：期望错句数除以 K（多少句错扣满）")
     ap.add_argument("--count_ratio", type=float, default=0.0, help="count：> 0 时 K = max(count_min, ratio × 参考回答句数)，没有参考回答用 count_k")
@@ -686,7 +686,7 @@ def main() -> None:
     ap.add_argument("--version_prefix", default="")
     ap.add_argument("--push_dir", default="/dev/shm/ans_lora")
     ap.add_argument("--pipeline", type=int, default=0, help="1：每个 prompt 生成完立刻打分（生成和打分重叠）；0：整批生成完再整批打分（原来的做法）")
-    ap.add_argument("--proc_producer", type=int, default=0, help="1：采样 / 打分 / 快评放子进程，训练进程独占 GIL（2026-11-05 定位：同进程线程抢锁，t_train 24 秒 vs 单独 10.4 秒）")
+    ap.add_argument("--proc_producer", type=int, default=0, help="1：采样 / 打分 / 快评放子进程，训练进程独占 GIL（同进程线程抢锁：t_train 24 秒 vs 单独 10.4 秒）")
     ap.add_argument("--async_push", type=int, default=0, help="1：LoRA 在后台推送（双机模式用；单机默认 0，行为不变）")
     ap.add_argument("--rm_concurrency", type=int, default=64)
     ap.add_argument("--save_every", type=int, default=50)
@@ -698,7 +698,7 @@ def main() -> None:
     ap.add_argument("--keep_states", type=int, default=12)
     ap.add_argument("--resume", default="")
     ap.add_argument("--trip", type=int, default=1)
-    # 2026-11-05：三档 critic 200 步时 ref 组第 98 步 KL 窗口均值 0.101 触发（长度 / 复制 / 拒答 / ok_rate 都正常）→ 可从环境变量放宽，不改正在跑的脚本
+    # 踩过：三档 critic 200 步时 ref 组第 98 步 KL 窗口均值 0.101 触发（长度 / 复制 / 拒答 / ok_rate 都正常）→ 可从环境变量放宽，不改正在跑的脚本
     ap.add_argument("--trip_kl", type=float, default=float(os.environ.get("TRIP_KL", "0.10")))
     ap.add_argument("--make_init", action="store_true")
     ap.add_argument("--policy_url", default="", help="策略模型单独的 vLLM（MiniCPM 在训练卡上）；空 = 和 RM 同一个服务")

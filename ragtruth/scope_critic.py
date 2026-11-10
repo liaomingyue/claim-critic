@@ -1,4 +1,4 @@
-"""给 critic 补「范围偏移」样本（2026-11-09，用户批准约 40 次 Claude 调用）。
+"""给 critic 补「范围偏移」样本（约 40 次 Claude 调用）。
 
 流程：生成器 v2（9B）在 genpool_div（和 sev 训练池、critic 评测原文都不重叠）上按范围偏移采样
   → 9B 基座写改动描述 → sev（v3c / v3c0 里范围偏移上更好的）+ RM2 v3b + 当前 critic r2 打分
@@ -129,7 +129,7 @@ def cmd_build(a) -> None:
             orig = x["sentences_orig"] if isinstance(x["sentences_orig"], list) else json.loads(x["sentences_orig"])
             g = "gh-" + str(x["source_id"])
             add.append(row(x["id"] + "-err", x["source"], ctx, int(x["idx"]), RM1_OPT[t], x["task_type"], g, f"scope_{arm}_error"))
-            if not a.no_orig:   # 2026-11-09 用户：试试不配原句（配对原句和错句只差一两个词，疑似扰动矛盾判断）
+            if not a.no_orig:   # 试试不配原句（配对原句和错句只差一两个词，疑似扰动矛盾判断）
                 add.append(row(x["id"] + "-orig", x["source"], orig, int(x["idx"]), RM1_OPT["faithful"], x["task_type"], g, f"scope_{arm}_original"))
         base, d = OUT / a.base, OUT / f"{a.base}_sc{arm}{'_no' if a.no_orig else ''}"
         d.mkdir(parents=True, exist_ok=True)

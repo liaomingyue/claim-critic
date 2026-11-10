@@ -1,4 +1,4 @@
-"""拒答 RM 的数据（2026-11-02，用户确认标注）：QA 原文到底能不能回答。拒答只和题目有关、和回答无关，每个原文 Claude 判一次。
+"""拒答 RM 的数据：QA 原文到底能不能回答。拒答只和题目有关、和回答无关，每个原文 Claude 判一次。
 
 真正答不了的题很少（训练池 708 个 QA 原文里，6 个 RAGTruth 模型一半以上拒答的只有 5.4%），所以按 RAGTruth 模型的拒答数分层多抽：
   ≥ 3 个模型拒答的全要，2 个的全要，其余随机补到 --n。不碰评测集、校准集、金标种子、回答 GRPO 的 dev 原文。
@@ -7,7 +7,7 @@ RM 选项：A 应该回答（yes / partial），B 可以拒答（no）。数据�
 
   python -m ragtruth.refuse_data pick
   python -m ragtruth.refuse_data label [--gap 5]          # 一题一次（最早标的 11 题）
-  python -m ragtruth.refuse_data label_batch --per 10      # 用户：任务不难，一次给 Claude 多题；已标过的跳过
+  python -m ragtruth.refuse_data label_batch --per 10      # 任务不难，一次给 Claude 多题；已标过的跳过
   python -m ragtruth.refuse_data pick_rest && python -m ragtruth.refuse_data label_batch --per 20   # 剩下的原文一次 20 题补标
   python -m ragtruth.refuse_data build
 """
@@ -70,7 +70,7 @@ def pick(by: dict[str, dict], n: int, seed: int) -> list[dict]:
 
 
 def cmd_pick_rest(args) -> None:
-    """剩下没标的 QA 原文全部追加到 items.jsonl（用户：一次给 Claude 20 题，快速挑出要拒答的）。排除规则同 pick。"""
+    """剩下没标的 QA 原文全部追加到 items.jsonl（一次给 Claude 20 题，快速挑出要拒答的）。排除规则同 pick。"""
     excl = excluded_sources() | {r["source_id"] for r in read_jsonl("outputs/rt/gold/seed_ids.jsonl")} | {r["source_id"] for r in read_jsonl("outputs/rt/ansgrpo/dev.jsonl")}
     by = strata(list(read_jsonl(POOL)), excl)
     have = {x["id"] for x in read_jsonl(D / "items.jsonl")}
@@ -84,7 +84,7 @@ def cmd_pick_rest(args) -> None:
 def cmd_pick(args) -> None:
     excl = excluded_sources() | {r["source_id"] for r in read_jsonl("outputs/rt/gold/seed_ids.jsonl")} | {r["source_id"] for r in read_jsonl("outputs/rt/ansgrpo/dev.jsonl")}
     items = pick(strata(list(read_jsonl(POOL)), excl), args.n, args.seed)
-    assert len(items) <= args.max_calls, "超出用户同意的调用数"
+    assert len(items) <= args.max_calls, "超出 Claude 调用预算"
     D.mkdir(parents=True, exist_ok=True)
     with open(D / "items.jsonl", "w", encoding="utf-8", newline="\n") as f:
         for x in items:
@@ -100,7 +100,7 @@ def valid(o) -> dict | None:
 
 def cmd_label(args) -> None:
     items = list(read_jsonl(D / "items.jsonl"))
-    assert len(items) <= args.max_calls, "超出用户同意的调用数"
+    assert len(items) <= args.max_calls, "超出 Claude 调用预算"
     llm = LLM(LLMConfig(model=args.claude, provider="claude_cli", effort=args.effort, concurrency=args.concurrency))
 
     def run(it: dict) -> dict | None:
@@ -149,7 +149,7 @@ def cmd_label_batch(args) -> None:
     items = list(read_jsonl(D / "items.jsonl"))
     done = {r["id"] for f in ("labels.jsonl", "labels_batch.jsonl") if (D / f).exists() for r in kept(D / f) if "answerable" in r}
     bs = batches(items, done, args.per)
-    assert len(bs) <= args.max_calls, "超出用户同意的调用数"
+    assert len(bs) <= args.max_calls, "超出 Claude 调用预算"
     llm = LLM(LLMConfig(model=args.claude, provider="claude_cli", effort=args.effort, concurrency=args.concurrency))
 
     def run(b: dict) -> list[dict] | None:
@@ -264,7 +264,7 @@ def replace_question(source: str, q: str) -> str | None:
 
 
 def cmd_nearmiss(args) -> None:
-    """用户：拒答题至少 50 道，构造的要和真实拒答题很像。真实的只有 27 道（段落话题对，但问的是段落没讲到的具体东西）。两种造法，都只用训练集原文：
+    """拒答题至少 50 道，构造的要和真实拒答题很像。真实的只有 27 道（段落话题对，但问的是段落没讲到的具体东西）。两种造法，都只用训练集原文：
       rewrite：Claude 判 yes 的题，拿训练集里真实的拒答题当范例，让 Claude 把问题改一点点（换对象、加限定、问为什么、要比较），使原段落答不了；
       drop：Claude 判 yes 的题，删掉答案所在的那一段。
     两种合在一起，再一次 20 题单独交给 Claude 复核；判 no 的当拒答样本（B），还答得了的当难的"应该回答"样本（A）。"""
@@ -364,7 +364,7 @@ def main() -> None:
     ap.add_argument("--per", type=int, default=10, help="label_batch：每次调用几题")
     ap.add_argument("--n_synth", type=int, default=180, help="build：训练集里程序造的「答不了」条数")
     ap.add_argument("--n", type=int, default=350)
-    ap.add_argument("--max_calls", type=int, default=400, help="用户同意的上限（约 300–400 次）")
+    ap.add_argument("--max_calls", type=int, default=400, help="Claude 调用上限（约 300–400 次）")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--claude", default="claude-opus-5-5")
     ap.add_argument("--effort", default="high")

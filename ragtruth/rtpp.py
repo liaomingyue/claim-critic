@@ -1,5 +1,5 @@
 """RAGTruth++（blue-guardrails/ragtruth-plus-plus）：RAGTruth 测试集 408 条回答的人工重标，幻觉片段 86 → 865。
-用作循环外的金标准（用户提出，2026-10-28）：原 RAGTruth 漏标多，精确率被系统性低估、召回也分不出高下。
+用作循环外的金标准：原 RAGTruth 漏标多，精确率被系统性低估、召回也分不出高下。
 
 - convert：408 条里 402 条能按原始 id 对上我们的测试集记录（同一回答文本、同一套切句），只把标签换成 RAGTruth++ 的片段，
   句子标注规则同 ragtruth.convert（片段与句子重叠 ≥ MIN_OVERLAP 即算；覆盖 ≥3 句的大片段记 coarse）。

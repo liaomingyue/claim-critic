@@ -3,7 +3,7 @@
 用本机已登录的 Claude Code（claude.ai 订阅登录时占订阅额度，不另外计费），适合小规模试跑；
 正式规模受额度限制，换 provider: anthropic。
 
-要点（2026-10-23 在 Claude Code 2.1.309 上实测）：
+要点（在 Claude Code 2.1.309 上实测）：
 - 总是传 --system-prompt（调用方没给就用一句最短的），否则套用 Claude Code 默认 system prompt，每次多约 2,200 token。
 - 关掉 MCP 连接器（--strict-mcp-config + 空 mcp 配置）、用户级设置（--setting-sources project）和 skills，
   并在空目录里运行；否则每次调用额外带约 8 万 token 的工具定义和上下文，关掉后约 600 token。

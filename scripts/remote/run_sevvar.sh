@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：sev 输入里把改动明确告诉模型再判，应该容易很多。两个变体（数据 ragtruth.sev_gen data --variant，随代码上传）：
+# sev 输入里把改动明确告诉模型再判，应该容易很多。两个变体（数据 ragtruth.sev_gen data --variant，随代码上传）：
 #   sev__gen_diff：现有输入 + 逐词 diff 改动标记（5 选 1）
 #   sev__gen_dne ：不给生成器解释，只给原句 / 改写句 / 改动标记，判严重程度 3 选 1（A 显然 / B 细微 / C 没错）
 # 训练同 sev__gen（run_mcrm.sh），再给同一批审计样本逐条打分 → gen_audit/sev_{diff,dne}_scores.jsonl（本地 outputs/sev2_an.py 比）

@@ -1,4 +1,4 @@
-# 单字符选项 RM（RM1 有没有幻觉 / RM2 自然还是合成 / RM3 合成样本是否合格，ragtruth.rm_data），2026-10-30。
+# 单字符选项 RM（RM1 有没有幻觉 / RM2 自然还是合成 / RM3 合成样本是否合格，ragtruth.rm_data）。
 # 超参同 9B v2（sft_9b_v2.yaml）；答案只有一个字母，损失只算在答案上（TRL prompt-completion）。data / output_dir / max_length 由 run_rmtrain.sh 按 RM 改写。
 task: option
 prompt_tips: false

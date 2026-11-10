@@ -1,4 +1,4 @@
-"""critic 学会判拒答对不对（2026-11-04，用户：可以）。
+"""critic 学会判拒答对不对。
 验收回答（2B GRPO）里 2B critic P < 0.1 的明显错 30 句里 8 句是「Unable to answer based on given passages.」而原文其实能回答；
 2B 对 22 句拒答一句都没判出来。原因在训练标签：rm1__mcgold 训练集里 30 句拒答 25 句标 A（b9 16 / human 8 / gold 1），
 其中 b9 的 16 句按拒答 RM 的 Claude 标注（outputs/rt/refuse，能不能回答 yes / partial / no）有 10 句原文能回答。

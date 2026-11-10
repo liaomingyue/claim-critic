@@ -1,16 +1,16 @@
-"""生成器的样本加进 critic 训练数据，效果到底有没有提升（2026-10-31，用户：这才是最终要回答的问题；先用单字母分类版，训得快）。
+"""生成器的样本加进 critic 训练数据，效果到底有没有提升（这才是最终要回答的问题；先用单字母分类版，训得快）。
 
 基线 = 现有 RM1（人工 + 600 条 G_free 合成）。实验组 = 基线 + N 条新样本，只换样本来源：
   dpo_all / dpo_hard：G_dpo2 的合格样本 / 其中 RM1 < 0.5 的难样本；
   v2_all / v2_hard、v3_all / v3_hard：GRPO 主线 / 换位置分支第 300 步，同样两种抽法；
   human：只留人工样本（对照：现有 600 条合成本身有没有用）。
-第二轮（2026-11-01，用户：两个都做。第一轮追加样本没有提升，正例比例也变了）：
+第二轮（两个都做。第一轮追加样本没有提升，正例比例也变了）：
   repl_v3：去掉现有合成（498 条错误句 + 414 条配对原句），换成 v3 的错误句和它们自己的原句，每个标签条数都和原来相同，正例比例不变；
   conf_all / conf_hard：追加 v2 + v3 的矛盾类样本，随机 / RM1 分最低的，两组条数相同。
-第三轮（2026-11-01，用户：可能有用的地方是开始只有 200 条种子样本的情况）：现有样本测上限，生成器和 RM 都见过全部人工数据，结果偏乐观：
+第三轮（可能有用的地方是开始只有 200 条种子样本的情况）：现有样本测上限，生成器和 RM 都见过全部人工数据，结果偏乐观：
   h200：按回答抽约 200 条人工样本，训练步数和加样本的组相同；h200_2ep：同样的数据，按默认 2 轮训（步数少很多）；
   h200_gfree / h200_dpo / h200_v3：种子 + 合成，每个标签条数都等于现有 G_free（错误句 + 配对原句）。
-第四轮（2026-11-01，用户：金标种子训练，跑吧）：金标种子来自 ragtruth.gold（100 条回答，docs/gold_standard.md），在金标评测集上比较：
+第四轮（金标种子训练）：金标种子来自 ragtruth.gold（100 条回答，docs/gold_standard.md），在金标评测集上比较：
   gold：只用金标种子；gold_gfree：金标种子 + G_free；rm1_gold：现有 RM1 数据 + 金标种子，同一句话的旧标签由金标覆盖。
 
   python -m ragtruth.critic_aug sample --model v3 --tag v3 --base_url http://127.0.0.1:8000/v1   # 机器上：采样 + RM 打分
@@ -56,7 +56,7 @@ def cmd_sample(args) -> None:
     from train.gen_reward import Rewarder, load_temps, parse
     D.mkdir(parents=True, exist_ok=True)
     shard, n_shards = args.shard   # 两张卡各跑一份：回答按顺序轮流分
-    # 认领（用户：加开的机器临时帮忙）：谁先 mkdir 成功谁跑这一份，其他机器等它写完；对方 10 分钟没动静（挂了）就接着跑
+    # 认领（加开的机器临时帮忙）：谁先 mkdir 成功谁跑这一份，其他机器等它写完；对方 10 分钟没动静（挂了）就接着跑
     claim = D / f"claim_{args.tag}_s{shard}"
     try:
         claim.mkdir()
@@ -81,7 +81,7 @@ def cmd_sample(args) -> None:
     def one(r: dict) -> dict:
         gs = srv.sample(args.model, chat_prompt(tok, r["prompt"]), args.k, args.max_tokens, 1.0)
         recs = []
-        # 先打一条，把三个 RM 这条回答的前缀写进 vLLM 的前缀缓存；几条同时发时都还没算完，谁也命中不了（用户提醒可以走缓存）
+        # 先打一条，把三个 RM 这条回答的前缀写进 vLLM 的前缀缓存；几条同时发时都还没算完，谁也命中不了
         first = [rw.raw(gs[0]["text"], r)] if gs else []
         for g, s in zip(gs, first + list(rm.map(lambda g: rw.raw(g["text"], r), gs[1:]))):
             rec, why = parse(g["text"], r)
@@ -312,7 +312,7 @@ def raw_rows(claims: list[dict], calib_groups: set[str], limit: int) -> tuple[li
 
 
 def cmd_build5(args) -> None:
-    """用户（2026-11-01）：GRPO 的低版本 critic 用没清洗过的数据训练。旧的 sft-9b-v2-notips 没留权重和打分，又是生成式，这里用同一份数据（train_sub35_r3）按 RM1 的分类形式重训。"""
+    """GRPO 的低版本 critic 用没清洗过的数据训练。旧的 sft-9b-v2-notips 没留权重和打分，又是生成式，这里用同一份数据（train_sub35_r3）按 RM1 的分类形式重训。"""
     limit = json.load(open(RM / "rm1" / "meta.json", encoding="utf-8"))["max_tokens"]
     calib = {r["group"] for r in read_jsonl(RM / "rm1" / "calib.jsonl")}
     rows, too = raw_rows(sorted(read_jsonl("outputs/rt/claims/train_sub35_r3.jsonl"), key=lambda r: r["id"]), calib, limit)
@@ -358,7 +358,7 @@ def cmd_build4(args) -> None:
 
 
 def cmd_build6(args) -> None:
-    """用户（2026-11-01）：rm1-9b 在 9B 回答上漏报多，先用 9B 自己的回答（训练池原文、Claude 标注）重训 critic，再决定 GRPO。"""
+    """rm1-9b 在 9B 回答上漏报多，先用 9B 自己的回答（训练池原文、Claude 标注）重训 critic，再决定 GRPO。"""
     base = list(read_jsonl(RM / "rm1" / "train.jsonl"))
     limit = json.load(open(RM / "rm1" / "meta.json", encoding="utf-8"))["max_tokens"]
     G, P = Path("outputs/rt/gold"), Path("outputs/rt/base9b/pool")

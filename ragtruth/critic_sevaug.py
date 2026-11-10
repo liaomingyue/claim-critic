@@ -1,4 +1,4 @@
-"""在 critic 上实际验证 sev 过滤（2026-11-08，用户：sev 训好后机器别关，要在 critic 上实际验证）。
+"""在 critic 上实际验证 sev 过滤（sev 训好后要在 critic 上实际验证）。
 
 9B 错误改写模型（gen-core-9b）在 D4 训练池提示上的合格样本（outputs/rt/core/samples_9b_audit.jsonl）按某个过滤规则挑错句，
 每条错句配同一位置的原句（改对后的回答，忠实 A），加进基线 critic 的训练集；校准 / 测试（RAGTruth++）沿用基线。

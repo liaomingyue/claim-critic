@@ -1,5 +1,5 @@
 #!/bin/bash
-# 新生成器 GRPO（2026-11-05，用户：优化错误生成器；critic 用拒答修正版 ref；复用两台单卡）。双机模式，由 run_train_node.sh 调起
+# 新生成器 GRPO（优化错误生成器；critic 用拒答修正版 ref；复用两台单卡）。双机模式，由 run_train_node.sh 调起
 # （JOB=run_gensev.sh；推理机按 runs/pair/<配对>/loras 起 rm1 / rm2 / sev / policy_v0）。
 # 奖励 shape=sev：严重程度 RM（sev__mc）P(显然) ≥ 0.5 才合格，原句有错用 sev 的 P(F)；合格 r = (1 − P(critic 判出)) × 自然度项；没过门槛 0.1 × P(显然) / 0.5。
 # 进奖励：sev__mc（门槛）、rm1__mcgold_ref（critic，盲区 = 它判不出的）、rm2v2__mcgen3（自然度）、硬规则。只监控：无（9B 不进奖励、不筛样本）。
@@ -10,12 +10,12 @@ cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; LOG=$A/gensev.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export PYTHONHASHSEED=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-# 采样子进程别抢训练线程的 CPU（2026-11-05：子进程折合约 13 核，训练主线程单核跑满、发 kernel 慢）
+# 采样子进程别抢训练线程的 CPU（子进程折合约 13 核，训练主线程单核跑满、发 kernel 慢）
 export TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=${OMP_NUM_THREADS:-4} MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
 O=outputs/rt/gentarget; SEED=${SEED:-seed5}; INIT=$FS/adapters/gen-$SEED-mc/adapter; R=$O/grpo_${SEED}_sev${TAG:-}
 [ -n "${RM_URL:-}" ] || { log "needs RM_URL (run via run_train_node.sh)"; exit 1; }
 [ -f $INIT/adapter_model.safetensors ] || { log "missing $INIT"; exit 1; }
-# 基座先拷本地盘：直接从共享盘加载每个张量约 8 秒（2026-11-04 实测）
+# 基座先拷本地盘：直接从共享盘加载每个张量约 8 秒（实测）
 [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
 MC=$A/models/MiniCPM5-2B
 code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VLLM_API_KEY" $RM_URL/models)

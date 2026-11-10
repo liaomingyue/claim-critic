@@ -1,4 +1,4 @@
-"""扩充 2B GRPO 的按类型测试集（2026-11-03，用户：可以从 2B GRPO 回答里再请 Claude 标 100 条左右）。
+"""扩充 2B GRPO 的按类型测试集（从 2B GRPO 回答里再请 Claude 标 100 条左右）。
 原来的验收集（outputs/rt/minicpm/grpo300，100 条）的盲区类别太少（clear 张冠李戴 11 句、与原文矛盾 10 句），一句差 3–9 个点。
 RAGTruth++ 测试集的 68 个原文已经全用掉了，这里从 RAGTruth 原版测试集（outputs/external/ragtruth/test.jsonl）里另取 100 个原文：
 QA / Summary 各半，不含 RAGTruth++ 的 68 个，也不在回答 GRPO 训练 / 开发集、造数据的原文里（critic 都没见过）。
@@ -56,7 +56,7 @@ def cmd_gen(a) -> None:
     print("GEN_DONE", len(rows), dict(collections.Counter(r["finish"] for r in rows)), "with sentences", sum(bool(r["sentences"]) for r in rows), flush=True)
 
 
-# ── 第三批（2026-11-05，用户：显然错误扩到约 200 句；多条回答放一次 Claude 调用）──
+# ── 第三批（显然错误扩到约 200 句；多条回答放一次 Claude 调用）──
 # 没用过的测试原文只剩 132 篇（Summary 71 / QA 61）→ 全部取，每篇 3 个种子（温度 0.7，同 grpo300b），约 396 条回答，预计新增显然错误约 150 句。
 # 标注口径同 ragtruth.gold v1（SYSTEM / valid 原样），一次调用标同一篇原文的 3 条回答（原文只发一遍），按 id 对齐；漏回 / 不合格的单条重标。
 D3 = Path("outputs/rt/minicpm/grpo300c")

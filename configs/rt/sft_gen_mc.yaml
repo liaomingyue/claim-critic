@@ -1,4 +1,4 @@
-# MiniCPM5-2B 造错生成器 SFT（2026-11-03，定向造错 GRPO 的起点）：同 gen-seed（sft_gen_free_9b + 1 epoch、lr 5e-5，数据 sft_train_seed_f.jsonl），只换底座、批大小 2 × 8（4096 长度下 13 万词表的 logits 大，每次 2 条）。
+# MiniCPM5-2B 造错生成器 SFT（定向造错 GRPO 的起点）：同 gen-seed（sft_gen_free_9b + 1 epoch、lr 5e-5，数据 sft_train_seed_f.jsonl），只换底座、批大小 2 × 8（4096 长度下 13 万词表的 logits 大，每次 2 条）。
 # 数据由 ragtruth.realgen build --free 产出，prompt 与生成器采样 / DPO 的统一 prompt 一致。超参同 9B v2 critic。
 task: gen
 prompt_tips: false

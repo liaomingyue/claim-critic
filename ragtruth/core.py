@@ -1,4 +1,4 @@
-"""核心集与派生数据集（2026-11-06，用户：所有数据集都从「Claude 改对的 2B 回答」这一个核心集派生；README 第二、三步）。
+"""核心集与派生数据集（所有数据集都从「Claude 改对的 2B 回答」这一个核心集派生；README 第二、三步）。
 
   python -m ragtruth.core build                         # 核心集 core.jsonl / pairs.jsonl / meta.json（本地）
   python -m ragtruth.core derive --tokenizer <基座>       # D1–D4、D7–D9 + sev 的核心集部分（RAG SFT 要分词器的聊天模板）
@@ -240,7 +240,7 @@ def d4_pool(core: list[dict], pool: dict, d: Path) -> dict:
         else:
             t = ("conflict", "baseless")[zlib.crc32(x["id"].encode()) % 2]
             ev.append(row(resp, t, t[0], "holdout"))
-    # 用户（2026-11-06）：改写模型的 GRPO、采集池和 RM2 负样本只用核心集回答，不用 RAGTruth 其他模型的回答（diverse_answers 留着不用）
+    # 改写模型的 GRPO、采集池和 RM2 负样本只用核心集回答，不用 RAGTruth 其他模型的回答（diverse_answers 留着不用）
     write(d / "genpool_train.jsonl", tr); write(d / "genpool_eval.jsonl", ev)
     return {"core_train": len(tr), "core_eval": len(ev)}
 

@@ -29,7 +29,7 @@ def load(name: str = DEFAULT) -> dict:
 
 def env(m: dict) -> dict[str, str]:
     v = m["vllm"]
-    # 复现用（2026-11-10）：FS_ROOT / TMP_ROOT 换掉 AutoDL 的共享盘 / 本地盘前缀；不设时行为不变
+    # 复现用：FS_ROOT / TMP_ROOT 换掉 AutoDL 的共享盘 / 本地盘前缀；不设时行为不变
     fs = m["path"].replace("/root/autodl-fs", os.environ.get("FS_ROOT", "/root/autodl-fs"), 1)
     local = os.environ.get("TMP_ROOT", "/root/autodl-tmp") + "/models/" + Path(m["path"]).name
     return {"MODEL_NAME": m["name"], "MODEL_FS": fs, "MODEL_LOCAL": local, "MODEL_SUFFIX": m["suffix"],

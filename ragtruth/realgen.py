@@ -35,7 +35,7 @@ from ragtruth.synth import (EVIDENCE_NULL, EVIDENCE_WHAT, TACTICS, TYPE_DEF, bui
                             example_pool, free_examples, parse_json_obj, verify_one)
 
 NO_THINK = {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
-# 修复和复核不开思考（2026-10-28）：开思考每句约 1.9 万 token，修 2,200 句要 6 小时；当前目标是先跑通流程（用户决定）。
+# 修复和复核不开思考：开思考每句约 1.9 万 token，修 2,200 句要 6 小时；当前目标是先跑通流程。
 # 抽查发现的漏标问题靠 prompt 解决（同一句里其他没依据的内容一起修）
 
 REPAIR_PROMPT = """You are creating training data for a model that learns how assistants make mistakes. Below are a source (the exact input an assistant received) and the assistant's response, split into numbered sentences, followed by human annotations of the problems in the response.
@@ -86,7 +86,7 @@ def items_of(resps: list[dict]) -> list[dict]:
 def select_responses(resps: list[dict], n_target: int, seed: int) -> list[dict]:
     """按（任务类型, 生成回答的模型, 错误类型）分层，各层轮流抽一条含该层幻觉句的回答（整条回答的幻觉句都修，
     上下文才能全换成正确句），直到幻觉句总数达到 n_target。轮流抽保证每一层都有，小层抽完就跳过。
-    用户要求（2026-10-28）：SFT 一千多条就够，但每种数据都要有一部分。"""
+    SFT 一千多条就够，但每种数据都要有一部分。"""
     rng = random.Random(seed)
     strata = collections.defaultdict(list)
     for s in sorted(resps, key=lambda s: s["id"]):
@@ -192,7 +192,7 @@ def report(rows: list[dict]) -> dict:
     return out
 
 
-# ---------- 改错生成器 G_fix（2026-10-28）----------
+# ---------- 改错生成器 G_fix ----------
 # 输入同 35B 修复（REPAIR_PROMPT：原文、整条回答、错误标注、要修的句子），输出同一个 JSON。
 # 训练数据：35B 修复成功的真实错句 + 反过来的合成错误（合成错句 → 原句；造错时写的分析正好是修复要写的）。
 # 评测：另选没修过的真实错句，G_fix 和 35B 各修一遍（都单次生成、不重试），再用同一个 35B 复核、同一个 critic 检测修复句。
@@ -285,7 +285,7 @@ def cmd_verify(args) -> None:
 
 
 def cmd_criticcheck(args) -> None:
-    """critic 检测修复句（采样 4 次的识破率）：识破率 ≤ 1/4 才算修好（用户提出：改正确了，至少不能被 critic 检出有错）。"""
+    """critic 检测修复句（采样 4 次的识破率）：识破率 ≤ 1/4 才算修好（改正确了，至少不能被 critic 检出有错）。"""
     from ragtruth.task import messages, parse_output
     resps = {s["id"]: s for s in natural_responses(args.data)}
     llm = LLM(LLMConfig(model=args.model, base_url=args.base_url, max_tokens=512, concurrency=args.concurrency,
@@ -374,7 +374,7 @@ def cmd_build(args) -> None:
     选中的 1,357 条回答里 597 条因此作废）；删句后句号重新编号。"""
     resps = {s["id"]: s for s in natural_responses(args.data)}
     rep = {r["id"]: r for r in kept(args.repair)}
-    # --insert_from（自由版 v2，2026-10-30）：修复时判为不可修（整句都是原文没有的内容）的句子，做成「插入一整句」的样本
+    # --insert_from（自由版 v2）：修复时判为不可修（整句都是原文没有的内容）的句子，做成「插入一整句」的样本
     ins = ({r["id"] for r in kept(args.insert_from) if r.get("failed") == ["not repairable"]} if args.insert_from else set())
     ins_resp = {i.rsplit("-S", 1)[0] for i in ins}
     by_resp = collections.defaultdict(list)
@@ -520,7 +520,7 @@ def main() -> None:
     r.add_argument("--exclude_sources", nargs="*", default=[], help="--fresh：这些文件里出现的原文不选")
     r.add_argument("--no_verify", action="store_true", help="只修复 + 规则校验，复核另用 verify")
     r.add_argument("--ids", default="", help="只修这个 jsonl 里列出的句子 id（ragtruth.gen_seed select 的输出）")
-    r.add_argument("--provider", default="openai", help="openai（本地 vLLM）| claude_cli（用户 2026-10-30：种子数据全部用 Claude 修）")
+    r.add_argument("--provider", default="openai", help="openai（本地 vLLM）| claude_cli（种子数据全部用 Claude 修）")
     r.add_argument("--effort", default="high")
     f = sub.add_parser("fixdata")
     f.add_argument("--data", nargs="+", default=data)

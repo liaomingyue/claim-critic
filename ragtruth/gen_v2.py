@@ -1,14 +1,14 @@
-"""错误改写模型第二版格式（2026-11-08，用户）：
+"""错误改写模型第二版格式：
   输入：RAG 原文 + 完整回答（编号句子，都正确）+ 要造的错误机制（不指定改哪一句）
   输出：改第几句 + 一句自然语言的改动描述（edit）+ 改写后的句子；不再输出证据 / 理由 / 类型 / plan
-  （用户：edits 改成自然描述，如 Replaced "xx" with "yy"；同样的描述给下游 sev，让它看清改了什么。）
+  （edits 改成自然描述，如 Replaced "xx" with "yy"；同样的描述给下游 sev，让它看清改了什么。）
 
-动机（同日数据）：生成器声称的改法和 Claude 判的实际机制只有 2–27% 一致，无法按 critic 漏判分布（范围 / 确定性偏移 35%、跨段拼接 11% …）控制生成；
+动机（实测数据）：生成器声称的改法和 Claude 判的实际机制只有 2–27% 一致，无法按 critic 漏判分布（范围 / 确定性偏移 35%、跨段拼接 11% …）控制生成；
 生成器的证据 / 理由只有约三成对，还会把 sev 带偏（不看解释的 sev 更准）。
 
 训练数据：种子集错误对（outputs/rt/core/pairs.jsonl，真实模型写错的句子 + Claude 改对句 + Claude 标的机制），本地构建、不调 Claude；
 edit = 改对句 → 真实错句的逐词 diff 按模板写成自然句（describe()）；采样后给 sev 的描述也由 describe(原句, 改写句) 重新生成，
-不用生成器自己写的（生成器写的理由会把 sev 带偏，见 2026-11-08 dne 实验）。机制 other 不进训练。
+不用生成器自己写的（生成器写的理由会把 sev 带偏，见 dne 实验）。机制 other 不进训练。
 
   python -m ragtruth.gen_v2 build            # → outputs/rt/core/seed_v2_{train,holdout}.jsonl
 """
@@ -160,12 +160,12 @@ def cmd_build(a) -> None:
             continue
         ed = desc9.get(p["id"])   # 9B 写的意思层面描述（通过检查的）
         if not ed:
-            if a.desc_only:      # 用户：edit 只用 9B 补，不用规则模板 → 没有合格描述的去掉
+            if a.desc_only:      # edit 只用 9B 补，不用规则模板 → 没有合格描述的去掉
                 why["no_desc"] += 1
                 continue
             ed = describe(p["repaired"], p["real"])
         pr = prompt(p["source"], sents, m)
-        # 定版（用户 2026-11-08）：先句子后 edit。edit 只当训练里的辅助信号（去掉后原样输出 19 → 62 / 1260、真错 73% → 62%），
+        # 定版：先句子后 edit。edit 只当训练里的辅助信号（去掉后原样输出 19 → 62 / 1260、真错 73% → 62%），
         # 推理时不用它，给 sev 的改动清单由 describe() 规则生成。edit 目标 = 9B 基座写的描述（--desc，Claude 核查 75 / 21 / 4）。
         comp = json.dumps({"idx": k, "sentence": p["real"], "edit": ed}, ensure_ascii=False)
         if len(pr) + len(comp) > a.max_chars:
@@ -174,7 +174,7 @@ def cmd_build(a) -> None:
         base = {"source_id": p["source_id"], "task_type": p["task_type"], "type": p["type"], "severity": p["severity"], "mechanism": m, "idx": k,
                 "n_edits": len(edits(p["repaired"], p["real"]) or [])}
         out[p["split"]].append({"id": p["id"], "task": "rewrite", **base, "prompt": pr, "completion": comp})
-        if a.with_describe and p["id"] in desc9:   # （已弃用，用户改为规则列改动）第二步描述任务
+        if a.with_describe and p["id"] in desc9:   # （已弃用，改为规则列改动）第二步描述任务
             out[p["split"]].append({"id": p["id"] + "#desc", "task": "describe", **base, "prompt": desc_prompt(p["repaired"], p["real"]), "completion": ed})
     random.Random("core|seed_v2").shuffle(out["train"])
     for sp in ("train", "holdout"):
@@ -185,7 +185,7 @@ def cmd_build(a) -> None:
                                  "n_edits": dict(sorted(collections.Counter(min(r["n_edits"], 6) for r in tr).items()))}, ensure_ascii=False), flush=True)
 
 
-# ── 意思层面的改动描述（2026-11-08，用户：用 9B 生成自然描述，再让 Claude 抽查）─────────────────────
+# ── 意思层面的改动描述（用 9B 生成自然描述，再让 Claude 抽查）─────────────────────
 # 9B = Qwen3.5-9B 基座（不是评测用的 9B critic），只写描述、不做任何筛选。输入原句、改写句和模板算出的逐词改动（防看错），
 # 一句话说意思上改了什么，不评价对错、不提原文。自动检查：非空、≤ 40 词、不含对错评价词；不过关的回退到模板描述。
 DESC_SYSTEM = """You describe edits. Given an ORIGINAL sentence, an EDITED version of it, the exact word-level changes, and the KIND of edit that was intended, write ONE short English sentence (at most 25 words) that says what the edit changed in meaning, e.g. "Changed who released the training records from a lawyer to the police." or "Replaced the serving suggestion with a claim that the dish is quick and perfect for any night."
@@ -196,7 +196,7 @@ BAD_DESC = re.compile(r"\b(error|wrong|incorrect|unsupported|hallucinat\w*|inacc
 
 
 def desc_user(orig: str, edited: str, mech: str | None) -> str:
-    """mech=None：不给机制（采样上「要求的机制」生成器未必做到，给了会让描述替它声称造出了这种错，2026-11-08 抽查 7 条错误多为此）。"""
+    """mech=None：不给机制（采样上「要求的机制」生成器未必做到，给了会让描述替它声称造出了这种错，抽查 7 条错误多为此）。"""
     u = f"ORIGINAL: {orig}\nEDITED: {edited}\nWord-level changes: {describe(orig, edited)}"
     return u + (f"\nIntended kind of edit: {mech}: {MECH[mech]}" if mech else "")
 
@@ -226,7 +226,7 @@ def cmd_describe(a) -> None:
     def one(p):
         msgs = [{"role": "system", "content": DESC_SYSTEM}, {"role": "user", "content": desc_user(p["repaired"], p["real"], None if a.no_mech else p["mechanism"])}]
         tries = []
-        for k in range(1 + a.retries):   # 第一次贪心；不合格的换种子、温度 0.7 重写（用户：只用 9B 补，不用规则模板）
+        for k in range(1 + a.retries):   # 第一次贪心；不合格的换种子、温度 0.7 重写（只用 9B 补，不用规则模板）
             r = cl.chat.completions.create(model=a.model, messages=msgs, max_tokens=100, temperature=0.0 if k == 0 else 0.7, seed=k,
                                            extra_body={"chat_template_kwargs": {"enable_thinking": False}})
             d = (r.choices[0].message.content or "").strip().strip('"')
@@ -251,7 +251,7 @@ Reply with one JSON object only: {"items": [{"id": ..., "verdict": "accurate"|"p
 
 
 def cmd_check(a) -> None:
-    """Claude 抽查 9B 描述（用户批准约 5 次调用）：随机 --n 条（通过自动检查的），每次 20 条 → <--desc 同名>_check.jsonl。"""
+    """Claude 抽查 9B 描述（约 5 次调用）：随机 --n 条（通过自动检查的），每次 20 条 → <--desc 同名>_check.jsonl。"""
     from common.llm import LLM, LLMConfig, kept, map_resumable
     from ragtruth.synth import parse_json_obj
     rows = sorted((r for r in read_jsonl(D / a.desc) if r["ok"]), key=lambda r: r["id"])
@@ -275,7 +275,7 @@ def cmd_check(a) -> None:
 
 
 def cmd_claude_desc(a) -> None:
-    """9B 描述不准的部分交 Claude 重写（2026-11-08 用户批准约 51 次调用）：自动检查没过的 + 改动 ≥ 3 处的 + 张冠李戴 / 添加事实，
+    """9B 描述不准的部分交 Claude 重写（约 51 次调用）：自动检查没过的 + 改动 ≥ 3 处的 + 张冠李戴 / 添加事实，
     每次 20 条，规则同 DESC_SYSTEM（输入同 9B：原句、改写句、逐词改动、机制）→ <--out>：在 --desc 基础上替换这些条目（src=claude）。"""
     from common.llm import LLM, LLMConfig, kept, map_resumable
     from ragtruth.synth import parse_json_obj
@@ -338,7 +338,7 @@ def cmd_sample(a) -> None:
         resps.append({**r, "sentences": r["sentences"] if isinstance(r["sentences"], list) else json.loads(r["sentences"])})
     mechs = a.mechs or list(MECH)
     jobs = [(r, m) for r in resps for m in mechs]
-    if a.plan:   # 按计划采：每行 {"resp_id", "mechanism"}（扩增 sev 训练数据时按机制加权分配，2026-11-08）
+    if a.plan:   # 按计划采：每行 {"resp_id", "mechanism"}（扩增 sev 训练数据时按机制加权分配）
         by = {r["resp_id"]: r for r in resps}
         jobs = [(by[q["resp_id"]], q["mechanism"]) for q in read_jsonl(D / a.plan) if q["resp_id"] in by]
 

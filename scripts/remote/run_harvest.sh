@@ -1,5 +1,5 @@
 #!/bin/bash
-# 用定向造错生成器的数据重训 2B critic（2026-11-03，用户：数据生成和 critic 重训的脚本先准备）：
+# 用定向造错生成器的数据重训 2B critic：
 #   GEN=outputs/rt/gentarget/grpo_seed5_a7/ckpt/step50 TAG=h1 bash run_harvest.sh
 # 1) 双卡造数据：两张卡各起一个 2B 服务（生成器 + rm1 / rm2 / rm3），训练 prompt 每个采 SAMPLES 条，打分全存（gen_target_data harvest）
 # 2) 建两份 critic 数据（都只往训练集加，校准 / 测试集 = rm1__mcgold 的，测试集是 RAGTruth++）：
@@ -7,7 +7,7 @@
 #      rm1__mcgold_${TAG}ctl ：对照，同样条数、不限区间（合格的都行）+ 配对原句——区分「加了生成数据」和「加的是边界数据」
 # 3) 两张卡各训一个（run_mcrm.sh：合并、校准、RAGTruth++ 报告）
 # 4) 按错误类型的召回：新 critic 打 4 组验收回答（Claude 逐句标过），和基线 rm1__mcgold 比（critic_types）
-# 机器不关（用户：后面还要做实验）。
+# 机器不关（后面还要做实验）。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; LOG=$A/harvest.log; S=$(dirname $(readlink -f $0)); MC=$FS/models/MiniCPM5-2B; O=outputs/rt/gentarget

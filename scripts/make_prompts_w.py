@@ -1,4 +1,4 @@
-"""按类型加权的生成器 GRPO 提示（2026-11-09 用户同意：critic 弱且能造难的类型多放，造难就变类型的少放）。
+"""按类型加权的生成器 GRPO 提示（critic 弱且能造难的类型多放，造难就变类型的少放）。
 不含末尾 64 个试采提示；矛盾 / 添加事实只留约 1/3；范围偏移 / 近义 / 拼接 / 张冠李戴各放两份。确定性（固定种子）。
   python scripts/make_prompts_w.py   # outputs/rt/gen_v2_grpo/prompts.jsonl → prompts_w.jsonl
 """

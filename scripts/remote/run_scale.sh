@@ -1,5 +1,5 @@
 #!/bin/bash
-# 把结论做实（2026-11-05，用户：大概率不需要 Claude 重新标注，可能是样本数量要足够多、不是非要边界样本；
+# 把结论做实（大概率不需要 Claude 重新标注，可能是样本数量要足够多、不是非要边界样本；
 # RAGTruth 原版人工漏标多，最好不要了；早期合成只抽查过 → 三组底座对照，插到数量曲线前面）。训练机单卡，接在 run_h3v.sh 后面：
 #   ⓪ 底座对照（在 ref 上只删来源，不加生成器数据）：
 #        rm1__mcgold_ref_nohA  删人工里标 A 的 1755（保留人工 B / C 762）
@@ -43,7 +43,7 @@ train_score() {   # $1 = 数据目录名（已建好）
   log "SCALE_ONE_DONE $r"
 }
 
-# 两台单卡分工（2026-11-05，用户：再开一台单卡）：ARMS = 这台跑的底座对照（nohA / noh / nohs）、DO_U = 跑不跑 h3ctlu、NS = 这台跑的数量点
+# 两台单卡分工：ARMS = 这台跑的底座对照（nohA / noh / nohs）、DO_U = 跑不跑 h3ctlu、NS = 这台跑的数量点
 ARMS=${ARMS:-"nohA noh nohs"}; DO_U=${DO_U:-1}
 if [ "${WAIT_H3V:-1}" = 1 ]; then log "waiting for H3V_DONE"; until grep -q H3V_DONE $A/h3v.log 2>/dev/null; do sleep 30; done; fi
 

@@ -1,4 +1,4 @@
-"""三个 RM 的单字符选项数据（2026-10-30，用户：RM 只输出选项概率，概率要和真实概率一致；三个 9B LoRA 并行训）。
+"""三个 RM 的单字符选项数据（RM 只输出选项概率，概率要和真实概率一致；三个 9B LoRA 并行训）。
 
   python -m ragtruth.rm_data            # → outputs/rt/rm/<rm1|rm2|rm3>/{train,calib,test}.jsonl + meta.json
 
@@ -48,7 +48,7 @@ B. synthetic: a faithful sentence was deliberately edited by someone to introduc
 
 Answer with a single letter: A or B."""
 
-# 定向造错用的 RM2（rm2v2__mcgen，2026-11-03）：自然一侧是 2B 回答模型写的任意句子（用户：不是错误的也行，不然容易走捷径），
+# 定向造错用的 RM2（rm2v2__mcgen）：自然一侧是 2B 回答模型写的任意句子（不是错误的也行，不然容易走捷径），
 # 所以不再假定句子有错，只问这句是回答模型自己写的，还是事后被改出来、埋了错误的。
 RM2G_SYSTEM = """You see a source (the exact input an assistant received) and one sentence from the assistant's response, with the sentence before and after it for context.
 
@@ -168,7 +168,7 @@ def build_rm3() -> dict[str, list[dict]]:
 
 
 def build_rm2v2() -> dict[str, list[dict]]:
-    """RM2 重训（2026-10-30，用户：看模型能不能区分出来）：自然 = RAGTruth 训练集人工标出的幻觉句；合成 = 种子生成器 G_seed
+    """RM2 重训（看模型能不能区分出来）：自然 = RAGTruth 训练集人工标出的幻觉句；合成 = 种子生成器 G_seed
     在 600 条训练回答上各采 8 次、RM3 判合格（P ≥ 0.5，不看规则）的改写 / 插入句。按（类型）配平两类，按原文 8 : 1 : 1 切
     训练 / 校准 / 测试，原文不跨集合。"""
     from ragtruth.discrim import natural_rows
@@ -209,7 +209,7 @@ def build_rm2v2() -> dict[str, list[dict]]:
 
 
 def build_rm2v2_mc() -> dict[str, list[dict]]:
-    """2B 定向造错用的 RM2（2026-11-03，用户：「真实错误」加上 MiniCPM 自己的错误重训）：rm2v2 全部数据 + MiniCPM5-2B 基线
+    """2B 定向造错用的 RM2（「真实错误」加上 MiniCPM 自己的错误重训）：rm2v2 全部数据 + MiniCPM5-2B 基线
     （outputs/rt/minicpm/sys，Claude 金标 v1 标的有错句）当「自然」。2B GRPO 第 300 步的标注不用：那 100 条留作 critic 按类型的测试集，
     放进来生成器会学着模仿测试集的错误。MiniCPM 的句子按原文 8 : 1 : 1 切，训练里复制 2 份（量少、又是要贴近的分布）。"""
     out, meta = build_rm2v2()

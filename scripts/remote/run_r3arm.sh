@@ -1,5 +1,5 @@
 #!/bin/bash
-# 领一组 R3 对照（2026-11-05，用户：A 跑完 gbl 后同时跑 ref 组）：共享盘 mkdir 占位，两台机器谁先空谁领，领不到就跳过。
+# 领一组 R3 对照（A 跑完 gbl 后同时跑 ref 组）：共享盘 mkdir 占位，两台机器谁先空谁领，领不到就跳过。
 # 用法：ARM=ref|z1500 bash run_r3arm.sh（50 步 + 评测 v0 / 第 50 步 × 三套验收原文）
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}

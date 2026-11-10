@@ -1,5 +1,5 @@
 #!/bin/bash
-# 补打分（2026-11-05：swap_scale 前缀匹配误把 nohA 当成 noh，提前停了旧脚本，noh 的训练还在跑但打分没人做）。
+# 补打分（踩过：swap_scale 前缀匹配误把 nohA 当成 noh，提前停了旧脚本，noh 的训练还在跑但打分没人做）。
 # 等 R 的 run_mcrm 跑完（report.json + adapter），用小显存 vLLM（训练还在同卡上）给 grpo300 / grpo300b / cmp_h2 打分。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}

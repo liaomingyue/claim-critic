@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：sev 过滤之外再加一道「critic 判不出」的筛选（r2 的做法，核实换成 sev__gen）。
+# sev 过滤之外再加一道「critic 判不出」的筛选（r2 的做法，核实换成 sev__gen）。
 #   ① 9B 错误改写模型在剩下 631 个提示（genpool_rest.jsonl）上每个采 8 条 → samples_9b_rest.jsonl（扩大候选池）
 #   ② sev__gen 给全部 9B 样本 + 审计样本打分 → gen_audit/sev2_scores_all.jsonl
 #   ③ 基线 critic rm1__core 给同一批打 P(判出) → gen_audit/critic_core_scores.jsonl（本地先量 sev 在 critic 盲区里准不准）

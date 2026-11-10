@@ -1,5 +1,5 @@
-# 错误改写模型 v0 的 9B 版（2026-11-08，用户：是不是 2B 太差，用同一份种子集 D3 训 9B 看效果）。
-# 数据同 gen-core-mc（outputs/rt/core/seed_sft_train.jsonl，1338 条）；超参沿用旧 9B 生成器 sft_gen_real_9b（lr 1e-4、有效批 16），轮数按用户改为 1 轮（同 2B）。
+# 错误改写模型 v0 的 9B 版（是不是 2B 太差，用同一份种子集 D3 训 9B 看效果）。
+# 数据同 gen-core-mc（outputs/rt/core/seed_sft_train.jsonl，1338 条）；超参沿用旧 9B 生成器 sft_gen_real_9b（lr 1e-4、有效批 16），轮数改为 1 轮（同 2B）。
 # 只存 LoRA 适配器，vLLM 带适配器起服务（serve_loras.sh 去掉视觉塔参数）。
 task: gen
 prompt_tips: false

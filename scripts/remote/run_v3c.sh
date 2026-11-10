@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：只补范围偏移（训练池上已采未标的 300 条，Claude 标 294）+ 直接矛盾放宽为「真错即可」。
+# 只补范围偏移（训练池上已采未标的 300 条，Claude 标 294）+ 直接矛盾放宽为「真错即可」。
 # sev__v3c = v3b 数据 + t2 范围偏移 + 矛盾放宽；sev__v3c0 = 只加 t2（不放宽），用来拆开两个改动各自的作用。校准 / 测试切分不变。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/v3c.log; C=outputs/rt/core
@@ -7,7 +7,7 @@ log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 ( while kill -0 $$ 2>/dev/null; do touch $A/KEEPALIVE; sleep 60; done ) &
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x; unset VLLM_API_KEY
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
-# 用户：先拷 2B（前台），9B 后台拷；用 9B 前等它拷完
+# 先拷 2B（前台），9B 后台拷；用 9B 前等它拷完
 source $S/model_env.sh minicpm5-2b && log "2B ready $MODEL_LOCAL"
 ( source $S/model_env.sh qwen3.5-9b && touch $A/9b_copied ) >> $LOG 2>&1 &
 CP9=$!

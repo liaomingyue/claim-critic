@@ -1,4 +1,4 @@
-# 2026-11-09 方向②：难样本热启动——原 SFT 数据（seed_v2_train）+ 现有生成器批量采样里挑出的难样本（过门槛且 critic 0.1–0.7，gen_v2_grpo harvest）。
+# 方向②：难样本热启动——原 SFT 数据（seed_v2_train）+ 现有生成器批量采样里挑出的难样本（过门槛且 critic 0.1–0.7，gen_v2_grpo harvest）。
 # 超参同 sft_gen_v2_mc（1 轮、lr 5e-5、有效批 4），从基座重训一个 LoRA。
 task: gen
 prompt_tips: false

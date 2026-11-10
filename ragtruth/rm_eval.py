@@ -1,9 +1,9 @@
-"""选项 RM 的打分、校准和评测（2026-10-30）：读答案位置上各选项的 logprob，在校准集上拟合一个全局温度，测试集上报指标。
+"""选项 RM 的打分、校准和评测：读答案位置上各选项的 logprob，在校准集上拟合一个全局温度，测试集上报指标。
 
   python -m ragtruth.rm_eval --rm rm1 --model rm1 --base_url http://127.0.0.1:8000/v1
 
 打分：关思考、贪心、只生成几个 token，取第一个内容 token 处 top-20 logprob 里各选项字母的概率（不在前 20 的记 −30）。
-校准：p_i ∝ exp(logp_i / T)，T 在校准集上按多类负对数似然网格搜索，全局一个（用户：不要多套参数）。
+校准：p_i ∝ exp(logp_i / T)，T 在校准集上按多类负对数似然网格搜索，全局一个（不要多套参数）。
 指标都按二分类目标算：RM1 P(有幻觉) = P(B) + P(C)；RM2 P(自然) = P(A)；RM3 P(合格) = P(A)。
 报 AUC、ECE（10 等宽箱）、Brier、阈值 0.5 的召回 / 精确率；RM1 另按 ++ 严格、有效（去掉 Claude 判 mild / nitpick / meta 的）、
 Claude 审过的一批（以 Claude 结论为准）分别算。输出 outputs/rt/rm/<rm>/eval/{calib,test}_scores.jsonl、report.json。

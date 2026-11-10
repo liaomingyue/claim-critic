@@ -35,7 +35,7 @@ Decide where the error comes from:
 Output exactly: <origin>natural or synthetic</origin>"""
 
 
-# 统一判别器（2026-10-28 用户提出）：「模型自己写的 vs 被改过的」和这句话对不对无关，正确句、错句一起判。
+# 统一判别器：「模型自己写的 vs 被改过的」和这句话对不对无关，正确句、错句一起判。
 # 自然类 = RAGTruth 正确句 + 真实错句；合成类 = 修复出来的正确句 + 生成器造的错句；四类配平，prompt 不再预设这句有错
 SYSTEM_UNIFIED = """You see a source (the exact input an assistant received) and one sentence from an assistant's answer written with this source, with the sentence before and after it for context. The sentence may or may not be faithful to the source.
 
@@ -77,7 +77,7 @@ def logprob_score(client, model: str, row: dict) -> dict:
         extra_body={"chat_template_kwargs": {"enable_thinking": False}})
     toks = resp.choices[0].logprobs.content or []
     # 标签词常和标签的 '>' 合成一个 token（'>natural'），先去掉开头的标点再比；只看 '<origin' 之后的位置。
-    # 旧写法按原样比前缀，判为 natural 时一个位置都对不上，全部退回 0/1（2026-10-28 发现，D1 分数因此几乎都是 0 或 1）
+    # 旧写法按原样比前缀，判为 natural 时一个位置都对不上，全部退回 0/1（踩过：D1 分数因此几乎都是 0 或 1）
     norm = lambda s: re.sub(r"^[^a-z]+", "", s.strip().lower())  # noqa: E731
     is_n = lambda s: bool(s) and ("natural".startswith(s) or s.startswith("natural"))  # noqa: E731
     is_s = lambda s: bool(s) and ("synthetic".startswith(s) or s.startswith("synthetic"))  # noqa: E731
@@ -88,7 +88,7 @@ def logprob_score(client, model: str, row: dict) -> dict:
             pn = sum(math.exp(c.logprob) for c in t.top_logprobs if is_n(norm(c.token)))
             ps = sum(math.exp(c.logprob) for c in t.top_logprobs if is_s(norm(c.token)))
             # 判别器很自信时另一个标签排不进前 20，按 1 − 选中概率估计（否则分数只剩 0 / 1，DPO 配不出对；
-            # 2026-10-28 发现 D1 在 G_free 产出上 1,126 条全是 0 或 1）
+            # 踩过：D1 在 G_free 产出上 1,126 条全是 0 或 1）
             chosen = math.exp(t.logprob)
             if pn + ps > 0 and pn == 0:
                 pn = max(1e-6, 1 - chosen)

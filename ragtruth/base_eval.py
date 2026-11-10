@@ -1,4 +1,4 @@
-"""9B 原始模型的幻觉摸底（2026-11-01，用户：GRPO 之前先看 9B 原始版的幻觉情况，模型和 Claude 都评一遍）。
+"""9B 原始模型的幻觉摸底（GRPO 之前先看 9B 原始版的幻觉情况，模型和 Claude 都评一遍）。
 
 在金标评测集的原文上生成回答，rm1-9b 全部打分，随机抽回答按金标标准由 Claude 标注，看 9B 的幻觉率和 critic 在 9B 回答上准不准。
 进入 GRPO 的条件（事先定好）：带明显错误的回答不低于 30%；critic 明显错误 AUC 不低于 0.90。
@@ -28,7 +28,7 @@ from ragtruth.task import render_input
 
 D = Path("outputs/rt/base9b")
 MODEL_NAME = "qwen3.5-9b-base"
-POOL_D = D / "pool"   # 训练池原文上的 9B 回答（2026-11-01，用户同意约 300 次 Claude 调用）：标注后进 critic 训练，原文不和留出集重叠
+POOL_D = D / "pool"   # 训练池原文上的 9B 回答（约 300 次 Claude 调用）：标注后进 critic 训练，原文不和留出集重叠
 
 
 def to_answer(src: dict, k: int, text: str, finish: str) -> dict:
@@ -118,7 +118,7 @@ def cmd_pick(args) -> None:
 def cmd_label(args) -> None:
     d = POOL_D if args.pool else D
     picks = {r["id"]: r for r in (kept(d / "answers.jsonl") if args.pool else read_jsonl(d / "picks.jsonl")) if r["finish"] == "stop" and r["sentences"]}
-    assert len(picks) <= (310 if args.pool else 110), "用户同意的是约 300（池）或 100（留出集）次调用"
+    assert len(picks) <= (310 if args.pool else 110), "Claude 调用预算：约 300（池）或 100（留出集）次"
     llm = LLM(LLMConfig(model=args.model, provider="claude_cli", effort=args.effort, concurrency=args.concurrency))
     label(llm, [{"id": f"{rid}#p1", "r": picks[rid]} for rid in sorted(picks)], d / "labels.jsonl", args.concurrency)
     by = {x["resp_id"]: {1: x["sentences"]} for x in kept(d / "labels.jsonl")}

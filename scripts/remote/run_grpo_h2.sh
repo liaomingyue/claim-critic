@@ -1,5 +1,5 @@
 #!/bin/bash
-# 边界样本 critic 当奖励，重跑 2B 回答 GRPO（2026-11-04，用户：看边界样本提升 critic 以后，RAG 生成能不能比上一版提升更大；critic 只用 h2；先不用 Claude）。
+# 边界样本 critic 当奖励，重跑 2B 回答 GRPO（看边界样本提升 critic 以后，RAG 生成能不能比上一版提升更大；critic 只用 h2；先不用 Claude）。
 # 和上一版（outputs/rt/minicpm/grpo，rm1__mcgold，第 300 步）唯一的区别是 critic：
 #   进奖励：rm1__mcgold_h2（幻觉）、sat_pair__mc（满意度护栏，只罚，w 0.5）、refuse（拒答 RM，w 0.4）、硬规则
 #   只监控：9B 金标 critic rm1__rm1_gold_9b（训完补打 dev 评测样本 + 验收回答）
@@ -17,7 +17,7 @@ for f in train_all.jsonl dev.jsonl train.jsonl train.meta.json train_ref.jsonl d
   cp $OLD/$f $O/
 done
 for f in $OLD/*.json*; do [ -f $O/$(basename $f) ] || cp $f $O/; done
-# 检查点是 save_pretrained(selected_adapters=["policy"]) 存的，LoRA 在 step300/policy/ 下（2026-11-04 踩过：只看 step300/ 误判缺失）
+# 检查点是 save_pretrained(selected_adapters=["policy"]) 存的，LoRA 在 step300/policy/ 下（踩过：只看 step300/ 误判缺失）
 ad() { [ -f $1/policy/adapter_model.safetensors ] && echo $1/policy || echo $1; }
 OLDAD=$(ad $FS/adapters/mc-grpo/step300)
 [ -f $OLDAD/adapter_model.safetensors ] || { log "missing old step300 adapter ($OLDAD)"; exit 1; }

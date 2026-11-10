@@ -44,7 +44,7 @@ def data_fingerprint(path: str | Path) -> dict:
     out = {"path": str(p), "sha256": sha256(p), "bytes": p.stat().st_size}
     if p.suffix == ".jsonl":
         # content_sha：逐行解析后按规范形式（键排序）哈希，与换行符、空白无关。Windows 写出的文件是 \r\n，
-        # 字节级 sha256 和服务器上同一份数据对不上（2026-10-27 补录时发现），跨机器核对数据用这个
+        # 字节级 sha256 和服务器上同一份数据对不上（补录时发现），跨机器核对数据用这个
         n, dist = 0, {k: collections.Counter() for k in ("label", "type", "origin", "task_type")}
         ch = hashlib.sha256()
         with open(p, encoding="utf-8") as f:

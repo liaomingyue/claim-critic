@@ -1,4 +1,4 @@
-"""四组 Claude 验收对比（2026-11-02，用户）：Qwen3.5-9B 原始 / 9B GRPO（第二轮，满意度护栏）/ MiniCPM5-2B 基线（关闭思考 + QA 系统提示）/ 2B GRPO 第 300 步。
+"""四组 Claude 验收对比：Qwen3.5-9B 原始 / 9B GRPO（第二轮，满意度护栏）/ MiniCPM5-2B 基线（关闭思考 + QA 系统提示）/ 2B GRPO 第 300 步。
 四组都是同样 100 个（原文, 种子），金标 v1 单轮标注。配对 bootstrap 按原文抽样（ragtruth.ans_accept.compare）。
 
   python -m ragtruth.accept_compare      # 写 outputs/rt/accept_compare.json

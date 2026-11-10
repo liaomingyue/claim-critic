@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-06 用户：两台并行。本机：core1 跑完 → 循环一 → 循环二主组（rm1__core_r1）；「只核心集」组在第二台（run_loop2co.sh）。
+# 两台并行。本机：core1 跑完 → 循环一 → 循环二主组（rm1__core_r1）；「只核心集」组在第二台（run_loop2co.sh）。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; S=$A/scripts; LOG=$A/chain.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

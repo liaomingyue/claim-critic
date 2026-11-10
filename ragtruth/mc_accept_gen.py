@@ -1,4 +1,4 @@
-"""2B GRPO 两版策略在同样的验收原文-种子上重新生成，用 9B 金标 critic 对比（2026-11-04，用户：边界样本训的 critic 当奖励，RAG 生成能不能比上一版提升更大；先不用 Claude）。
+"""2B GRPO 两版策略在同样的验收原文-种子上重新生成，用 9B 金标 critic 对比（边界样本训的 critic 当奖励，RAG 生成能不能比上一版提升更大；先不用 Claude）。
 参照回答文件（grpo300 / grpo300b 的 answers.jsonl）逐条照抄设置：同 source、同 system（QA 系统提示有就带）、同种子（id 末尾数字），
 grpo300 用 T 1.0 / top_p 0.95（accept_compare 的 MiniCPM 配置），grpo300b 用 T 0.7（accept_more）。新旧两版都重新生成，口径完全一样。
 

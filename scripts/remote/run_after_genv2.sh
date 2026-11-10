@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：生成器输出顺序修改优先级最高 → 先重训生成器（run_genv2_after 的内容），做完再跑 sev3 / rm2v2（描述和数据已就绪的步骤会跳过）。
+# 生成器输出顺序修改优先级最高 → 先重训生成器（run_genv2_after 的内容），做完再跑 sev3 / rm2v2（描述和数据已就绪的步骤会跳过）。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; C=outputs/rt/core
 for x in gen-v2-mc gen-v2-9b; do [ -d $FS/adapters/$x ] && mv $FS/adapters/$x $FS/archive/$x-editfirst; done

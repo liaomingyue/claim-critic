@@ -1,4 +1,4 @@
-# 合成"盲区错"标签审计 + gated/add 生成器实验（2026-11-08）
+# 合成"盲区错"标签审计 + gated/add 生成器实验
 
 ## 一句话结论
 "骗 critic 造错 → 增广 critic"这条路线**走不通**：gated 生成器挑出的"盲区错"里
@@ -45,11 +45,11 @@
 - `extract200.py` / `extract_ev.py` — 复现 gA 过滤 + seed42 抽 200（+evidence/reason）
 - `judge.py` — Claude 独立判 faithful/conflict/baseless（批 10）
 - `verify.py` — 给 Claude 生成器的 evidence/reason 做兜底核验
-- `run_9b200.sh` — 9B holistic 给 200 条打分（关机前被杀，未产出，可重跑）
+- `run_9b200.sh` — 9B holistic 给 200 条打分（没有产出，可重跑）
 
-## 下一步方向（用户定调）
+## 当时定下的下一步方向
 放弃合成造错。转**三块判别器**（证据判别 / 错误类型判别 / 理由判别）当地基：
 既做造错的 GRPO 奖励（治 ~25% 真错产出率），也做挖真实错的标注器（更稳、不被钻）。
 第一步：Claude 在这 200 条上出三块结构化标签，看哪块判别力最强 + 当判别器首批训练数据。
 
-详见 `docs/experiment_log.md` 对应日期段 与 memory `claim-critic-synth-label-noise`。
+结论和后续实验见 [docs/experiments.md](../../docs/experiments.md) §5.10。

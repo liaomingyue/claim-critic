@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude 复核后的对照（2026-11-05，用户：错误生成器的样本不管边界还是随机都要 Claude 复核再进 critic；方案一）。训练机单卡：
+# Claude 复核后的对照（错误生成器的样本不管边界还是随机都要 Claude 复核再进 critic；方案一）。训练机单卡：
 #   ① 建数据（基于 rm1__mcgold_ref，只加训练集）：白名单 = Claude 判「原句无误 + 显然错」的 harvest_h3 样本，类型按 Claude mechanism 改正
 #        rm1__mcgold_h3v    ：边界组（critic 0.3–0.7）
 #        rm1__mcgold_h3ctlv ：随机组（h3ctl 中与 h3 不重合的，critic ≥ 0.7 或 < 0.3），同条数

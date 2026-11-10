@@ -1,4 +1,4 @@
-"""双机看门狗（2026-11-05，用户：机器完成后记得关掉；GPU 利用率 10 分钟低于 10% 也关机）。
+"""双机看门狗（机器完成后关掉；GPU 利用率 10 分钟低于 10% 也关机）。
 每台机器各自判断：每 interval 秒采一次所有卡的利用率，连续 idle_minutes 分钟都 < idle_util 就关这台。
 训练跑完两台都会闲下来，自然在 idle_minutes 内关掉。本地跑：
 
@@ -18,7 +18,7 @@ from scripts.autodl_grab import log, notify  # noqa: E402
 from scripts.autodl_web import Web  # noqa: E402
 
 
-KEEPALIVE = "/root/autodl-tmp/KEEPALIVE"   # 脚本在不用 GPU 的长步骤（拷 9B、加载模型）里定期 touch（2026-11-05：拷 9B 时 GPU 空闲被关机）
+KEEPALIVE = "/root/autodl-tmp/KEEPALIVE"   # 脚本在不用 GPU 的长步骤（拷 9B、加载模型）里定期 touch（踩过：拷 9B 时 GPU 空闲被关机）
 
 
 def gpu_util(info: dict) -> list[int] | None:

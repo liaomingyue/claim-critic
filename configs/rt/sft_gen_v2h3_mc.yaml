@@ -1,8 +1,8 @@
-# 2026-11-09 迭代第三轮：原 SFT 数据 + GRPO（g1，v2h2 起点，h4 奖励 50 步）批量采样里「过门槛、critic 0.1–0.5、要求类型 ≥ 0.5」的样本（+ 前两轮同样满足的）。
+# 迭代第三轮：原 SFT 数据 + GRPO（g1，v2h2 起点，h4 奖励 50 步）批量采样里「过门槛、critic 0.1–0.5、要求类型 ≥ 0.5」的样本（+ 前两轮同样满足的）。
 # 超参同 sft_gen_v2_mc（1 轮、lr 5e-5、有效批 4），从基座重训一个 LoRA。
 task: gen
 prompt_tips: false
-base_model: /root/autodl-tmp/models/MiniCPM5-2B   # 本地盘（共享盘随机读太慢，2026-11-09 加载权重要约 2 小时）
+base_model: /root/autodl-tmp/models/MiniCPM5-2B   # 本地盘（共享盘随机读太慢，加载权重要约 2 小时）
 use_lora: true
 merge_lora: false
 eos_tokens: ["<|im_end|>"]

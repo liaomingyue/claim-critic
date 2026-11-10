@@ -1,4 +1,4 @@
-"""GRPO 训练卡的 prompt 共享（2026-10-31，用户：先验证）：同一 prompt 的 n 条 completion 只算一遍 prompt。
+"""GRPO 训练卡的 prompt 共享：同一 prompt 的 n 条 completion 只算一遍 prompt。
 
 现在 train.gen_grpo.batch_logprobs 每条样本都把 prompt（~3,300 token）+ completion（~240）整段过前向 / 反向，
 prompt 占 93% 的算力且同一 prompt 重复 n 次。这里：

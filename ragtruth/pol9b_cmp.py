@@ -1,4 +1,4 @@
-"""策略独立评测对比（2026-11-05）：各组在同一批验收原文-种子上的生成，用 9B 金标 critic 逐句打分（9B 只当评测标签）。
+"""策略独立评测对比：各组在同一批验收原文-种子上的生成，用 9B 金标 critic 逐句打分（9B 只当评测标签）。
 按回答 id 配对，按原文聚类 bootstrap（2000 次，90% 区间）。
 
   python -m ragtruth.pol9b_cmp --arm v0=outputs/rt/minicpm/r3full/eval:v0 --arm h3ctl=outputs/rt/minicpm/r3full/eval:s50 \

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：「原生奖励 + 组内排行」要和原生奖励对比；难样本 SFT 本身也是一个手段 → 补成 2×2（奖励 tri 无保底 / rank × 起点 SFT / 热启动），都到 100 步：
+# 「原生奖励 + 组内排行」要和原生奖励对比；难样本 SFT 本身也是一个手段 → 补成 2×2（奖励 tri 无保底 / rank × 起点 SFT / 热启动），都到 100 步：
 #   h4：原生（tri 无保底）、SFT 起点，从第 50 步状态接着训到 100 步；r3：原生、热启动 gen-v2h 起点，100 步。
 #   （r1 = rank + SFT 起点、r2 = rank + 热启动，在 run_gen_rank.sh；gen-v2h 只 SFT 不 GRPO 的试采也在那边。）等 run_gen_rank.sh 跑完再开始。
 cd ${CODE:-/root/autodl-fs/code/critic_model}

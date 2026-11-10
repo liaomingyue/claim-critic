@@ -1,4 +1,4 @@
-"""回答满意度模型的标注（2026-11-02，用户：只是护栏，不让模型为了降幻觉去钻空子，比如故意打断、抄袭、字数很少、答非所问；不需要很准）。
+"""回答满意度模型的标注（只是护栏，不让模型为了降幻觉去钻空子，比如故意打断、抄袭、字数很少、答非所问；不需要很准）。
 
 Claude 看同一问题的两条回答，一次给出相对判断（A / B / 差不多）和两条各自的绝对分数、毛病，不管幻觉，只管有没有切中需求、解决问题。
 样本来自回答 GRPO 每步存盘的回答（只有训练原文，不碰 dev 和评测集），必须包含走偏的版本，否则模型没见过走偏的样子：
@@ -137,7 +137,7 @@ def cmd_pick(args) -> None:
     by = load_samples(Path(args.samples), set(train) - used)
     pairs = pick_pairs(by, {"contrast": args.contrast, "cross": args.cross, "late": args.late}, args.early_max, args.late_min, args.seed)
     items = to_items(pairs, args.repeats, args.seed)
-    assert len(items) <= args.max_calls, "超出用户同意的调用数"
+    assert len(items) <= args.max_calls, "超出 Claude 调用预算"
     D.mkdir(parents=True, exist_ok=True)
     with open(D / f"items{args.tag}.jsonl", "w", encoding="utf-8", newline="\n") as f:
         for x in items:
@@ -148,7 +148,7 @@ def cmd_pick(args) -> None:
 def cmd_label(args) -> None:
     src = {r["id"]: r for r in read_jsonl("outputs/rt/ansgrpo/train.jsonl")}
     items = list(read_jsonl(D / f"items{args.tag}.jsonl"))
-    assert len(items) <= args.max_calls, "超出用户同意的调用数"
+    assert len(items) <= args.max_calls, "超出 Claude 调用预算"
     llm = LLM(LLMConfig(model=args.claude, provider="claude_cli", effort=args.effort, concurrency=args.concurrency))
 
     def run(it: dict) -> dict | None:
@@ -209,7 +209,7 @@ def main() -> None:
     ap.add_argument("--repeats", type=int, default=10)
     ap.add_argument("--early_max", type=int, default=20)
     ap.add_argument("--late_min", type=int, default=150)
-    ap.add_argument("--max_calls", type=int, default=100, help="用户同意的上限")
+    ap.add_argument("--max_calls", type=int, default=100, help="Claude 调用上限")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--claude", default="claude-opus-5-5")
     ap.add_argument("--effort", default="high")

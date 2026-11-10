@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：错误生成器两步生成——第一步只出 idx + sentence；第二步同一模型看原句 / 改写句 / 逐词改动写 edit（给 sev 用）。
+# 错误生成器两步生成——第一步只出 idx + sentence；第二步同一模型看原句 / 改写句 / 逐词改动写 edit（给 sev 用）。
 # 多任务 SFT（改写 1394 + 描述 1394）。等同机的 sev3 / rm2v2 打分做完，归档上一版 gen-v2，重训 2B / 9B 并两步采样。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; C=outputs/rt/core

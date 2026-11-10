@@ -1,5 +1,5 @@
 #!/bin/bash
-# 接手 run_scale.sh（2026-11-05）：等它把 WAIT_ARM 训完打完分（SCALE_ONE_DONE），趁它在等底座文件时停掉，改跑 run_scale2.sh TASKS。
+# 接手 run_scale.sh：等它把 WAIT_ARM 训完打完分（SCALE_ONE_DONE），趁它在等底座文件时停掉，改跑 run_scale2.sh TASKS。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp

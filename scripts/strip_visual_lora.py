@@ -1,4 +1,4 @@
-"""去掉 LoRA 适配器里视觉塔的参数（2026-10-30）：TRL 按多模态结构加载 Qwen3.5，all-linear 把 visual.* 也挂了 LoRA，
+"""去掉 LoRA 适配器里视觉塔的参数：TRL 按多模态结构加载 Qwen3.5，all-linear 把 visual.* 也挂了 LoRA，
 vLLM 多 LoRA 服务只接受语言模型的模块，加载报错。纯文本打分用不到视觉塔，删掉不影响结果。
 
   python scripts/strip_visual_lora.py <适配器目录> <输出目录>

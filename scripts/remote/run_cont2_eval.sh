@@ -1,5 +1,5 @@
 #!/bin/bash
-# cont2 训完后的评测（2026-11-06）：等 R3FULL_DONE → rm1__core_r2 给 cont2 的 v0/s50/s100 打分 → 盲区召回 + 9B 配对比较
+# cont2 训完后的评测：等 R3FULL_DONE → rm1__core_r2 给 cont2 的 v0/s50/s100 打分 → 盲区召回 + 9B 配对比较
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/cont2_eval.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

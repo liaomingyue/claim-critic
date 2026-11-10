@@ -1,5 +1,5 @@
 #!/bin/bash
-# 队列 q5（2026-11-06，用户：纯合成 vs 人工）：hum / syn 两组，谁先空谁领，每领完重读任务列表。
+# 队列 q5（纯合成 vs 人工）：hum / syn 两组，谁先空谁领，每领完重读任务列表。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 FS=/root/autodl-fs; Q=$FS/runs/q5; mkdir -p $Q; LOG=/root/autodl-tmp/worker.log

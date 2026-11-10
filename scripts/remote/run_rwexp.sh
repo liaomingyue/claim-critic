@@ -1,5 +1,5 @@
 #!/bin/bash
-# 奖励设计对照（2026-11-05，用户：分步奖励 + 去底噪计数；跑 50 步验证，不要跑完）。单卡一组：策略 vLLM（占 MC_MEM 显存）+ RM LoRA + HF 训练都在 GPU0。
+# 奖励设计对照（分步奖励 + 去底噪计数；跑 50 步验证，不要跑完）。单卡一组：策略 vLLM（占 MC_MEM 显存）+ RM LoRA + HF 训练都在 GPU0。
 #   ARM=R0  现在的公式：1 − 0.5 平均 P − 0.5 最大 P，满意度 0.5 ×（最多扣 0.25）
 #   ARM=R1  整段层换成去底噪计数：e = max(0, p − 同组平均 P)，1 − 0.5 P(至少一句) − 0.5 min(1, Σe / K)，K = max(2, 0.5 × 参考回答句数)；满意度 0.8 ×（最多扣 0.4）
 #   ARM=R2  R1 + 句子层：错句 token 额外加 0.6 × −max(0, p − b) / σ
@@ -34,7 +34,7 @@ COMMON="--causal 1 --sys_qa 1 --base $MC --init $INIT --vllm_url http://127.0.0.
   --critic_report outputs/rt/rm/$CRITIC/eval/report.json --shadow= \
   --sat_model sat --sat_kind pair --sat_report outputs/rt/rm/sat_pair__mc/eval/report.json --refuse_model refuse --refuse_report outputs/rt/rm/refuse/eval/report.json --refuse_w 0.4 \
   $RW --proc_producer 1 --pipeline 1 --lr 5e-6 --state_every 1000 --trip 0"
-# 单卡试跑 3 步（用户：单卡先试，不行再双机）：OOM 或每步 > 60 秒 → 写 need_pair 标记退出，由本地改成两台一组的双机模式
+# 单卡试跑 3 步（单卡先试，不行再双机）：OOM 或每步 > 60 秒 → 写 need_pair 标记退出，由本地改成两台一组的双机模式
 P=$O/smoke; rm -rf $P
 if ! CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo $COMMON --steps 3 --eval_k 0 --save_every 1000 --version_prefix ${ARM}s_ --push_dir /dev/shm/rws_$ARM --out $P >> $A/rwexp_${ARM}_smoke.log 2>&1; then
   why=$(grep -aq "OutOfMemory\|CUDA out of memory" $A/rwexp_${ARM}_smoke.log && echo oom || echo error)

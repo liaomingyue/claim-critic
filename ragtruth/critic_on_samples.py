@@ -1,5 +1,5 @@
 """基线 critic 给造错样本的改写句打分（P(判出) = P(B) + P(C)），用来挑「critic 判不出」的错（r2 的做法，核实换成 sev__gen）。
-2026-11-08，用户：sev 过滤之外再加一道「critic 判不出」的筛选。
+sev 过滤之外再加一道「critic 判不出」的筛选。
 
 样本：gen_audit 的审计样本（items_pair / items_sevnew，有 Claude 结论，用来量 sev 在 critic 盲区里准不准）+ 9B 全部合格样本
 （samples_9b_audit.jsonl + --extra 里的新采样），aid 同 sev_filter_score（9b/<id>）。

@@ -1,4 +1,4 @@
-"""生成器 GRPO 训练中每道门槛的通过率（2026-11-09 用户：中途不做 Claude 抽查，但要看这些指标）。
+"""生成器 GRPO 训练中每道门槛的通过率（中途不做 Claude 抽查，但要看这些指标）。
 读 <run>/samples/step*.jsonl.gz（训练时每步的原始输出和打分），每 --every 步一行：
 格式合格 / sev 有错 ≥ 0.9 / 自然 ≥ 0.5 / 两道都过 / 正样本（过门槛且难度 > 0）/ 过门槛样本的 critic 分布。
   python scripts/gate_stats.py outputs/rt/gen_v2_grpo/h1 --every 10

@@ -1,6 +1,6 @@
 #!/bin/bash
-# 第九批（a12 从第 50 步接着训到 100 步，RESUME=<out>/state/step50）；第八批（a12）；第七批（a11）；第六批（a10，100 步）；第五批（a9，100 步）；第四批（a8，150 步）；第三批（a7 + c3 / c4，另存一份免得改正在跑的脚本）；第二批（c3 / c4，接在 run_rewardexp.sh 后面跑，单独一份免得改正在跑的脚本）。奖励设计对比（2026-11-03，用户：先把可能的实验列上去；奖励先跑 50 步，怎么改要基于数据分析；跑完先不关机）。
-# 起点 gen-seed4-mc（用户：种子里的错句要用 2B 筛一下，只留 2B 不知道是错的；同步做）：第三版 172 条种子里只留 hardpool
+# 第九批（a12 从第 50 步接着训到 100 步，RESUME=<out>/state/step50）；第八批（a12）；第七批（a11）；第六批（a10，100 步）；第五批（a9，100 步）；第四批（a8，150 步）；第三批（a7 + c3 / c4，另存一份免得改正在跑的脚本）；第二批（c3 / c4，接在 run_rewardexp.sh 后面跑，单独一份免得改正在跑的脚本）。奖励设计对比（先把可能的实验列上去；奖励先跑 50 步，怎么改要基于数据分析；跑完先不关机）。
+# 起点 gen-seed4-mc（种子里的错句要用 2B 筛一下，只留 2B 不知道是错的；同步做）：第三版 172 条种子里只留 hardpool
 # （2B critic 在原回答里判不出、P < 0.5）的那些，单卡 SFT 1 轮。
 # 每组：同一起点 gen-seed4-mc、同一提示池（hardpool 示例、指定类型、结合上下句）、50 步、同一批快评提示，只改奖励的一处；
 # 训完用两个奖励外的裁判打快评合格样本：9B 金标 critic（骗过 = P < 0.5）、第一版 RM2 rm2v2__mcgen（自然 = P > 0.5）。
@@ -51,14 +51,14 @@ declare -A ARGS=(
   [a2]="--shape soft --crit_floor 0.7"
   [c1]="--shape soft --crit_floor 0.4 --gate 0.5"
   [c2]="--shape soft --crit_floor 0.4 --gate 0.85"
-  [a6]="--shape boundary --crit_floor 0.05"                                       # critic 越接近 0.5 越好（用户：优先级最高）
-  [a7]="--shape boundary2 --base_fail 0.1"                                        # 没过门槛给基线 0.1，明显的错低于基线（用户同意）
-  [a8]="--shape boundary3 --base_fail 0.1"                                        # 峰值 0.3、P ≥ 0.9 记 0（用户：在 a7 基础上继续优化）
-  [a9]="--shape boundary4 --base_fail 0.1"                                        # 保底按离真错多近给，0.9–0.98 给 0.03（用户同意）
-  [a10]="--shape boundary5 --base_fail 0.1 --n 16 --prompts_per_step 8"          # a7 系数 + a9 保底；每 prompt 16 次、每步 8 个 prompt（用户：再优化一版）
-  [a11]="--shape boundary6 --base_fail 0.1 --n 16 --prompts_per_step 16"         # 4P(1−P) 只在 0.1–0.9 给，两头记 0（用户：阈值 0.1 / 0.9）；保底同 a9；每 prompt 16 次、每步仍 16 个 prompt（用户：耗时增加可以接受）
-  [a12]="--shape boundary7 --base_fail 0.1 --obvious_pen 0.1 --n 16 --prompts_per_step 16"   # 明显的错 −0.1，保底按离真错多近给（用户）
-  [c3]="--shape soft --crit_floor 0.4 --gate 0.7 --gate_lo 0.3"                  # 正确性连续系数（用户批准）
+  [a6]="--shape boundary --crit_floor 0.05"                                       # critic 越接近 0.5 越好（优先级最高）
+  [a7]="--shape boundary2 --base_fail 0.1"                                        # 没过门槛给基线 0.1，明显的错低于基线
+  [a8]="--shape boundary3 --base_fail 0.1"                                        # 峰值 0.3、P ≥ 0.9 记 0（在 a7 基础上继续优化）
+  [a9]="--shape boundary4 --base_fail 0.1"                                        # 保底按离真错多近给，0.9–0.98 给 0.03
+  [a10]="--shape boundary5 --base_fail 0.1 --n 16 --prompts_per_step 8"          # a7 系数 + a9 保底；每 prompt 16 次、每步 8 个 prompt
+  [a11]="--shape boundary6 --base_fail 0.1 --n 16 --prompts_per_step 16"         # 4P(1−P) 只在 0.1–0.9 给，两头记 0（阈值 0.1 / 0.9）；保底同 a9；每 prompt 16 次、每步仍 16 个 prompt（耗时增加可以接受）
+  [a12]="--shape boundary7 --base_fail 0.1 --obvious_pen 0.1 --n 16 --prompts_per_step 16"   # 明显的错 −0.1，保底按离真错多近给
+  [c3]="--shape soft --crit_floor 0.4 --gate 0.7 --gate_lo 0.3"                  # 正确性连续系数
   [c4]="--shape soft --crit_floor 0.4 --gate 0.7 --gate_lo 0.3 --min_sim 0.4"    # 再加：整句换掉的记 0
 )
 indep() {   # $1 = 目录 $2 = 版本前缀

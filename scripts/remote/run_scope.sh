@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：给 critic 补范围偏移，比「过 Claude」和「不过 Claude」（ragtruth/scope_critic.py）。接在 run_v3c.sh 后面（同一台机器）。
+# 给 critic 补范围偏移，比「过 Claude」和「不过 Claude」（ragtruth/scope_critic.py）。接在 run_v3c.sh 后面（同一台机器）。
 #   一、9B 生成器 v2 在 genpool_div 上按范围偏移采样（每条回答 4 条）→ 9B 基座写描述
 #   二、2B：sev（v3c / v3c0 里范围偏移更好的）+ RM2 v3b + critic r2 打分 → 过滤 → 等本地 Claude 核实（scope_label/labels.jsonl 上传后继续）
 #   三、建 cl / nc 两组 → 训 critic → 给三套验收回答打分（本地 critic_cap3 对比 r2）

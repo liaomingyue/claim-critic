@@ -1,7 +1,7 @@
 #!/bin/bash
-# 2026-11-09 用户：核心是造 critic 盲区样本 → critic 难度当主奖励（0.3–0.5 最高、两头 0），sev 有错 ≥ 0.9 + 自然度 ≥ 0.5 当过滤。
-#   ge：从 SFT（gen-v2-mc）起；ge2：从 ga 第 100 步起。每步 8 提示 × 32 采样（用户：n 16 → 32；门槛固定 0.9）。评测沿用 run_gengrpo.sh（v0 / ga 已有的跳过）。
-# （原 run_gengrpo.sh 注释：生成器 GRPO，sev 奖励；自然度和 critic 作为门槛过滤。）单卡 5090（用户：2B 不用双卡）：vLLM 和训练同卡，vLLM 占 40%。
+# 核心是造 critic 盲区样本 → critic 难度当主奖励（0.3–0.5 最高、两头 0），sev 有错 ≥ 0.9 + 自然度 ≥ 0.5 当过滤。
+#   ge：从 SFT（gen-v2-mc）起；ge2：从 ga 第 100 步起。每步 8 提示 × 32 采样（n 16 → 32；门槛固定 0.9）。评测沿用 run_gengrpo.sh（v0 / ga 已有的跳过）。
+# （原 run_gengrpo.sh 注释：生成器 GRPO，sev 奖励；自然度和 critic 作为门槛过滤。）单卡 5090（2B 不用双卡）：vLLM 和训练同卡，vLLM 占 40%。
 #   策略 = 2B 生成器 v2（gen-v2-mc）；提示 = 训练池 657 回答 × 9 机制；奖励 train/gen_reward_v2.py（--reward v2sev）
 #   ga：sev + 自然度门槛；gb：sev + 自然度门槛 + critic r2 区间 [0.1, 0.7) 门槛。各 STEPS 步。
 #   评测：留出原文 genpool_eval（70 回答 × 9 机制 × 4）上 v0 / ga / gb 采样 → 9B 基座写描述 → sev v3c0（带描述）/ RM2 v3b / critic r2 打分 → 产出率。
@@ -30,11 +30,11 @@ for e in ${EXPS:-ge ge2}; do
   free_gpus
   A=$A bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.4 --base $MC --log $A/vllm-gg.log --priority \
     sev=$FS/adapters/$SEV-mc/adapter rm2v3=$FS/adapters/rm2__v3b-mc/adapter rm1=$FS/adapters/rm1__core_r2-mc/adapter policy_v0=$([ $e = ge2 ] && echo $GA_CK || echo $INIT) >> $LOG 2>&1 || { log "$e vllm FAILED"; continue; }
-  # 训练前试采（用户：担心大量组没有正样本）：64 个提示 × 32，同款奖励；整组无正样本 > MAX_ZERO（默认 0.3）就不训这组
+  # 训练前试采（防止大量组没有正样本）：64 个提示 × 32，同款奖励；整组无正样本 > MAX_ZERO（默认 0.3）就不训这组
   python -u -m ragtruth.gen_v2_grpo probe --model policy_v0 --tokenizer $MC >> $LOG 2>&1 && mv $O/probe_policy_v0.jsonl $O/probe_$e.jsonl
   PR=$(grep -a GEN_V2_GRPO_PROBE $LOG | tail -1); log "PROBE $e $PR"
   Z=$(echo "$PR" | python -c "import sys,json;print(json.loads(sys.stdin.read().split(' ',1)[1])['groups_zero_pos'])" 2>/dev/null || echo 1)
-  # 用户：启动之前先看和线上一致的奖励情况 → 试采完等本地确认（touch $O/GO_$e 继续；SKIP_$e 跳过），最多等 3 小时
+  # 启动之前先看和线上一致的奖励情况 → 试采完等本地确认（touch $O/GO_$e 继续；SKIP_$e 跳过），最多等 3 小时
   log "WAIT_GO $e"
   for i in $(seq 1 180); do [ -f $O/GO_$e ] || [ -f $O/SKIP_$e ] && break; sleep 60; done
   [ -f $O/GO_$e ] || { log "$e not approved, skip"; continue; }

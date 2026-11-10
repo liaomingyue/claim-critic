@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：方向 B——用 v2h 批量采样，筛「过门槛（sev 有错 ≥ 0.9、自然 ≥ 0.5）、critic 0.1–0.5、sev 判要求类型 ≥ 0.5」，
+# 方向 B——用 v2h 批量采样，筛「过门槛（sev 有错 ≥ 0.9、自然 ≥ 0.5）、critic 0.1–0.5、sev 判要求类型 ≥ 0.5」，
 #   每提示 ≤ 2（+ 上一轮难样本里同样满足的），和原 SFT 数据重训 gen-v2h2-mc，再在同一批 64 提示 × 32 上试采。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/gen_b.log; O=outputs/rt/gen_v2_grpo

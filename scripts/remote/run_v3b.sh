@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：扩充 sev / RM2 训练数据（训练池上 2B + 9B 采样 1444 条 Claude 标注，只进训练集）→ sev__v3b、rm2__v3b，和 v3 在同一测试切分上比。
+# 扩充 sev / RM2 训练数据（训练池上 2B + 9B 采样 1444 条 Claude 标注，只进训练集）→ sev__v3b、rm2__v3b，和 v3 在同一测试切分上比。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/v3b.log; C=outputs/rt/core
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
