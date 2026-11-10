@@ -1,6 +1,11 @@
 # 开源发布：数据、模型与复现
 
 本页说明公开了哪些数据和模型、它们对应哪个结论，以及怎么从零复现。
+
+- 数据：[liao11/claim-critic-data](https://huggingface.co/datasets/liao11/claim-critic-data)
+- 模型：[liao11/claim-critic-models](https://huggingface.co/liao11/claim-critic-models)
+- 一行下载并校验：`python -m scripts.fetch_release`（默认就是这两个仓库，按 `MANIFEST.json` 逐文件核对 SHA-256，解压到仓库根目录）
+
 - 结论本身见 [tech_share.md](tech_share.md)；
 - 全部实验见 [experiments.md](experiments.md)。
 
@@ -24,7 +29,7 @@
 |---|---|
 | `critic.tar` | 各代 critic：rm1__core → r1 → r2 → r2_bfcl（第一轮）/ r2_bfnc（不核实对照）→ rd2（第二轮），以及表 3、4 里的各对照组；9B 金标 critic（rm1__rm1_gold_9b，只用于评测，基座是 Qwen3.5-9B） |
 | `rag.tar` | RAG 各版本，见下方命名对照表 |
-| `gen.tar` | 错误生成器：gen-v2-mc（SFT）、gen-v2h3-mc（难样本 SFT）、gen-g1（GRPO 50 步） |
+| `gen.tar` | 错误生成器：gen-v2-mc（SFT）、gen-v2h2-mc 和 gen-v2h3-mc（难样本 SFT）、gen-g1（GRPO 50 步） |
 | `rm.tar` | sev（v3c0、v3d）、RM2 自然度（v3b、v3d）、满意度（sat_pair__core）、拒答（refuse__core） |
 
 每个模型用的训练数据（具体文件和条数）、训练配置（超参文件、LoRA、学习率、步数、奖励）、起点、重训命令，以及它对应哪张表，都列在 [MODELS.md](MODELS.md)。发布包里每个模型目录下的 `README.md` 和 `training.json` 也是同样的内容。
@@ -143,7 +148,7 @@ GRPO 的采样和生成用 vLLM，有非确定性，所以 R2 的数字不会和
 
 开源前，我们开了两台全新的 RTX 5090，在全新克隆的代码目录里，只用发布包、基座模型和上面的脚本跑完了 setup、R1、R2：
 
-- **setup**：9 个发布包解压后 SHA-256 全部一致。
+- **setup**：9 个发布包解压后 SHA-256 全部一致。上传到 Hugging Face 后，又在新克隆的目录里直接从 Hugging Face 下载了一遍，同样全部一致，解压出 40 个 LoRA。
 - **R1 重新打分：复现。** 6 代 critic 重新打分，同一句话两次打分平均差 0.005（相关 0.999），AUC 变化都在 0.002 以内；表 7、表 9 的两条结论都成立（`results/repro_r1_report.txt`）。
 - **R2 重训 RAG：部分复现。** 新 critic 组复现得很好（含显然错 3.9%，原 4.7%），但对照组这次自己也降了约 2 个点（5.9%，原 7.9%）。新 critic − 对照：含显然错 −2.0 [−3.6, −0.5]，**仍显著**；含任意错 −2.4 [−4.7, +0.0]，**临界**，没有达到判据，脚本打印 `R2_CONCLUSION_DIFFERS`（`results/repro_r2_report.txt`）。
 

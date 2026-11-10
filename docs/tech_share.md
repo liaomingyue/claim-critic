@@ -49,7 +49,7 @@ RAG 回答里含错误的比例（9B 金标 critic 打分，三套验收原文�
 
 ## 开源与复现
 
-开源的不只是代码：
+开源的不只是代码（数据和模型在 Hugging Face：[数据集](https://huggingface.co/datasets/liao11/claim-critic-data)、[模型](https://huggingface.co/liao11/claim-critic-models)）：
 - **数据**：核心集（模型回答 + Claude 逐句改对和标注）、两轮补盲区的候选样本和 Claude 核实结果、三套验收集和 Claude 金标、各代 critic 和各版 RAG 的逐句打分；
 - **模型**：40 个 LoRA，包括各代 critic、满意度 / 拒答 / sev / RM2 等打分模型、各版 RAG、错误生成器；
 - **每个模型的训练数据和配置**：用了哪份数据、多少条、什么超参、从哪个起点、一行重训命令（[MODELS.md](MODELS.md)）；

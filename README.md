@@ -2,6 +2,8 @@
 
 **逐句检测、强化学习与盲区闭环**
 
+代码、数据和模型全部开源：[数据集](https://huggingface.co/datasets/liao11/claim-critic-data) · [模型（40 个 LoRA）](https://huggingface.co/liao11/claim-critic-models) · [发布与复现说明](docs/RELEASE.md)
+
 **目标：** 让 RAG 模型的回答句句有原文依据。
 
 **难在哪：**
@@ -256,7 +258,7 @@ PYTHONHASHSEED=0 python -m pytest -q        # 单测，不需要 GPU、不调用
 pip install -r requirements-gpu.txt         # GPU 端（训练 / vLLM），版本同训练机
 ```
 
-三个复现层级（L0 只看结果 / L1 从逐句打分重算 / L2 完整闭环）、公开的数据和模型（Hugging Face）及许可说明，见 [docs/RELEASE.md](docs/RELEASE.md)。代码许可证：Apache-2.0。每个模型（40 个 LoRA）的训练数据和训练配置见 [docs/MODELS.md](docs/MODELS.md)。
+三个复现层级（L0 只看结果 / L1 从逐句打分重算 / L2 完整闭环）、公开的数据和模型（Hugging Face：[数据集](https://huggingface.co/datasets/liao11/claim-critic-data)、[模型](https://huggingface.co/liao11/claim-critic-models)）及许可说明，见 [docs/RELEASE.md](docs/RELEASE.md)。代码许可证：Apache-2.0。每个模型（40 个 LoRA）的训练数据和训练配置见 [docs/MODELS.md](docs/MODELS.md)。
 
 - 全部运行用 `PYTHONHASHSEED=0` + 固定字符串种子，重跑得到同样的数据。
 - 数据和模型不进 git，发布在 Hugging Face：`python -m scripts.fetch_release` 下载并校验 SHA-256（见 [docs/RELEASE.md](docs/RELEASE.md)）。

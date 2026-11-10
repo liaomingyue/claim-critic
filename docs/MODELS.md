@@ -1,7 +1,7 @@
 # 模型清单：每个模型的训练数据和训练配置
 
 本页由 `python -m scripts.model_cards` 从 `configs/release_models.yaml` 和发布数据里的 `meta.json` / `eval/report.json` 生成，不要手改。
-发布包和复现方法见 [RELEASE.md](RELEASE.md)。所有模型都只发 LoRA。「对应结论」里的表号指 [tech_share_details.md](tech_share_details.md) 的表 1–9。
+下载：[数据集](https://huggingface.co/datasets/liao11/claim-critic-data)、[模型](https://huggingface.co/liao11/claim-critic-models)；发布包和复现方法见 [RELEASE.md](RELEASE.md)。所有模型都只发 LoRA。「对应结论」里的表号指 [tech_share_details.md](tech_share_details.md) 的表 1–9。
 
 共同约定：
 - 打分模型（critic / sev / RM2 / 满意度 / 拒答）是"单字母选项"格式：模型只输出一个字母，取 logprob 当概率，再用校准集拟合一个全局温度；
