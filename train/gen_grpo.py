@@ -48,6 +48,25 @@ def lora_sync_url() -> str:
     return os.environ.get("LORA_SYNC_URL", "").rstrip("/")
 
 
+def strip_visual_inplace(path: str) -> None:
+    """Qwen3.5-9B 按视觉语言结构加载时，PEFT 也给视觉塔挂了 LoRA；vLLM 只接受语言模型的模块，带视觉参数的 LoRA 加载会报错。
+    推送前就地删掉（同 scripts/strip_visual_lora.py；纯文本任务用不到视觉塔）。MiniCPM5-2B 没有视觉参数，原样不动。"""
+    import json
+    from safetensors.torch import load_file, save_file
+    f = Path(path) / "adapter_model.safetensors"
+    if not f.exists():
+        return
+    w = load_file(str(f))
+    keep = {k: v for k, v in w.items() if ".visual." not in k and not k.startswith("visual.")}
+    if len(keep) == len(w):
+        return
+    save_file(keep, str(f))
+    c = Path(path) / "adapter_config.json"
+    cfg = json.loads(c.read_text())
+    cfg["target_modules"] = sorted({k.split(".lora_")[0].split(".")[-1] for k in keep if ".lora_" in k})
+    c.write_text(json.dumps(cfg, indent=1))
+
+
 class Server:
     """推理卡上的 vLLM：生成（completions，拿 token id 和 logprob）+ 热加载 / 卸载 LoRA。"""
 
@@ -91,6 +110,7 @@ class Server:
 
     def load_lora(self, name: str, path: str) -> None:
         import requests
+        strip_visual_inplace(path)
         sync = lora_sync_url()
         if sync:   # 双机：LoRA 交给推理机上的同步服务（scripts/lora_sync.py），在推理机内存盘热加载
             import os
