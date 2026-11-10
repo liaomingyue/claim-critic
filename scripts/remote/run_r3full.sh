@@ -11,7 +11,8 @@ log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 # 看门狗保活（拷 / 加载 9B 时 GPU 空闲超过 10 分钟会被平台关机）：脚本活着就每分钟 touch，脚本结束循环自己退出
 ( while kill -0 $$ 2>/dev/null; do touch ${TMP_ROOT:-/root/autodl-tmp}/KEEPALIVE; sleep 60; done ) & KA=$!   # 保活进程 PID：下面的 wait 不能等它（踩过：worker1 生成完卡死在 wait）
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
-unset VLLM_API_KEY LORA_SYNC_URL LORA_SYNC_MODE LORA_SYNC_FS_DIR
+# 双机模式（两台单卡：run_train_node.sh 设好 RM_URL / LORA_SYNC_URL / VLLM_API_KEY）：打分和采样都走推理机，本机只训练；否则清掉这些变量
+[ -n "${RM_URL:-}" ] || unset VLLM_API_KEY LORA_SYNC_URL LORA_SYNC_MODE LORA_SYNC_FS_DIR
 [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
 source scripts/remote/models9b.sh; start_9b_bg   # 先拷马上要用的 2B，9B 后台拷，把时间岔开
 # 9B 对照（2×2：策略大小 × 打分模型大小）：POLICY_MODEL / RM_MODEL = minicpm5-2b（默认）| qwen3.5-9b。
@@ -31,7 +32,11 @@ ad() { [ -f $1/policy/adapter_model.safetensors ] && echo $1/policy || echo $1; 
 RW="--reward_shape count --count_ratio 0.5 --count_min 2 --sat_w 0.8 --sent_beta 0.6 --sent_gamma 0.3"
 free_gpu; mkdir -p $A/s0 $A/s1
 RMS="critic=$FS/adapters/$CRITIC-$RS/adapter sat=$FS/adapters/$SAT-$RS/adapter refuse=$FS/adapters/$REFUSE-$RS/adapter"
-if [ $PM = minicpm5-2b ] && [ $RMM = minicpm5-2b ]; then   # 原布局：一个服务，GPU0
+POLURL=http://127.0.0.1:8000/v1; ASYNC=""
+if [ -n "${RM_URL:-}" ]; then   # 双机：推理机上已经挂好策略 + 打分模型（run_infer_node.sh），LoRA 每步后台上传给它热加载
+  RMURL=$RM_URL; POLURL=$RM_URL; ASYNC="--async_push 1"
+  log "remote inference $RM_URL"
+elif [ $PM = minicpm5-2b ] && [ $RMM = minicpm5-2b ]; then   # 原布局：一个服务，GPU0
   A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $MC --log $A/vllm-r3full.log --priority $RMS policy_v0=$INIT >> $LOG 2>&1 || { log "serve FAILED"; exit 1; }
   RMURL=http://127.0.0.1:8000/v1
 elif [ $PM = $RMM ]; then   # 9B × 9B：同一基座，一个服务放 GPU1（策略 + 打分模型），训练独占 GPU0
@@ -48,7 +53,7 @@ else   # 9B 策略 × 2B 打分：两个服务都在 GPU1（9B 策略 0.55 + 2B 
 fi
 LAST=$(ls -d $O/run/state/step* 2>/dev/null | sort -V | tail -n 1)
 log "start r3full: critic $CRITIC, $RW, steps $STEPS ${LAST:+(resume $LAST)}"
-CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal 1 --sys_qa 1 --base $MC --init $INIT --vllm_url $RMURL --policy_url http://127.0.0.1:8000/v1 \
+CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal 1 --sys_qa 1 --base $MC --init $INIT --vllm_url $RMURL --policy_url $POLURL $ASYNC \
   --n 16 --share 1 --share_impl $SHARE_IMPL --share_ckpt 1 --share_mb ${SHARE_MB:-32} --prompts $SRC/train_ref.jsonl --dev $SRC/dev_ref.jsonl \
   --critic_report outputs/rt/rm/$CRITIC/eval/report.json --shadow= \
   --sat_model sat --sat_kind pair --sat_report outputs/rt/rm/$SAT/eval/report.json --refuse_model refuse --refuse_report outputs/rt/rm/$REFUSE/eval/report.json --refuse_w 0.4 \
@@ -57,6 +62,8 @@ CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal 1 --sys_qa 1 --base 
 grep -ah "QUICK_EVAL\|TRIP" $A/r3full${TAG}_train.log | cut -c1-500 | tee -a $LOG
 mkdir -p $FS/adapters/$PSFX-grpo-r3$TAG && rsync -a $O/run/ckpt/ $FS/adapters/$PSFX-grpo-r3$TAG/ && log "ckpts saved to adapters/$PSFX-grpo-r3$TAG: $(ls $O/run/ckpt | tr '\n' ' ')"
 free_gpu
+# 评测在本机做（训练卡此时空了）：双机模式下切回本机服务，不带密钥
+if [ -n "${RM_URL:-}" ]; then unset RM_URL LORA_SYNC_URL VLLM_API_KEY PUSH_DIR; export OPENAI_API_KEY=x; fi
 
 # 独立评测
 POL=""; [ "${EVAL_V0:-1}" = 1 ] && POL="v0=$INIT"; for s in ${EVAL_STEPS:-100 200 300}; do [ -d $O/run/ckpt/step$s ] && POL+=" s$s=$(ad $O/run/ckpt/step$s)"; done

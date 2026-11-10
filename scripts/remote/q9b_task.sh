@@ -87,6 +87,21 @@ grpo)
     STEPS=200 EVAL_STEPS="100 200" EVAL_V0=1 SHARE_MB=$SM CODE=$PWD bash $S/run_loop2.sh
   [ -f outputs/rt/core/loop2_q9b_$arm/eval/s200_c_9b.json ] || exit 1
   log "GRPO_DONE $arm" ;;
+ref9)   # 双机模式要提前生成参考回答（9B SFT 起点在训练原文上重采，定长度范围和满意度参考），GRPO 时直接用
+  POLICY_MODEL=qwen3.5-9b ARM=q9b_p9r9 CRITIC=rm1__core_9b INIT=$FS/adapters/rag-sft-core_9b/adapter REF_ONLY=1 CODE=$PWD bash $S/run_loop2.sh || exit 1
+  log "REF9_DONE" ;;
+pair_infer)   # 两台单卡跑 9B GRPO 的推理机：9B 底座 + 9B critic / 满意度 / 拒答 + 策略起点；等训练机写 train_done 才退出
+  P=$FS/runs/pair/q9b; mkdir -p $P
+  rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed $P/domains.json
+  hostname > $P/infer_host
+  printf '%s\n' "critic=$FS/adapters/rm1__core_9b-9b/adapter" "sat=$FS/adapters/sat_pair__core_9b-9b/adapter" \
+    "refuse=$FS/adapters/refuse__core_9b-9b/adapter" "policy_v0=$FS/adapters/rag-sft-core_9b/adapter" > $P/loras
+  PAIR=q9b INFER_MODEL=qwen3.5-9b bash $S/run_infer_node.sh || exit 1
+  [ -f $P/train_done ] || exit 1
+  log "PAIR_INFER_DONE" ;;
+pair_train)   # 两台单卡跑 9B GRPO 的训练机：等推理机就绪（域名由本地 scripts/pair_setup.py 写），跑 9B × 9B 的 GRPO，训完在本机评测
+  PAIR=q9b JOB=run_q9b_pair.sh bash $S/run_train_node.sh || exit 1
+  log "PAIR_TRAIN_DONE" ;;
 cap3)   # 9B critic 和 2B critic 在 Claude 金标验收集上直接比（同 critic_cap3 口径）
   ensure_9b || exit 1; free_gpu
   T=$(python -c "import json;print(json.load(open('outputs/rt/rm/rm1__core_9b/eval/report.json'))['temperature'])")
