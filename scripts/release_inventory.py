@@ -25,7 +25,7 @@ RAG = {"rag-sft-core": "adapters/rag-sft-core/adapter", "RAG-S1": "adapters/mc-g
        "RAG-S3-r3": "adapters/mc-grpo-r3_core_cont3/step100", "RAG-S3-bf": "adapters/mc-grpo-r3_core_cont4/step100",
        "RAG-S3-r1": "adapters/mc-grpo-r3_core_cont5/step100", "RAG-S4-rd2": "adapters/mc-grpo-r3_core_cont6/step100",
        "RAG-S1x": "adapters/mc-grpo-r3_core_main/step200"}
-GEN = {"gen-v2-mc": "adapters/gen-v2-mc/adapter", "gen-v2h3-mc": "adapters/gen-v2h3-mc/adapter", "gen-g1": C + "outputs/rt/gen_v2_grpo/g1/ckpt/step50"}
+GEN = {"gen-v2-mc": "adapters/gen-v2-mc/adapter", "gen-v2h2-mc": "adapters/gen-v2h2-mc/adapter", "gen-v2h3-mc": "adapters/gen-v2h3-mc/adapter", "gen-g1": C + "outputs/rt/gen_v2_grpo/g1/ckpt/step50"}
 EVAL_RAG = ["loop2_coreonly", "loop2_main", "loop2_cont", "loop2_cont2", "loop2_cont3", "loop2_cont4", "loop2_cont5", "loop2_cont6"]
 
 
@@ -63,8 +63,15 @@ def entries() -> list[tuple[str, str, str]]:
     e.append(("models/critic", "adapters/rm1__rm1_gold_9b-9b/adapter", "LoRA：9B 金标 critic（只用于评测）"))
     # 2026-11-10 复现脚本（scripts/repro）需要：9B 金标 critic 的校准温度；闭环 GRPO 的参考回答（起点重采，不发的话复现时会重新采，结果多一层随机性）
     e.append(("data/rm", C + "outputs/rt/rm/rm1__rm1_gold_9b/eval/report.json", "9B 金标 critic 的校准温度"))
-    for st in ("adapter", "step200", "step100"):
+    for st in ("rag-sft-core", "step200", "step100"):
         e.append(("data/core", C + f"outputs/rt/core/loop2_prompts_{st}", f"闭环 GRPO 原文池 + 起点参考回答（起点 {st}）"))
+    # 2026-11-10 用户：每个模型要给出具体的训练数据和配置（docs/MODELS.md）。补：9B 金标 critic 的训练集、GRPO 逐步日志
+    e.append(("data/rm", C + "outputs/rt/rm/rm1__rm1_gold_9b", "rm1__rm1_gold_9b：train / calib + eval/report.json"))
+    for r in EVAL_RAG:
+        for f in ("log.jsonl", "quick_eval.jsonl"):
+            e.append(("data/eval", C + f"outputs/rt/core/{r}/run/{f}", f"RAG {r}：GRPO 逐步训练日志"))
+    for f in ("log.jsonl", "quick_eval.jsonl"):
+        e.append(("data/eval", C + f"outputs/rt/gen_v2_grpo/g1/{f}", "生成器 GRPO g1：逐步训练日志"))
     for k, v in RAG.items():
         e.append(("models/rag", v, f"LoRA：{k}"))
     for k, v in GEN.items():

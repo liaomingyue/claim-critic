@@ -20,3 +20,4 @@ external_data/
 
 # 数据包（scripts.pack_data）
 dist/
+.repro/

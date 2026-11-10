@@ -65,6 +65,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fs", default="/root/autodl-fs")
     ap.add_argument("--out", default="/root/autodl-tmp/release")
+    ap.add_argument("--cards", default="", help="scripts.model_cards --cards_dir 的输出：每个模型的 README.md + training.json，替换 PEFT 自带的空模板")
     a = ap.parse_args()
     fs, out = Path(a.fs), Path(a.out)
     (out / "claim-critic-data").mkdir(parents=True, exist_ok=True)
@@ -86,7 +87,7 @@ def main() -> None:
         files = sorted(f for f in src.rglob("*") if f.is_file()) if src.is_dir() else [src]
         t, tname = tar_for(group)
         for f in files:
-            if f.name in SKIP_NAMES or is_rtpp(f):
+            if f.name in SKIP_NAMES or is_rtpp(f) or (group.startswith("models/") and a.cards and f.name == "README.md"):
                 skipped.append(str(f))
                 continue
             member = arc if not src.is_dir() else f"{arc}/{f.relative_to(src).as_posix()}"
@@ -102,6 +103,10 @@ def main() -> None:
             add(group, src, rel.removeprefix(C), desc)
         else:
             add(group, src, model_name(rel), desc)
+            card = Path(a.cards) / model_name(rel) if a.cards else None
+            if card and (card / "README.md").exists():   # 2026-11-10：每个模型的训练数据 / 配置说明（docs/MODELS.md 同源）
+                for f in ("README.md", "training.json"):
+                    add(group, card / f, f"{model_name(rel)}/{f}", "模型说明：训练数据和训练配置")
     # RAGTruth 原件（MIT）
     rt = fs / C / "external_data/ragtruth"
     if rt.exists():

@@ -1,0 +1,35 @@
+# 单字符选项 RM（RM1 有没有幻觉 / RM2 自然还是合成 / RM3 合成样本是否合格，ragtruth.rm_data），2026-10-30。
+# 超参同 9B v2（sft_9b_v2.yaml）；答案只有一个字母，损失只算在答案上（TRL prompt-completion）。data / output_dir / max_length 由 run_rmtrain.sh 按 RM 改写。
+task: option
+prompt_tips: false
+base_model: /root/autodl-tmp/models/Qwen3.5-9B
+use_lora: true
+merge_lora: true
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear          # 实测按纯文本 Qwen3_5ForCausalLM 加载，没有视觉塔；含线性注意力的 in_proj_*、out_proj
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 2
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 1    # 实测 1 条 1.2k token 前向+反向峰值 21 GB（32 GB 卡）
+  gradient_accumulation_steps: 16
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 3072
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+  model_init_kwargs:        # 让 TRL 加载时直接放到 GPU；不指定时部分权重停在 meta 设备，反向报 expected device meta
+    dtype: bfloat16
+    device_map: cuda
+
+coldstart:
+  data: outputs/rt/rm/rm1/train.jsonl
+  output_dir: /root/autodl-tmp/ckpt/rm1-9b

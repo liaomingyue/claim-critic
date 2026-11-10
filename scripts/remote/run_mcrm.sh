@@ -2,17 +2,17 @@
 # MiniCPM5-2B 版的单字母 RM（2026-11-02，用户：整个都用 2B）：RM=rm1__mcgold GPU=0 PORT=8100 bash run_mcrm.sh
 # 数据和 9B 版完全相同（目录由 run_mc_all.sh 复制），超参 configs/rt/rm_mc.yaml（同 9B 版，只换底座、批大小改成 4 × 4）。合并后校准、出报告，adapter 存共享盘 adapters/$RM-mc。
 set -u
-cd ${CODE:-/root/autodl-fs/code/critic_model}
+cd ${CODE:-${FS_ROOT:-/root/autodl-fs}/code/critic_model}
 RM=${RM:?}; GPU=${GPU:?}; PORT=${PORT:?}
-A=/root/autodl-tmp; LOG=$A/mcrm_$RM.log; MC=${MC:-/root/autodl-fs/models/MiniCPM5-2B}
+A=${TMP_ROOT:-/root/autodl-tmp}; LOG=$A/mcrm_$RM.log; MC=${MC:-${FS_ROOT:-/root/autodl-fs}/models/MiniCPM5-2B}
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=$GPU
 CK=$A/ckpt; name=$RM-mc; D=outputs/rt/rm/$RM
 fix_tok() { for f in tokenizer.json tokenizer_config.json special_tokens_map.json chat_template.jinja generation_config.json; do cp $MC/$f "$1"/ 2>/dev/null; done; }
 fail() { log "$RM $1 FAILED"; touch $D/FAILED; log "MCRM_DONE $RM"; exit 1; }
 # 认领：同一个 RM 只训一次。别处已认领就等它出报告（run_mc_all.sh 的 wait 要等到所有 RM 都训完）
-mkdir -p /root/autodl-fs/runs/claims
-if ! mkdir /root/autodl-fs/runs/claims/mcrm_$RM 2>/dev/null; then
+mkdir -p ${FS_ROOT:-/root/autodl-fs}/runs/claims
+if ! mkdir ${FS_ROOT:-/root/autodl-fs}/runs/claims/mcrm_$RM 2>/dev/null; then
   log "$RM claimed elsewhere, waiting for its report"
   until [ -f $D/eval/report.json ] || [ -f $D/FAILED ]; do sleep 30; done
   log "MCRM_DONE $RM (by other)"; exit 0
@@ -35,7 +35,7 @@ else
   python -u -m train.sft --config configs/rt/exp/$name.yaml --mode coldstart > $A/$name.log 2>&1 || fail train
 fi
 log "trained $name"
-mkdir -p /root/autodl-fs/adapters/$name && rsync -a $CK/$name/adapter /root/autodl-fs/adapters/$name/ || fail save
+mkdir -p ${FS_ROOT:-/root/autodl-fs}/adapters/$name && rsync -a $CK/$name/adapter ${FS_ROOT:-/root/autodl-fs}/adapters/$name/ || fail save
 fix_tok $CK/$name
 vllm serve $CK/$name --served-model-name $name --max-model-len 16384 --gpu-memory-utilization 0.45 --port $PORT --max-logprobs 20 > $A/vllm-$name.log 2>&1 &
 V=$!
