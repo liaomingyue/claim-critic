@@ -95,6 +95,14 @@ python -m scripts.check_repro r_s4.json results/loop2_cont6_cmp.json
 
 这一层从 Claude 金标、critic 逐句打分和 9B 逐句打分重新算 AUC、召回和配对 bootstrap 区间。种子固定，所以结果应和 `results/` 里的逐位一致，`check_repro` 会打印 `REPRO_MATCH`。
 
+9B 对照的 Claude 核对（表 10）不用下载发布包：两组回答、9B 逐句打分和 Claude 原始逐句标注都在仓库的 `results/q9b_claude_check/` 里（`labels_batch.jsonl` 是批量标注的原始输出，`labels_single.jsonl` 是少量一条一次的对照标注）。重算：
+
+```bash
+python -m ragtruth.claude_pair_check report --dir results/q9b_claude_check --base final_2b \n    --arm q9b_s200=results/q9b_claude_check/q9b_s200:s200 --arm final_2b=results/q9b_claude_check/final_2b:s100
+```
+
+输出 `results/q9b_claude_check/report.json`，应和 `results/q9b_claude_check.json` 完全一致。
+
 我们在一个干净目录里实际走过一遍：
 - 从仓库 clone；
 - 用 `fetch_release --local` 解压全部 9 个包，SHA-256 全部一致；

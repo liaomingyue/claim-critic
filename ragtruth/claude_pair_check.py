@@ -5,6 +5,9 @@
   python -m ragtruth.claude_pair_check label --arm ...            # 一条一次调用（贵 10 倍，只留作批量口径的抽查）
   python -m ragtruth.claude_pair_check report --arm ... --base final_2b
 
+不调用 Claude、不用 GPU，从仓库里的发布结果重算 9B 对照的 Claude 核对（表 10）：
+  python -m ragtruth.claude_pair_check report --dir results/q9b_claude_check --base final_2b       --arm q9b_s200=results/q9b_claude_check/q9b_s200:s200 --arm final_2b=results/q9b_claude_check/final_2b:s100
+
 - 批量：一次调用标 --batch 条（默认 10）。批量曾改变过标注口径（实验记录 1.5：同一原文的 3 条一起标，显然错标得更多），
   所以同一批里原文互不相同（配对的两条永远不在一批，Claude 没法并排比较同一原文的回答），每批两组各一半、顺序打乱，
   批量带来的偏差两组一样；这次的全部回答都用同一种方式标，不和一条一次的混用。两组回答都看不到来自哪个模型；
@@ -219,6 +222,7 @@ def cmd_report(a) -> None:
 
 
 def main() -> None:
+    global D
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["label", "label_batch", "report"])
     ap.add_argument("--arm", action="append", required=True, help="名=目录:前缀")
@@ -232,7 +236,9 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=10)
     ap.add_argument("--n_pairs", type=int, default=0, help="只抽这么多对（0 = 全部）")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--dir", default="outputs/rt/core/claude_check", help="标注和报告所在目录（发布的结果在 results/q9b_claude_check）")
     a = ap.parse_args()
+    D = Path(a.dir)
     {"label": cmd_label, "label_batch": cmd_label_batch, "report": cmd_report}[a.cmd](a)
 
 

@@ -898,7 +898,7 @@ KL 护栏（窗口均值 ≥ 0.10）在第 100 步前后把三档都叫停了，
 
 多机布局：9B 策略的 GRPO 是一台训练机 + 两台推理机（采样和打分分摊），2B 策略 × 9B 打分是训练机（2B 训练 + 采样）+ 两台 9B 打分机，见 [distributed.md](distributed.md)。
 
-代码：`scripts/remote/q9b_task.sh`、`q9b_base.sh`、`q9b_mideval.sh`、`q9b.tasks`、`run_r3full.sh`、`ragtruth/pol9b_cmp.py`、`ragtruth/critic_cap3.py`、`ragtruth/claude_pair_check.py`；结果 `results/q9b_critic_cap3.json`、`results/q9b_cmp_full.json`、`results/q9b_claude_check.json`。
+代码：`scripts/remote/q9b_task.sh`、`q9b_base.sh`、`q9b_mideval.sh`、`q9b.tasks`、`run_r3full.sh`、`ragtruth/pol9b_cmp.py`、`ragtruth/critic_cap3.py`、`ragtruth/claude_pair_check.py`；结果 `results/q9b_critic_cap3.json`、`results/q9b_cmp_full.json`、`results/q9b_claude_check.json`；Claude 原始逐句标注、两组回答和 9B 逐句打分在 `results/q9b_claude_check/`，不用 GPU 也不调用 Claude 就能重算（命令见 [RELEASE.md](RELEASE.md) 的 L1）。
 
 ---
 
