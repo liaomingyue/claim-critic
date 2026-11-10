@@ -8,12 +8,14 @@ log() { echo "$(date '+%F %T') [$ME] $*" | tee -a $LOG $Q/history.log > /dev/nul
 ( while kill -0 $$ 2>/dev/null; do touch $A/KEEPALIVE; sleep 60; done ) &
 [ -n "$2" ] && { log "waiting for '$3' in $2 before joining"; until grep -aq "$3" $2 2>/dev/null; do sleep 30; done; }
 mkdir -p $Q/claim $Q/done $Q/failed
-log "joined"
+NGPU=$(nvidia-smi -L 2>/dev/null | wc -l)   # 名字以 g2_ 开头的任务要两张卡，单卡机器不领也不等
+log "joined ($NGPU GPU)"
 while true; do
   left=0; ran=0
   while IFS='|' read -r name deps cmd; do
     [ -z "$name" ] && continue; [[ $name == \#* ]] && continue
     [ -e $Q/done/$name ] || [ -e $Q/failed/$name ] && continue
+    [[ $name == g2_* ]] && [ "$NGPU" -lt 2 ] && continue
     left=1
     [ -d $Q/claim/$name ] && continue
     ok=1

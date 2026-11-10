@@ -1,0 +1,38 @@
+# 9B 对照：RAG SFT，和 sft_policy_mc.yaml 只差基座、LoRA 作用的层和每卡批大小（有效批、学习率、轮数、LoRA r / alpha 都相同）。
+# 回答策略 SFT（S2 拒绝采样 SFT、S1 Claude 修正 SFT，和 GRPO 同一批 831 个 prompt）。
+# LoRA 和回答 GRPO 的策略 LoRA 一样（mc-init：r 32 / alpha 64 / 7 个线性层 / dropout 0），从同一个底座开始。
+# data / output_dir 由 scripts/remote/run_s2.sh、run_s1.sh 改写。不合并：评测时和 GRPO 检查点一样当 LoRA 挂在 vLLM 上。
+task: policy_text
+prompt_tips: false
+base_model: /root/autodl-tmp/models/Qwen3.5-9B
+use_lora: true
+merge_lora: false
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 32
+  lora_alpha: 64
+  lora_dropout: 0.0
+  target_modules: all-linear          # Qwen3.5 的线性注意力层没有 q/k/v/o，用全部线性层（按纯文本模型加载，没有视觉塔）
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 2
+  learning_rate: 5.0e-5
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16   # 有效批 16，同 2B 版
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 4096
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+  model_init_kwargs:
+    dtype: bfloat16
+    device_map: cuda
+
+coldstart:
+  data: outputs/rt/minicpm/s2/sft_train.jsonl
+  output_dir: /root/autodl-tmp/ckpt/rag-sft-core_9b

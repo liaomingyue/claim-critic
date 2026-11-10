@@ -1,0 +1,37 @@
+# 9B 对照：错误生成器 v2，和 sft_gen_v2_mc.yaml 只差基座和每卡批大小（有效批 4、lr 5e-5、1 轮、LoRA r16 都相同）。
+# 旧的 gen-v2-9b 用的是 lr 1e-4、有效批 16，不能直接和 2B 版比。
+# 错误改写模型第二版格式：输入 = 原文 + 完整回答 + 9 个细类机制之一；输出 = 第几句 + 逐词改动 + 改写句（ragtruth/gen_v2.py）。
+# 2B 版，超参同 sft_gen_seed5_mc（1 轮、lr 5e-5、有效批 4）。
+task: gen
+prompt_tips: false
+base_model: /root/autodl-tmp/models/Qwen3.5-9B
+use_lora: true
+merge_lora: false
+eos_tokens: ["<|im_end|>"]
+lora:
+  r: 16
+  lora_alpha: 32
+  target_modules: all-linear
+  task_type: CAUSAL_LM
+
+trainer:
+  num_train_epochs: 1
+  learning_rate: 5.0e-5
+  lr_scheduler_type: cosine
+  warmup_steps: 0.03
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4   # 有效批 4，同 2B 版
+  bf16: true
+  gradient_checkpointing: true
+  max_length: 4096
+  logging_steps: 2
+  save_strategy: "no"
+  report_to: none
+  seed: 0
+  model_init_kwargs:
+    dtype: bfloat16
+    device_map: cuda
+
+coldstart:
+  data: outputs/rt/core/seed_v2_train.jsonl
+  output_dir: /root/autodl-tmp/ckpt/gen-v2_9bs
