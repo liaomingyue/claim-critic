@@ -2,7 +2,7 @@
 # 9B 对照的补充评测（单独成脚本，不改正在运行的 q9b_task.sh）：
 #   base <9b|2b>   未训练基座（不挂 LoRA）在三套验收原文上生成，用评测所有 RAG 版本的同一个 9B 评测器打分
 #                  → outputs/rt/core/q9b_base/eval/base<9|2>_{a,b,c}.jsonl / _9b.json（和各 GRPO 组的 eval 目录同格式）
-#   cmp2           在 cmp 的基础上加两个基座组，配对比较 → results/q9b_cmp_full.json；
+#   cmp2           在 cmp 的基础上加两个基座组和 2B 闭环最终版（RAG-S4-rd2），配对比较 → results/q9b_cmp_full.json；
 #                  两个 critic 的静态评测报告并排 → results/q9b_critic_static.json
 cd ${CODE:-${FS_ROOT:-/root/autodl-fs}/code/critic_model}
 A=${TMP_ROOT:-/root/autodl-tmp}; FS=${FS_ROOT:-/root/autodl-fs}; S=scripts/remote
@@ -39,7 +39,7 @@ cmp2)
   C=outputs/rt/core
   python -m ragtruth.pol9b_cmp --arm base2=$E:base2 --arm base9=$E:base9 \
     --arm sft2=$C/loop2_coreonly/eval:v0 --arm sft9=$C/loop2_q9b_p9r9/eval:v0 \
-    --arm s1_2b=$C/loop2_coreonly/eval:s200 --arm s100_9b=$C/loop2_q9b_p9r9/eval:s100 --arm s200_9b=$C/loop2_q9b_p9r9/eval:s200 \
+    --arm s1_2b=$C/loop2_coreonly/eval:s200 --arm final_2b=$C/loop2_cont6/eval:s100 --arm s100_9b=$C/loop2_q9b_p9r9/eval:s100 --arm s200_9b=$C/loop2_q9b_p9r9/eval:s200 \
     --base s1_2b --n_boot 1000 --out results/q9b_cmp_full.json || exit 1
   python - <<'EOF' || exit 1
 import json

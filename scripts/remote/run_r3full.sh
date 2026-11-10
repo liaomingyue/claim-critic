@@ -21,7 +21,8 @@ source scripts/remote/models9b.sh; start_9b_bg   # 先拷马上要用的 2B，9B
 PM=${POLICY_MODEL:-minicpm5-2b}; RMM=${RM_MODEL:-minicpm5-2b}
 B9=$A/models/Qwen3.5-9B
 { [ $PM = qwen3.5-9b ] || [ $RMM = qwen3.5-9b ]; } && { ensure_9b || { log "9b copy FAILED"; exit 1; }; }
-if [ $PM = qwen3.5-9b ]; then PB=$B9; PSFX=9b; SHARE_IMPL=train.prefix_share; else PB=$A/models/MiniCPM5-2B; PSFX=mc; SHARE_IMPL=train.prefix_share_llama; fi
+# CAUSAL：MiniCPM5-2B 是纯文本 CausalLM；Qwen3.5-9B 的 LoRA 按视觉语言结构保存（参数名带 language_model），要用 load_policy 加载，否则一个参数都对不上
+if [ $PM = qwen3.5-9b ]; then PB=$B9; PSFX=9b; SHARE_IMPL=train.prefix_share; CAUSAL=0; else PB=$A/models/MiniCPM5-2B; PSFX=mc; SHARE_IMPL=train.prefix_share_llama; CAUSAL=1; fi
 if [ $RMM = qwen3.5-9b ]; then RB=$B9; RS=9b; else RB=$A/models/MiniCPM5-2B; RS=mc; fi
 MC=$PB; SRC=${SRC:-outputs/rt/minicpm/grpo}; INIT=${INIT:-$FS/adapters/mc-init}; CRITIC=${CRITIC:-rm1__mcgold_h3ctl}; STEPS=${STEPS:-300}
 SAT=${SAT:-sat_pair__mc}; REFUSE=${REFUSE:-refuse}   # 循环二：起点 / 原文池 / 满意度 / 拒答模型可换（核心集版：INIT=rag-sft-core SAT=sat_pair__core REFUSE=refuse__core）
@@ -53,7 +54,7 @@ else   # 9B 策略 × 2B 打分：两个服务都在 GPU1（9B 策略 0.55 + 2B 
 fi
 LAST=$(ls -d $O/run/state/step* 2>/dev/null | sort -V | tail -n 1)
 log "start r3full: critic $CRITIC, $RW, steps $STEPS ${LAST:+(resume $LAST)}"
-CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal 1 --sys_qa 1 --base $MC --init $INIT --vllm_url $RMURL --policy_url $POLURL $ASYNC \
+CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal $CAUSAL --sys_qa 1 --base $MC --init $INIT --vllm_url $RMURL --policy_url $POLURL $ASYNC \
   --n 16 --share 1 --share_impl $SHARE_IMPL --share_ckpt 1 --share_mb ${SHARE_MB:-32} --prompts $SRC/train_ref.jsonl --dev $SRC/dev_ref.jsonl \
   --critic_report outputs/rt/rm/$CRITIC/eval/report.json --shadow= \
   --sat_model sat --sat_kind pair --sat_report outputs/rt/rm/$SAT/eval/report.json --refuse_model refuse --refuse_report outputs/rt/rm/$REFUSE/eval/report.json --refuse_w 0.4 \

@@ -409,6 +409,22 @@ def seq_logprobs(model, prompt_ids: list[int], comp_ids: list[int]):
     return lp.gather(1, torch.tensor(comp_ids, device="cuda")[:, None])[:, 0]
 
 
+def load_adapters_strict(base, init: str):
+    """挂 policy / ref 两个 LoRA；PEFT 报 missing adapter keys（参数名对不上，等于从零起训）时直接报错，不带着警告往下训。"""
+    import warnings
+    from peft import PeftModel
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        model = PeftModel.from_pretrained(base, init, adapter_name="policy", is_trainable=True)
+        model.load_adapter(init, adapter_name="ref", is_trainable=False)
+    bad = [str(x.message)[:300] for x in w if "missing adapter keys" in str(x.message).lower()]
+    if bad:
+        raise RuntimeError(f"LoRA init {init} does not match the model (missing adapter keys): {bad[0]}")
+    for x in w:
+        warnings.warn_explicit(x.message, x.category, x.filename, x.lineno)
+    return model
+
+
 def load_policy(args):
     if getattr(args, "causal", 0):   # 纯文本 CausalLM（MiniCPM5-2B）：同 ans_grpo
         from train.ans_grpo import load_causal_policy
@@ -418,8 +434,7 @@ def load_policy(args):
     from transformers import AutoModelForImageTextToText, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.base)
     base = AutoModelForImageTextToText.from_pretrained(args.base, dtype=torch.bfloat16, device_map="cuda")
-    model = PeftModel.from_pretrained(base, args.init, adapter_name="policy", is_trainable=True)
-    model.load_adapter(args.init, adapter_name="ref", is_trainable=False)
+    model = load_adapters_strict(base, args.init)
     model.set_adapter("policy")
     for p in lora_params(model, "ref"):
         p.requires_grad_(False)

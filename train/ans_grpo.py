@@ -37,8 +37,7 @@ def load_causal_policy(args):
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.base)
     base = AutoModelForCausalLM.from_pretrained(args.base, dtype=torch.bfloat16, device_map="cuda")
-    model = PeftModel.from_pretrained(base, args.init, adapter_name="policy", is_trainable=True)
-    model.load_adapter(args.init, adapter_name="ref", is_trainable=False)
+    model = gen_grpo.load_adapters_strict(base, args.init)
     model.set_adapter("policy")
     for p in gen_grpo.lora_params(model, "ref"):
         p.requires_grad_(False)
