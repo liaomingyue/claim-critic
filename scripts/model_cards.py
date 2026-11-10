@@ -17,8 +17,15 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+OUTPUT = {   # 每类打分模型的选项（提示词原文见 docs/prompts.md）
+    "rm1": "单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准",
+    "sev": "单个字母：A 要求的那种·显然 / B 要求的那种·细微 / C 别的错 / D 没错；P(有错) = A + B + C，按温度校准",
+    "rm2": "单个字母：A 自然 / B 不自然；P(自然) = P(A)，按温度校准",
+    "sat_pair": "单个字母：A 参考回答更好 / B 新回答更好；P_sat = P(B)，按温度校准",
+    "refuse": "单个字母：A 原文能回答 / B 原文答不了；P(可以拒答) = P(B)，按温度校准",
+}
 GROUP = {"critic": "critic（逐句判有没有幻觉）", "rm": "其他打分模型", "rag": "RAG 模型（被训的回答模型）", "gen": "错误生成器"}
-LABEL = {"A": "A 有依据", "B": "B 轻微", "C": "C 明显"}
+LABEL = {"A": "A 有依据", "B": "B 矛盾", "C": "C 无依据"}   # critic（rm1）的选项；其他打分模型只写字母
 
 
 def release_dir(name: str) -> str:
@@ -66,7 +73,7 @@ def card(m: dict, dfl: dict, root: Path) -> dict:
         if "temperature" in m and c["stats"].get("temperature") is None:
             c["stats"]["temperature"] = m["temperature"]
         c["retrain"] = m.get("retrain", f"RM={m['name']} GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh")
-        c["output"] = "单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准"
+        c["output"] = OUTPUT.get(m["name"].split("__")[0], "单个字母的 logprob，按 eval/report.json 的温度校准")
     elif meth == "sft":
         c.update({k: m[k] for k in ("config", "trainer", "data") if k in m})
         c["retrain"] = m.get("retrain", "")
@@ -94,7 +101,8 @@ def md_section(c: dict) -> str:
             row("数据怎么来的", c["data_from"])
         s = c.get("stats", {})
         if s.get("train"):
-            lab = "，".join(f"{LABEL.get(k, k)} {v}" for k, v in sorted((s['train'].get('label') or {}).items()))
+            names = LABEL if c["release_path"].split("/")[-1].startswith("rm1__") else {}
+            lab = "，".join(f"{names.get(k, k)} {v}" for k, v in sorted((s['train'].get('label') or {}).items()))
             row("训练集", f"{s['train']['n']} 行（{lab}）；最长 {s.get('max_tokens')} token")
         if s.get("build"):
             row("构建参数（meta.json）", "，".join(f"{k}={v}" for k, v in s["build"].items()))

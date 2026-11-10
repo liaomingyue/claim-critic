@@ -64,10 +64,10 @@
 - **对应结论**：表 3（核心集底座）；表 2（RAG-S1 的奖励）
 - **训练数据**：`outputs/rt/rm/rm1__core/train.jsonl`、`outputs/rt/rm/rm1__core/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：核心集 outputs/rt/core/core.jsonl、pairs.jsonl（ragtruth.core rm1 构建）
-- **训练集**：4604 行（A 有依据 3194，B 轻微 990，C 明显 420）；最长 3072 token
+- **训练集**：4604 行（A 有依据 3194，B 矛盾 990，C 无依据 420）；最长 3072 token
 - **校准温度**：1.2（校准集原始 AUC 0.863）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -84,11 +84,11 @@ RM=rm1__core GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 2（RAG-S2、RAG-S1x 的奖励）；表 8（对照组 RAG-S3-r1 的奖励）
 - **训练数据**：`outputs/rt/rm/rm1__core_r1/train.jsonl`、`outputs/rt/rm/rm1__core_r1/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core 的训练集 + outputs/rt/core/harvest_r1.jsonl 中 550 条错句 + 550 条对应原句
-- **训练集**：5704 行（A 有依据 3744，B 轻微 1317，C 明显 643）；最长 3072 token
+- **训练集**：5704 行（A 有依据 3744，B 矛盾 1317，C 无依据 643）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core，added_errors=550，added_originals=550，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.0, 1.01]
 - **校准温度**：1.2（校准集原始 AUC 0.856）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -105,11 +105,11 @@ RM=rm1__core_r1 GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 3 最后一行（critic 拿不准的真错 581）；表 4、表 7 的底座；表 2（RAG-S3-r2 的奖励）
 - **训练数据**：`outputs/rt/rm/rm1__core_r2/train.jsonl`、`outputs/rt/rm/rm1__core_r2/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core + harvest_r1 中经 Claude 核实为真错、且 critic 拿不准（盲区 P < 0.3 加边界 0.3–0.7）的 581 条错句 + 原句（id 列表 outputs/rt/core/r2_ids.tsv）
-- **训练集**：5766 行（A 有依据 3775，B 轻微 1423，C 明显 568）；最长 3072 token
+- **训练集**：5766 行（A 有依据 3775，B 矛盾 1423，C 无依据 568）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core，added_errors=581，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]
 - **校准温度**：1.35（校准集原始 AUC 0.856）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -126,11 +126,11 @@ RM=rm1__core_r2 GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 2（RAG-S3-r3 的奖励）
 - **训练数据**：`outputs/rt/rm/rm1__core_r3/train.jsonl`、`outputs/rt/rm/rm1__core_r3/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core_r2 + 2000 条长句 / 列表句（留出 310）
-- **训练集**：7766 行（A 有依据 4775，B 轻微 2125，C 明显 866）；最长 3072 token
+- **训练集**：7766 行（A 有依据 4775，B 矛盾 2125，C 无依据 866）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core_r2，added_errors=581，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]，merge_added=2000
 - **校准温度**：1.4（校准集原始 AUC 0.863）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -147,11 +147,11 @@ RM=rm1__core_r3 GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 4（单类型补盲，核实组）
 - **训练数据**：`outputs/rt/rm/rm1__core_r2_sccl/train.jsonl`、`outputs/rt/rm/rm1__core_r2_sccl/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core_r2 + outputs/rt/core/scope_label 中 Claude 判真错且自然的 285 条
-- **训练集**：6336 行（A 有依据 4060，B 轻微 1704，C 明显 572）；最长 3072 token
+- **训练集**：6336 行（A 有依据 4060，B 矛盾 1704，C 无依据 572）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core_r2，added_errors=285，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]，arm=cl，labeled=595
 - **校准温度**：1.3（校准集原始 AUC 0.870）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -168,11 +168,11 @@ RM=rm1__core_r2_sccl GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 4（不核实组）
 - **训练数据**：`outputs/rt/rm/rm1__core_r2_scnc/train.jsonl`、`outputs/rt/rm/rm1__core_r2_scnc/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core_r2 + 同候选池随机 285 条（不核实，真合格约 50%）
-- **训练集**：6336 行（A 有依据 4060，B 轻微 1708，C 明显 568）；最长 3072 token
+- **训练集**：6336 行（A 有依据 4060，B 矛盾 1708，C 无依据 568）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core_r2，added_errors=285，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]，arm=nc，labeled=595
 - **校准温度**：1.2（校准集原始 AUC 0.862）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -189,11 +189,11 @@ RM=rm1__core_r2_scnc GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 4（配不配原句）
 - **训练数据**：`outputs/rt/rm/rm1__core_r2_sccl_no/train.jsonl`、`outputs/rt/rm/rm1__core_r2_sccl_no/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：同 sccl，但不加对应原句
-- **训练集**：6051 行（A 有依据 3775，B 轻微 1704，C 明显 572）；最长 3072 token
+- **训练集**：6051 行（A 有依据 3775，B 矛盾 1704，C 无依据 572）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core_r2，added_errors=285，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]，arm=cl，labeled=595
 - **校准温度**：1.3（校准集原始 AUC 0.856）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -210,11 +210,11 @@ RM=rm1__core_r2_sccl_no GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 7、表 8（RAG-S3-bf 的奖励）
 - **训练数据**：`outputs/rt/rm/rm1__core_r2_bfcl/train.jsonl`、`outputs/rt/rm/rm1__core_r2_bfcl/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core_r2 + outputs/rt/gen_v2_grpo/blind_fill（787 条候选经 Claude 标注；保留真错且自然的 558 条：主池 429 + 对照池 129）；只加错句
-- **训练集**：6324 行（A 有依据 3775，B 轻微 1916，C 明显 633）；最长 3072 token
+- **训练集**：6324 行（A 有依据 3775，B 矛盾 1916，C 无依据 633）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core_r2，added_errors=558，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]，arm=cl，labeled=787，verify_kept=429
 - **校准温度**：1.35（校准集原始 AUC 0.850）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -231,11 +231,11 @@ RM=rm1__core_r2_bfcl GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 7（核实 vs 不核实）
 - **训练数据**：`outputs/rt/rm/rm1__core_r2_bfnc/train.jsonl`、`outputs/rt/rm/rm1__core_r2_bfnc/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core_r2 + blind_fill 同候选池同数量，不核实
-- **训练集**：6324 行（A 有依据 3775，B 轻微 1922，C 明显 627）；最长 3072 token
+- **训练集**：6324 行（A 有依据 3775，B 矛盾 1922，C 无依据 627）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core_r2，added_errors=558，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]，arm=nc，labeled=787，verify_kept=429
 - **校准温度**：1.35（校准集原始 AUC 0.844）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -252,11 +252,11 @@ RM=rm1__core_r2_bfnc GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 9（静态评测；RAG-S4-rd2 的奖励）
 - **训练数据**：`outputs/rt/rm/rm1__core_rd2/train.jsonl`、`outputs/rt/rm/rm1__core_rd2/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core_r2_bfcl + outputs/rt/gen_v2_grpo/blind_fill_r2（1481 条 Claude 标注，真错 + 自然 799 条）
-- **训练集**：7123 行（A 有依据 3775，B 轻微 2610，C 明显 738）；最长 3072 token
+- **训练集**：7123 行（A 有依据 3775，B 矛盾 2610，C 无依据 738）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core_r2_bfcl，added_errors=799，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]，arm=cl，labeled=1481，verify_kept=799
 - **校准温度**：1.4（校准集原始 AUC 0.833）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -273,11 +273,11 @@ sev 筛选对照：旧 sev 按分数取 733 条
 - **对应结论**：experiments.md 4.9「sev 筛过的真错 vs critic 拿不准的真错」
 - **训练数据**：`outputs/rt/rm/rm1__core_sevs1/train.jsonl`、`outputs/rt/rm/rm1__core_sevs1/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core + 候选池 1370 条中 sev1 打分最高的 733 条
-- **训练集**：6070 行（A 有依据 3927，B 轻微 1346，C 明显 797）；最长 3072 token
+- **训练集**：6070 行（A 有依据 3927，B 矛盾 1346，C 无依据 797）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core，added_errors=733
 - **校准温度**：1.25（校准集原始 AUC 0.858）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -294,11 +294,11 @@ sev 筛选对照：新 sev 门槛 0.8
 - **对应结论**：同上
 - **训练数据**：`outputs/rt/rm/rm1__core_sevs2/train.jsonl`、`outputs/rt/rm/rm1__core_sevs2/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core + 候选池中 sev2 ≥ 0.8 的 770 条里取 733
-- **训练集**：6070 行（A 有依据 3927，B 轻微 1319，C 明显 824）；最长 3072 token
+- **训练集**：6070 行（A 有依据 3927，B 矛盾 1319，C 无依据 824）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core，added_errors=733
 - **校准温度**：1.35（校准集原始 AUC 0.849）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -315,11 +315,11 @@ sev 筛选对照：不过滤，随机 733 条
 - **对应结论**：表 3（随机 733）
 - **训练数据**：`outputs/rt/rm/rm1__core_sevrnd/train.jsonl`、`outputs/rt/rm/rm1__core_sevrnd/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core + 候选池随机 733 条
-- **训练集**：6070 行（A 有依据 3927，B 轻微 1346，C 明显 797）；最长 3072 token
+- **训练集**：6070 行（A 有依据 3927，B 矛盾 1346，C 无依据 797）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core，added_errors=733
 - **校准温度**：1.2（校准集原始 AUC 0.852）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -336,11 +336,11 @@ sev 筛选对照：Claude 判真错的 811 条
 - **对应结论**：表 3（Claude 确认真错 811）
 - **训练数据**：`outputs/rt/rm/rm1__core_sevcl/train.jsonl`、`outputs/rt/rm/rm1__core_sevcl/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core + 候选池 2622 条中 Claude 判真错的 811 条
-- **训练集**：6226 行（A 有依据 4005，B 轻微 1479，C 明显 742）；最长 3072 token
+- **训练集**：6226 行（A 有依据 4005，B 矛盾 1479，C 无依据 742）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core，added_errors=811
 - **校准温度**：1.4（校准集原始 AUC 0.855）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -357,11 +357,11 @@ RM=rm1__core_sevcl GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 3（ref 底座，6330 条）
 - **训练数据**：`outputs/rt/rm/rm1__mcgold_ref/train.jsonl`、`outputs/rt/rm/rm1__mcgold_ref/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__rm1_gold_9b 的训练集 + 10 句拒答改标 + refuse 训练切分原文各一条拒答（513 句；ragtruth/critic_refuse.py）
-- **训练集**：6330 行（A 有依据 3828，B 轻微 1212，C 明显 1290）；最长 3072 token
+- **训练集**：6330 行（A 有依据 3828，B 矛盾 1212，C 无依据 1290）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__mcgold
 - **校准温度**：1.15（校准集原始 AUC 0.969）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -378,11 +378,11 @@ rm1__mcgold_ref + 生成器 h3 造的 554 条错句（不限 critic 区间）
 - **对应结论**：表 3（ref + 554 对）；表 1（奖励粒度 R0–R3 四组共用的 critic）
 - **训练数据**：`outputs/rt/rm/rm1__mcgold_h3ctl/train.jsonl`、`outputs/rt/rm/rm1__mcgold_h3ctl/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__mcgold_ref + outputs/rt/gentarget/harvest_h3.jsonl 554 条错句 + 原句
-- **训练集**：7438 行（A 有依据 4382，B 轻微 1503，C 明显 1553）；最长 3072 token
+- **训练集**：7438 行（A 有依据 4382，B 矛盾 1503，C 无依据 1553）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__mcgold_ref，added_errors=554，added_originals=554，harvest=outputs/rt/gentarget/harvest_h3.jsonl，band=[0.0, 1.01]
 - **校准温度**：1.05（校准集原始 AUC 0.972）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -399,11 +399,11 @@ RM=rm1__mcgold_h3ctl GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 3（ref + 1500 对）
 - **训练数据**：`outputs/rt/rm/rm1__mcgold_ref_z1500/train.jsonl`、`outputs/rt/rm/rm1__mcgold_ref_z1500/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__mcgold_ref + harvest_h3 1500 条
-- **训练集**：9330 行（A 有依据 5328，B 轻微 2007，C 明显 1995）；最长 3072 token
+- **训练集**：9330 行（A 有依据 5328，B 矛盾 2007，C 无依据 1995）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__mcgold_ref，added_errors=1500，added_originals=1500，harvest=outputs/rt/gentarget/harvest_h3.jsonl，band=[0.0, 1.01]
 - **校准温度**：1.2（校准集原始 AUC 0.975）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -420,11 +420,11 @@ RM=rm1__mcgold_ref_z1500 GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 3（ref + 6000 对）
 - **训练数据**：`outputs/rt/rm/rm1__mcgold_ref_z6000/train.jsonl`、`outputs/rt/rm/rm1__mcgold_ref_z6000/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__mcgold_ref + harvest_h3 6000 条
-- **训练集**：18330 行（A 有依据 9828，B 轻微 4296，C 明显 4206）；最长 3072 token
+- **训练集**：18330 行（A 有依据 9828，B 矛盾 4296，C 无依据 4206）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__mcgold_ref，added_errors=6000，added_originals=6000，harvest=outputs/rt/gentarget/harvest_h3.jsonl，band=[0.0, 1.01]
 - **校准温度**：1.15（校准集原始 AUC 0.969）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -441,11 +441,11 @@ RM=rm1__mcgold_ref_z6000 GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 3（只用人工标注 3030 条）
 - **训练数据**：`outputs/rt/rm/rm1__mcgold_hum/train.jsonl`、`outputs/rt/rm/rm1__mcgold_hum/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__mcgold_ref 中人工标注部分 2517 + 拒答 513
-- **训练集**：3030 行（A 有依据 1869，B 轻微 701，C 明显 460）；最长 3072 token
+- **训练集**：3030 行（A 有依据 1869，B 矛盾 701，C 无依据 460）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__mcgold_ref
 - **校准温度**：1.35（校准集原始 AUC 0.969）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -462,11 +462,11 @@ RM=rm1__mcgold_hum GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 3（只用合成数据 3030 条）
 - **训练数据**：`outputs/rt/rm/rm1__mcgold_syn/train.jsonl`、`outputs/rt/rm/rm1__mcgold_syn/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：harvest_h3 1500 条错句 + 原句 + 拒答
-- **训练集**：3030 行（A 有依据 1328，B 轻微 995，C 明显 707）；最长 3072 token
+- **训练集**：3030 行（A 有依据 1328，B 矛盾 995，C 无依据 707）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__mcgold_ref_n1500，added_errors=1500，added_originals=1500，harvest=outputs/rt/gentarget/harvest_h3.jsonl，band=[0.0, 1.01]
 - **校准温度**：1.5（校准集原始 AUC 0.954）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -483,10 +483,10 @@ RM=rm1__mcgold_syn GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：表 2、表 8、表 9 的全部 RAG 评测
 - **训练数据**：`outputs/rt/rm/rm1__rm1_gold_9b/train.jsonl`、`outputs/rt/rm/rm1__rm1_gold_9b/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：RAGTruth 人工标注 + 9B 在训练池 300 个原文上的回答（Claude 逐句金标 1479 行）
-- **训练集**：5817 行（A 有依据 3724，B 轻微 803，C 明显 1290）；最长 3072 token
+- **训练集**：5817 行（A 有依据 3724，B 矛盾 803，C 无依据 1290）；最长 3072 token
 - **校准温度**：1.3
 - **训练配置**：`configs/rt/rm_9b.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，批 1 × 累积 16，bf16，seed 0（LoRA 同 2B 版）
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
 
 重训：
 
@@ -506,10 +506,10 @@ sev：给"原句 → 改写句"判错误严重程度 / 要求的错误类型（9
 - **对应结论**：表 5、表 6（生成器迭代）
 - **训练数据**：`outputs/rt/rm/sev__v3c0/train.jsonl`、`outputs/rt/rm/sev__v3c0/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：生成器 v2 输出的 Claude 标注（outputs/rt/core/gen_v2_label*）
-- **训练集**：2556 行（A 有依据 225，B 轻微 373，C 明显 1091，D 867）；最长 4096 token
+- **训练集**：2556 行（A 225，B 373，C 1091，D 867）；最长 4096 token
 - **校准温度**：1.65（校准集原始 AUC 0.818）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 要求的那种·显然 / B 要求的那种·细微 / C 别的错 / D 没错；P(有错) = A + B + C，按温度校准
 
 重训：
 
@@ -526,10 +526,10 @@ sev v3c0 的配方 + 第一轮盲区的 Claude 标注（sevaug_r1，887 行）
 - **对应结论**：第二轮补盲的候选打分
 - **训练数据**：`outputs/rt/rm/sev__v3d/train.jsonl`、`outputs/rt/rm/sev__v3d/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：sev__v3c0 训练集 + outputs/rt/core/sevaug_r1
-- **训练集**：3443 行（A 有依据 367，B 轻微 709，C 明显 1277，D 1090）；最长 4096 token
+- **训练集**：3443 行（A 367，B 709，C 1277，D 1090）；最长 4096 token
 - **校准温度**：1.55（校准集原始 AUC 0.814）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 要求的那种·显然 / B 要求的那种·细微 / C 别的错 / D 没错；P(有错) = A + B + C，按温度校准
 
 重训：
 
@@ -546,10 +546,10 @@ RM2 自然度：改写句读起来是否像模型自然写出的
 - **对应结论**：表 5、表 6；补盲选样的自然度门槛
 - **训练数据**：`outputs/rt/rm/rm2__v3b/train.jsonl`、`outputs/rt/rm/rm2__v3b/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：生成器样本的 Claude 自然度标注
-- **训练集**：2249 行（A 有依据 1830，B 轻微 419）；最长 3072 token
+- **训练集**：2249 行（A 1830，B 419）；最长 3072 token
 - **校准温度**：1.4（校准集原始 AUC 0.847）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 自然 / B 不自然；P(自然) = P(A)，按温度校准
 
 重训：
 
@@ -566,10 +566,10 @@ RM2 v3b 的配方 + sevaug_r1
 - **对应结论**：第二轮补盲
 - **训练数据**：`outputs/rt/rm/rm2__v3d/train.jsonl`、`outputs/rt/rm/rm2__v3d/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm2__v3b 训练集 + sevaug_r1
-- **训练集**：3136 行（A 有依据 2647，B 轻微 489）；最长 3072 token
+- **训练集**：3136 行（A 2647，B 489）；最长 3072 token
 - **校准温度**：1.15（校准集原始 AUC 0.886）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 自然 / B 不自然；P(自然) = P(A)，按温度校准
 
 重训：
 
@@ -586,10 +586,10 @@ RM=rm2__v3d GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：所有 RAG GRPO 的奖励（只罚）
 - **训练数据**：`outputs/rt/rm/sat_pair__core/train.jsonl`、`outputs/rt/rm/sat_pair__core/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：核心集 Claude 满意度标注（label_raw.jsonl）
-- **训练集**：4544 行（A 有依据 2272，B 轻微 2272）；最长 4096 token
+- **训练集**：4544 行（A 2272，B 2272）；最长 4096 token
 - **校准温度**：0.2（校准集原始 AUC 1.000）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 参考回答更好 / B 新回答更好；P_sat = P(B)，按温度校准
 
 重训：
 
@@ -606,11 +606,11 @@ RM=sat_pair__core GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **对应结论**：所有 RAG GRPO 的奖励（0.4 × P）
 - **训练数据**：`outputs/rt/rm/refuse__core/train.jsonl`、`outputs/rt/rm/refuse__core/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：核心集拒答标注
-- **训练集**：1101 行（A 有依据 668，B 轻微 433）；最长 3072 token
+- **训练集**：1101 行（A 668，B 433）；最长 3072 token
 - **构建参数（meta.json）**：threshold=0.3
 - **校准温度**：2.35（校准集原始 AUC 0.947）
 - **训练配置**：`configs/rt/rm_mc.yaml`；LoRA r 16 / alpha 32 / all-linear；2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0
-- **输出**：单个字母 A / B / C 的 logprob；P(幻觉) = P(B) + P(C)，按 eval/report.json 的温度校准
+- **输出**：单个字母：A 原文能回答 / B 原文答不了；P(可以拒答) = P(B)，按温度校准
 
 重训：
 

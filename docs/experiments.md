@@ -468,7 +468,7 @@ DPO v1 有 80% 的偏好对是「有效 > 无效」，学成了「写有效的�
 
 这些生成器的产出加进 critic 的结果见 §4.4：都没有超过基线。
 
-代码：`train/gen_grpo.py`、`train/gen_reward.py`、`ragtruth/gen_audit.py`；设计文档 [gen_grpo.md](gen_grpo.md)。
+代码：`train/gen_grpo.py`、`train/gen_reward.py`、`ragtruth/gen_audit.py`；奖励设计见 [rewards.md](rewards.md) 的「第一代生成器的奖励」。
 
 ### 5.7 三个单字母判别器
 
