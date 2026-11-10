@@ -116,6 +116,20 @@ def cmd_label_batch(a) -> None:
     keys = paired_keys(arms)
     path = D / "labels_batch.jsonl"
     done = {x["resp_id"] for x in read_jsonl(path)} if path.exists() else set()
+    if a.n_pairs:   # 只抽 n_pairs 对：已经标过一条的配对优先（不浪费已花的调用），其余随机；各套均分
+        started = {rid.split("-", 1)[1] for rid in done}
+        rng = random.Random(a.seed)
+        pick = []
+        for s in a.sets:
+            ks = [k for k in keys if k.startswith(s)]
+            first = sorted(k for k in ks if k in started)
+            rest = sorted(k for k in ks if k not in started)
+            rng.shuffle(rest)
+            pick += (first + rest)[: a.n_pairs // len(a.sets)]
+        keys = sorted(pick)
+        arms = {n: {rid: r for rid, r in rows.items() if rid.split("-", 1)[1] in set(keys)} for n, rows in arms.items()}
+        (D / "pairs.json").write_text(json.dumps(keys), encoding="utf-8")
+        print("pairs", len(keys), "already started", len(started & set(keys)), flush=True)
     llm = Paced(LLM(LLMConfig(model=a.claude, provider="claude_cli", effort=a.effort, concurrency=a.concurrency)), a.gap)
     calls = 0
     for rnd in range(3):   # 第一轮全部；格式不合格的条目下一轮重新分批
@@ -182,6 +196,9 @@ def kappa(a: list[float], b: list[float]) -> float:
 
 def cmd_report(a) -> None:
     arms = load_arms(a.arm, a.sets)
+    if (D / "pairs.json").exists():
+        ks = set(json.loads((D / "pairs.json").read_text()))
+        arms = {n: {rid: r for rid, r in rows.items() if rid.split("-", 1)[1] in ks} for n, rows in arms.items()}
     cl = {name: answer_flags(list(read_jsonl(D / f"final_{name}.jsonl"))) for name in arms}
     nb = nine_b_flags(arms, a.arm)
     keys = sorted(set.intersection(*[set(v) for v in cl.values()]))
@@ -213,6 +230,7 @@ def main() -> None:
     ap.add_argument("--gap", type=float, default=3.0)
     ap.add_argument("--max_calls", type=int, default=400)
     ap.add_argument("--batch", type=int, default=10)
+    ap.add_argument("--n_pairs", type=int, default=0, help="只抽这么多对（0 = 全部）")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     {"label": cmd_label, "label_batch": cmd_label_batch, "report": cmd_report}[a.cmd](a)
