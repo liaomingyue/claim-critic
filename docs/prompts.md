@@ -16,7 +16,7 @@ Answer the question using the passages. If the passages contain information rele
 
 ### 逐句改对（`ragtruth.policy_sft.FIX_SYSTEM`）
 
-Claude 改对 2B 回答（核心集 S1，已跑）
+Claude 改对 2B 回答，得到核心集的改对版本
 
 ```text
 You correct hallucinations in responses written from a source. Compare every sentence of each response with its source yourself, using the strict standard below, and return corrections ONLY for the sentences that are wrong.
@@ -30,9 +30,9 @@ Each response is in its own <item id="..."> block with its own source and number
 Reply with one JSON object only: {"items": [{"id": "...", "fixes": [{"idx": <sentence number>, "new": "<rewritten sentence or empty>"}], "rewrite": null or "<full answer>"}, ...]} with one entry per item (fixes empty when nothing is wrong).
 ```
 
-### 错误类型和满意度（新增，设计稿）（`ragtruth.core_label.LABEL_SYSTEM`）
+### 错误类型和满意度（`ragtruth.core_label.LABEL_SYSTEM`）
 
-Claude 给每个改动标严重程度 / 类型 / 机制 / 证据 / 理由，给原回答和改对回答标满意度（还没跑）
+Claude 给每个改动标严重程度 / 类型 / 机制 / 证据 / 理由，给原回答和改对回答标满意度
 
 ```text
 You annotate corrections that were already made to responses written from a source. Each item gives the source (the exact input an assistant received), the assistant's ORIGINAL response split into numbered sentences, and the corrections: for some sentences S<k>, a corrected version that is supported by the source. Every corrected sentence was wrong in the original; do not re-judge whether it was wrong.
@@ -97,9 +97,9 @@ Reply with one JSON object only: {"sentences": [{"idx": 1, "is_error": true|fals
 
 ## critic / RM（2B 单字母）
 
-### RM1 critic（`ragtruth.rm_data.RM1_SYSTEM`）
+### critic（RM1）（`ragtruth.rm_data.RM1_SYSTEM`）
 
-critic：A 忠实 / B 与原文矛盾 / C 无依据
+critic：A 有依据 / B 与原文矛盾 / C 无依据；P(幻觉) = B + C，进 RAG 奖励和生成器奖励
 
 ```text
 You check whether one sentence of an assistant's response is faithful to the source material the assistant was given.
@@ -120,77 +120,44 @@ Tips:
 Answer with a single letter: A, B or C.
 ```
 
-### RM2 自然度（`ragtruth.rm_data.RM2G_SYSTEM`）
+### sev v3：改动是不是要求的那种错（`ragtruth.sev_gen.V3_SYSTEM`）
 
-RM2：A 回答模型自己写的 / B 事后改出来的
-
-```text
-You see a source (the exact input an assistant received) and one sentence from the assistant's response, with the sentence before and after it for context.
-
-Was this sentence written by the assistant itself while writing its answer, or was it edited afterwards by someone who deliberately planted an error in it?
-A. natural: the assistant wrote this sentence itself.
-B. synthetic: someone edited this sentence afterwards to plant an error.
-
-Answer with a single letter: A or B.
-```
-
-### RM3 改写是否合格（旧）（`ragtruth.rm_data.RM3_SYSTEM`）
-
-RM3 4 选 1（已被 sev 取代，留作对照）
+sev__v3c0 / v3d：A 要求的那种·显然 / B 要求的那种·细微 / C 别的错 / D 没错；生成器门槛（P(有错) = A + B + C ≥ 0.9）
 
 ```text
-You are checking synthetic training data for a hallucination detector in retrieval-augmented generation.
-A generator took a response that was faithful to its source and rewrote one sentence so that it should contain an error (a conflict with the source, or baseless information not in the source). It also wrote the error type, the evidence from the source, and a reason.
+You check whether an edit to one sentence of a response introduced the REQUESTED kind of error. You see the source (the exact input an assistant received), the assistant's response with the edited sentence in place, the ORIGINAL (faithful) and EDITED versions of that sentence, the requested kind of error, a description of the edit and the exact word-level changes.
 
-Check the source yourself and judge this sample:
-A. correct: the rewritten sentence really is wrong with respect to the source, and the type, evidence and reason correctly describe that error.
-B. wrong_explanation: the rewritten sentence is wrong, but the type, the evidence or the reason does not correctly describe the error.
-C. not_an_error: the rewritten sentence is actually supported by the source, or is only a harmless rewording, so it should not be labeled as an error.
-D. original_wrong: the original sentence itself already conflicts with or goes beyond the source.
+Judge the changes against the source (use the other sentences only to resolve references):
+- a clear error: a careful reader would call it a factual error: it contradicts what the source states, assigns an action, statement or property to the wrong person, entity, passage or step, gets a number, date or order wrong, or joins details into a claim the source clearly does not make.
+- a minor error: technically unsupported but with small effect, where people could disagree: a slight shift of certainty or scope, a vague evaluation or add-on, a near-synonym that shifts the meaning a little.
+- not an error: true synonyms, faithful summaries or reorderings, leaving information out, what follows directly from the source or is stated elsewhere in it.
 
-Use a strict standard. Where the line is:
-- It is an error (correct, if the type, evidence and reason fit) whenever the rewritten sentence says anything the source does not state and that cannot be directly inferred from it. This includes: a changed number, date, name, quantity or order; a fact attributed to the wrong entity, passage or step; a strengthened or weakened certainty or scope; a specific added detail; and also an added evaluation, purpose, consequence or recommendation the source does not make ("making it a great choice", "suitable for many occasions", "which is helpful for users"), or a near-synonym that shifts the meaning, tone or certainty ("provided" becoming "promised", "may" becoming "is likely to").
-- It is not_an_error only if the change keeps exactly the same meaning: a true synonym, a reordering, or a rewording that adds and removes nothing.
-- When you are unsure whether the source supports the change, treat it as an error.
-
-Examples (from other sources):
-- Source: "The museum opens at 9 am." Rewrite: "The museum opens at 10 am." -> correct (conflict).
-- Source: "The museum opens at 9 am." Rewrite: "The museum, founded in 1920, opens at 9 am." -> correct (baseless).
-- Source: "The cafe offers free Wi-Fi." Rewrite: "The cafe offers free Wi-Fi, making it a convenient spot for visitors." -> correct (baseless: an evaluation the source does not make).
-- Source: "The government has provided $2 million." Rewrite: "The government has promised $2 million." -> correct (conflict: provided is not the same as promised).
-- Source: "The company reported higher sales." Rewrite: "The company posted higher sales." -> not_an_error (same meaning).
-- Source: "The bridge opened in 1998." Rewrite: "The bridge opened in 1996." with claimed type baseless -> wrong_explanation (it is a conflict, not baseless).
+Options:
+A. a clear error of the requested kind.
+B. a minor error of the requested kind.
+C. an error, but not of the requested kind.
+D. not an error.
 
 Answer with a single letter: A, B, C or D.
 ```
 
-### sev 严重程度（`ragtruth.sev_rm.SEV_SYSTEM`）
+### RM2 v3 自然度（`ragtruth.rm2_v3.RM2V3_SYSTEM`）
 
-sev 6 选 1：生成器奖励的门槛
+rm2__v3b / v3d：A 自然 / B 不自然；生成器门槛（P(自然) ≥ 0.5）
 
 ```text
-You audit a sentence that was deliberately edited to plant an error. You see the source (the exact input an assistant received), the assistant's response with the edited sentence in place, the original version of that sentence, and the editor's claimed error: its type, the source evidence it points to, and its reason.
+You see a source (the exact input an assistant received) and one sentence from the assistant's response, with the sentence before and after it for context.
 
-Judge the edited sentence against the source (use the other sentences only to resolve references):
-- a clear error: a careful reader would call it a factual error: it contradicts what the source states, assigns an action, statement or property to the wrong person, entity, passage or step, gets a number, date or order wrong, or joins details into a claim the source clearly does not make.
-- a minor error: technically unsupported but with small effect, where people could disagree: a slight shift of certainty or scope, a vague evaluation or add-on, a near-synonym that shifts the meaning a little.
-- not an error: true synonyms, faithful summaries or reorderings, leaving information out, what follows directly from the source.
-The explanation is right only if the claimed type is right (conflict = the source contradicts it; baseless = the source does not contain it), the claimed evidence is the part of the source the error is about, and the reason describes the actual error.
+Could a real assistant plausibly have written this sentence in this response: fluent, fitting the context and the style of the rest of the response?
+A. natural: yes, a real assistant could have written it like this.
+B. unnatural: it reads garbled, out of place or obviously artificial.
 
-Options:
-A. clear error, and the explanation is right.
-B. clear error, but the explanation is wrong.
-C. minor error, and the explanation is right.
-D. minor error, but the explanation is wrong.
-E. not an error.
-F. the original sentence is already unfaithful to the source.
-
-Answer with a single letter: A, B, C, D, E or F.
+Answer with a single letter: A or B.
 ```
 
 ### 满意度（成对）（`ragtruth.sat_build.SAT_PAIR_SYSTEM`）
 
-sat_pair：新回答 vs 参考回答，只罚不奖
+sat_pair：A 参考回答更好 / B 新回答更好；RAG 奖励里只罚不奖
 
 ```text
 You compare two answers to the same task the way the person who gave the task would.
@@ -206,27 +173,9 @@ B. answer B is better.
 Reply with one letter.
 ```
 
-### 满意度（单条）（`ragtruth.sat_build.SAT_ABS_SYSTEM`）
-
-sat_abs（备用）
-
-```text
-You judge one answer to a task the way the person who gave the task would.
-
-Judge only whether an answer is well formed, addresses what was asked and actually solves the task. Do NOT judge whether its claims are supported by the source; that is checked elsewhere.
-
-Bad signs: stops abruptly or is unfinished, mostly stitched source text instead of an answer written for the task, so short that the person does not get what they need, does not address what was asked, leaves out information the task needs, filler or repetition. If the source really does not contain the answer, saying so is the useful answer.
-
-Options:
-A. good: the answer does the job, at most with small gaps.
-B. not good: the answer is only partly useful or worse.
-
-Reply with one letter.
-```
-
 ### 拒答 RM（`ragtruth.refuse_data.RM_SYSTEM`）
 
-refuse：A 能答 / B 原文答不了
+refuse：A 原文能回答 / B 原文答不了；拒答的奖励 = 0.4 × P(B)
 
 ```text
 You see a question-answering task an assistant received: the question, the passages and instructions. Decide whether the passages let the assistant answer the question.
@@ -238,27 +187,73 @@ B. refuse: the passages contain nothing that answers or meaningfully addresses t
 Reply with one letter.
 ```
 
-## 单独标注（Claude）
+## 错误合成
 
-### sev 标注（`ragtruth.sev_label.SYSTEM`）
+### 错误生成器 v2 指令（`ragtruth.gen_v2.INSTR`）
 
-Claude 标合成错误：显然 / 非显然 / 没有错误 + 解释对不对 + 原句是否已错
+生成器 v2：原文 + 回答 + 要求的错误类型（9 选 1），输出改哪句、改写句和改动
 
 ```text
-You audit sentences that were deliberately edited to plant an error. Each item gives the source (the exact input an assistant received), the assistant's response split into numbered sentences with the target sentence S<k> already edited, the ORIGINAL version of that sentence before editing, and the editor's claimed error: its type, the source evidence it points to, and its reason.
+You are creating training data for a model that detects unsupported or contradicted sentences in responses written from a source.
+Below are a source (the exact input an assistant received) and the assistant's response, split into numbered sentences. Every sentence is faithful to the source.
 
-Judge in this order:
-1. original_ok: is the ORIGINAL sentence faithful to the source? (true / false)
-2. severity of the EDITED sentence against the source (use the other response sentences only to resolve pronouns and references):
+Rewrite exactly ONE sentence so that it contains an error of this kind:
+{mech_name}: {mech_desc}
+
+Choose the sentence where a real assistant could most plausibly make this kind of mistake. The rewritten sentence must still read naturally in the response.
+
+<source>
+{source}
+</source>
+
+<response>
+{sentences}
+</response>
+
+Output only one JSON object, nothing else:
+{{"idx": <number of the rewritten sentence>, "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}
+```
+
+### 改动描述（9B）（`ragtruth.gen_v2.DESC_SYSTEM`）
+
+9B 给生成器样本写改动描述（sev 训练数据用；训练中不调用）
+
+```text
+You describe edits. Given an ORIGINAL sentence, an EDITED version of it, the exact word-level changes, and the KIND of edit that was intended, write ONE short English sentence (at most 25 words) that says what the edit changed in meaning, e.g. "Changed who released the training records from a lawyer to the police." or "Replaced the serving suggestion with a claim that the dish is quick and perfect for any night."
+When the edit rewrites much of the sentence, summarize it through the intended kind of edit (for example "Shifted the claim from 'should provoke self-examination' to 'is inspiring reforms', making it more certain.").
+Cover every change listed in the word-level changes (mention minor ones briefly), not only the main one.
+Describe only the change itself. Do not judge whether it is right or wrong, do not mention any source, passage, error, support or accuracy. Output only the sentence.
+```
+
+## 单独标注（Claude）
+
+### 合成错误核实（`ragtruth.gen_v2_label.SYSTEM`）
+
+Claude 核实生成器样本：是否真错、显然 / 细微、实际机制、是否等于要求的类型、是否自然；sev / RM2 的训练数据和两轮盲区补样本的核实都用它
+
+```text
+You audit sentences that were deliberately edited to plant a specific kind of error. Each item gives the source (the exact input an assistant received), the assistant's response with the edited sentence in place, the ORIGINAL (faithful) and EDITED versions of that sentence, and the REQUESTED kind of error.
+
+Judge the EDITED sentence against the source (use the other response sentences only to resolve references):
+1. severity:
    - "clear": a careful reader would call it a factual error: it contradicts what the source states, assigns an action, statement or property to the wrong person, entity, passage or step, gets a number, date or order wrong, or joins details into a claim the source clearly does not make.
-   - "minor": technically unsupported but with small effect, where people could disagree: a slight shift of certainty or scope, a vague evaluation or add-on, a near-synonym that shifts the meaning a little.
-   - "none": not an error: true synonyms, faithful summaries or reorderings, leaving information out, what follows directly from the source.
-   When unsure between minor and none, choose minor; when unsure between clear and minor, choose the one a careful reader would more likely pick.
-3. explanation_ok: only if severity is clear or minor. true only if all hold: the claimed type is right (conflict = the source contradicts it; baseless = the source does not contain it), the claimed evidence is the part of the source the error is about, and the reason describes the actual error in the edited sentence. Otherwise false. Use "n/a" when severity is none.
-4. mechanism: one of wrong_attribution, contradicts_source, merged_across_passages, number_or_date, certainty_or_scope_shift, added_specific_fact, vague_evaluation_or_addon, near_synonym_shift, unsupported_inference, other, none (none only when severity is none).
-5. note: one short sentence.
+   - "minor": technically unsupported with small effect, where people could disagree: a slight shift of certainty or scope, a vague evaluation or add-on, a near-synonym that shifts the meaning a little.
+   - "none": not an error: true synonyms, faithful summaries or reorderings, leaving information out, what follows directly from the source or is stated elsewhere in it.
+2. mechanism: the actual kind of error, one of certainty_or_scope_shift, near_synonym_shift, wrong_attribution, contradicts_source, merged_across_passages, unsupported_inference, number_or_date, vague_evaluation_or_addon, added_specific_fact, other; "none" if severity is none. Definitions:
+   - certainty_or_scope_shift: shift the certainty or scope of a claim (possible -> certain, some -> all, usually -> always, a specific case -> a general rule, or the reverse)
+   - near_synonym_shift: replace a word or phrase with a near-synonym that changes the meaning a little
+   - wrong_attribution: attribute a statement, action or property to the wrong person, entity, passage or step
+   - contradicts_source: state something the source contradicts (reverse a relation, an outcome or a fact)
+   - merged_across_passages: join details from different parts of the source into one claim the source does not make
+   - unsupported_inference: draw a conclusion, cause or purpose that the source does not state
+   - number_or_date: get a number, date, duration, count or order wrong
+   - vague_evaluation_or_addon: add a vague evaluation or add-on that the source does not support
+   - added_specific_fact: add a specific fact or detail that the source does not contain
+3. matches: true if severity is not none and the actual mechanism is the requested one; otherwise false.
+4. type: "conflict" if the source states something incompatible with the edited sentence (including a changed certainty or scope, a meaning-changing near-synonym, wrong attribution, number, date or order); "baseless" if the source says nothing about what it adds; "n/a" if severity is none.
+5. natural: "yes" if a real assistant could plausibly have written the edited sentence in this response (fluent, fits the context and style); "no" if it reads garbled, out of place or obviously artificial.
 
-Reply with one JSON object only: {"items": [{"id": ..., "original_ok": true|false, "severity": "clear"|"minor"|"none", "explanation_ok": true|false|"n/a", "mechanism": "...", "note": "..."}, ...]}, one entry per item, in the given order.
+Reply with one JSON object only: {"items": [{"id": ..., "severity": "...", "mechanism": "...", "matches": true|false, "type": "...", "natural": "yes"|"no"}, ...]}, one entry per item, in the given order.
 ```
 
 ### 拒答判定（`ragtruth.refuse_data.SYSTEM`）
@@ -291,11 +286,118 @@ Reply with one JSON object only, one entry per task in the given order:
 {{"results": [{{"id": "<task id>", "question": "the new question", "how": "one short phrase: what you changed"}}, ...]}}
 ```
 
-## 错误合成
+## 旧版（已弃用，留作对照）
 
-### 错误改写模型 prompt 模板（`ragtruth.synth.FREE_PROMPT`）
+### RM2 自然度（旧）（`ragtruth.rm_data.RM2G_SYSTEM`）
 
-生成器的 user prompt 模板（build_prompt_free 填充）
+第一代 RM2：A 回答模型自己写的 / B 事后改出来的；已由 RM2 v3 取代
+
+```text
+You see a source (the exact input an assistant received) and one sentence from the assistant's response, with the sentence before and after it for context.
+
+Was this sentence written by the assistant itself while writing its answer, or was it edited afterwards by someone who deliberately planted an error in it?
+A. natural: the assistant wrote this sentence itself.
+B. synthetic: someone edited this sentence afterwards to plant an error.
+
+Answer with a single letter: A or B.
+```
+
+### RM3 改写是否合格（旧）（`ragtruth.rm_data.RM3_SYSTEM`）
+
+RM3 4 选 1；已由 sev 取代
+
+```text
+You are checking synthetic training data for a hallucination detector in retrieval-augmented generation.
+A generator took a response that was faithful to its source and rewrote one sentence so that it should contain an error (a conflict with the source, or baseless information not in the source). It also wrote the error type, the evidence from the source, and a reason.
+
+Check the source yourself and judge this sample:
+A. correct: the rewritten sentence really is wrong with respect to the source, and the type, evidence and reason correctly describe that error.
+B. wrong_explanation: the rewritten sentence is wrong, but the type, the evidence or the reason does not correctly describe the error.
+C. not_an_error: the rewritten sentence is actually supported by the source, or is only a harmless rewording, so it should not be labeled as an error.
+D. original_wrong: the original sentence itself already conflicts with or goes beyond the source.
+
+Use a strict standard. Where the line is:
+- It is an error (correct, if the type, evidence and reason fit) whenever the rewritten sentence says anything the source does not state and that cannot be directly inferred from it. This includes: a changed number, date, name, quantity or order; a fact attributed to the wrong entity, passage or step; a strengthened or weakened certainty or scope; a specific added detail; and also an added evaluation, purpose, consequence or recommendation the source does not make ("making it a great choice", "suitable for many occasions", "which is helpful for users"), or a near-synonym that shifts the meaning, tone or certainty ("provided" becoming "promised", "may" becoming "is likely to").
+- It is not_an_error only if the change keeps exactly the same meaning: a true synonym, a reordering, or a rewording that adds and removes nothing.
+- When you are unsure whether the source supports the change, treat it as an error.
+
+Examples (from other sources):
+- Source: "The museum opens at 9 am." Rewrite: "The museum opens at 10 am." -> correct (conflict).
+- Source: "The museum opens at 9 am." Rewrite: "The museum, founded in 1920, opens at 9 am." -> correct (baseless).
+- Source: "The cafe offers free Wi-Fi." Rewrite: "The cafe offers free Wi-Fi, making it a convenient spot for visitors." -> correct (baseless: an evaluation the source does not make).
+- Source: "The government has provided $2 million." Rewrite: "The government has promised $2 million." -> correct (conflict: provided is not the same as promised).
+- Source: "The company reported higher sales." Rewrite: "The company posted higher sales." -> not_an_error (same meaning).
+- Source: "The bridge opened in 1998." Rewrite: "The bridge opened in 1996." with claimed type baseless -> wrong_explanation (it is a conflict, not baseless).
+
+Answer with a single letter: A, B, C or D.
+```
+
+### sev 严重程度（旧）（`ragtruth.sev_rm.SEV_SYSTEM`）
+
+第一代 sev 6 选 1；已由 sev v3 取代
+
+```text
+You audit a sentence that was deliberately edited to plant an error. You see the source (the exact input an assistant received), the assistant's response with the edited sentence in place, the original version of that sentence, and the editor's claimed error: its type, the source evidence it points to, and its reason.
+
+Judge the edited sentence against the source (use the other sentences only to resolve references):
+- a clear error: a careful reader would call it a factual error: it contradicts what the source states, assigns an action, statement or property to the wrong person, entity, passage or step, gets a number, date or order wrong, or joins details into a claim the source clearly does not make.
+- a minor error: technically unsupported but with small effect, where people could disagree: a slight shift of certainty or scope, a vague evaluation or add-on, a near-synonym that shifts the meaning a little.
+- not an error: true synonyms, faithful summaries or reorderings, leaving information out, what follows directly from the source.
+The explanation is right only if the claimed type is right (conflict = the source contradicts it; baseless = the source does not contain it), the claimed evidence is the part of the source the error is about, and the reason describes the actual error.
+
+Options:
+A. clear error, and the explanation is right.
+B. clear error, but the explanation is wrong.
+C. minor error, and the explanation is right.
+D. minor error, but the explanation is wrong.
+E. not an error.
+F. the original sentence is already unfaithful to the source.
+
+Answer with a single letter: A, B, C, D, E or F.
+```
+
+### 满意度（单条）（`ragtruth.sat_build.SAT_ABS_SYSTEM`）
+
+sat_abs，备用，没进奖励
+
+```text
+You judge one answer to a task the way the person who gave the task would.
+
+Judge only whether an answer is well formed, addresses what was asked and actually solves the task. Do NOT judge whether its claims are supported by the source; that is checked elsewhere.
+
+Bad signs: stops abruptly or is unfinished, mostly stitched source text instead of an answer written for the task, so short that the person does not get what they need, does not address what was asked, leaves out information the task needs, filler or repetition. If the source really does not contain the answer, saying so is the useful answer.
+
+Options:
+A. good: the answer does the job, at most with small gaps.
+B. not good: the answer is only partly useful or worse.
+
+Reply with one letter.
+```
+
+### sev 标注（旧）（`ragtruth.sev_label.SYSTEM`）
+
+第一代 Claude 合成错误标注；已由「合成错误核实」取代
+
+```text
+You audit sentences that were deliberately edited to plant an error. Each item gives the source (the exact input an assistant received), the assistant's response split into numbered sentences with the target sentence S<k> already edited, the ORIGINAL version of that sentence before editing, and the editor's claimed error: its type, the source evidence it points to, and its reason.
+
+Judge in this order:
+1. original_ok: is the ORIGINAL sentence faithful to the source? (true / false)
+2. severity of the EDITED sentence against the source (use the other response sentences only to resolve pronouns and references):
+   - "clear": a careful reader would call it a factual error: it contradicts what the source states, assigns an action, statement or property to the wrong person, entity, passage or step, gets a number, date or order wrong, or joins details into a claim the source clearly does not make.
+   - "minor": technically unsupported but with small effect, where people could disagree: a slight shift of certainty or scope, a vague evaluation or add-on, a near-synonym that shifts the meaning a little.
+   - "none": not an error: true synonyms, faithful summaries or reorderings, leaving information out, what follows directly from the source.
+   When unsure between minor and none, choose minor; when unsure between clear and minor, choose the one a careful reader would more likely pick.
+3. explanation_ok: only if severity is clear or minor. true only if all hold: the claimed type is right (conflict = the source contradicts it; baseless = the source does not contain it), the claimed evidence is the part of the source the error is about, and the reason describes the actual error in the edited sentence. Otherwise false. Use "n/a" when severity is none.
+4. mechanism: one of wrong_attribution, contradicts_source, merged_across_passages, number_or_date, certainty_or_scope_shift, added_specific_fact, vague_evaluation_or_addon, near_synonym_shift, unsupported_inference, other, none (none only when severity is none).
+5. note: one short sentence.
+
+Reply with one JSON object only: {"items": [{"id": ..., "original_ok": true|false, "severity": "clear"|"minor"|"none", "explanation_ok": true|false|"n/a", "mechanism": "...", "note": "..."}, ...]}, one entry per item, in the given order.
+```
+
+### 第一代错误改写模型 prompt 模板（`ragtruth.synth.FREE_PROMPT`）
+
+第一代生成器的 user prompt 模板；已由生成器 v2 取代
 
 ```text
 You are creating training data for a model that detects unsupported or contradicting sentences in an assistant's response. Below are a source (the exact input an assistant received) and the assistant's response, split into numbered sentences. Every sentence of this response is supported by the source.
@@ -331,7 +433,7 @@ Output only one JSON object, nothing else:
 {{"plan": "which sentence you chose, why a real assistant could get it wrong, and how you introduce the error", "idx": <number of the chosen sentence>, "type": "conflict or baseless", "tactic": "the way you introduced the error", "sentence": "the rewritten sentence", "evidence": "...", "reason": "...", "original_evidence": "...", "original_reason": "..."}}
 ```
 
-## 错误合成：改法清单（`ragtruth.synth.FOCUS_TACTICS`）
+### 第一代生成器的改法清单（`ragtruth.synth.FOCUS_TACTICS`）
 
 ```text
 [conflict]

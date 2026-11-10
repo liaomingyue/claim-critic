@@ -12,6 +12,8 @@
 - 技术分享（做了什么、哪些有效、踩过的坑）：[docs/tech_share.md](docs/tech_share.md)
 - 全部实验（按主题整理：目的、做法、结果、结论）：[docs/experiments.md](docs/experiments.md)
 - 每个模型的训练数据和配置：[docs/MODELS.md](docs/MODELS.md)
+- 奖励函数设计（RAG 的 R3、错误生成器的门槛 + 难度）：[docs/rewards.md](docs/rewards.md)
+- 开源数据、模型与复现：[docs/RELEASE.md](docs/RELEASE.md)
 - 提示词原文：[docs/prompts.md](docs/prompts.md)
 - 金标规范：[docs/gold_standard.md](docs/gold_standard.md)
 
@@ -24,8 +26,9 @@
 | 盲区驱动闭环：第二轮 | ⚪ 收益递减：含显然错 4.7% → 4.0%、含任意错 10.4% → 9.1%，仍在降但已不显著；**闭环到此停止**，转向错误体系 + 适合度模型 |
 | critic 盲区分析：按 9 个细类统计 RAG 错误和 critic 漏判 | ✅ 已建立，每轮复用 |
 | 定向造错 → 核实 → 补进 critic | ✅ 跑通：补盲区 581 条，critic 显然错 AUC +0.029；只补范围偏移，该类型 AUC +0.030 |
-| 难样本合成：迭代式（GRPO ↔ 采样 ↔ SFT，大提示池温度 0） | 🔄 进行中。难样本（critic 0.1–0.5）产出还低，是当前主攻点 |
+| 难样本合成：迭代式（GRPO ↔ 采样 ↔ SFT，大提示池温度 0） | ⚪ 接近饱和：过门槛的样本里 critic 拿不准的一直卡在约 40 条 / 2048；放宽 sev 门槛后由 Claude 核实，第二轮真错率 57% |
 | 错误体系：细类、扩充方法、各类型样本的维护 | 🔄 初版（9 个细类 + 每类的盲区 / 造难能力数据），下一步重点 |
+| 开源与复现 | ✅ 数据、40 个 LoRA、每个模型的训练数据和配置已整理；不用 GPU 可从逐句打分重算全部对比（与 `results/` 逐位一致），GPU 端有一键复现脚本 `scripts/repro/` |
 
 ## 还缺什么、还没验证什么
 
@@ -34,7 +37,6 @@
 3. **适合度模型**：指定错误类型后，生成器只有约 31% 遵守，原因是很多句子不适合这类错（没有数字却要造数字错等）。需要一个模型在大批句子里挑出适合改写的（句子，类型）组合，只在合适的句子上改写。第一版用规则，之后用生成成功率数据训模型。
 4. 现有造样本方式接近饱和；高重合、只改一处的显然错盲区还没覆盖。
 5. 人工（Claude）核实成本高；Claude 和真人的一致性、9B 评测器的同源偏差都没测；没有多种子重复。
-6. 已完成：「接着训」对照证明提升来自新 critic；第二轮闭环持平，说明现有造样本方式到头。
 
 ## 闭环
 
@@ -82,8 +84,11 @@
 | **第二段：第一段起点，critic r1，100 步（cont）** | **6.6%** | **0.072** | 16.8% | 3.5% |
 | 第三段：cont 起点，critic r2，100 步 | 8.1% | 0.081 | 14.6% | 1.5% |
 | 第三段：cont 起点，critic r3（长句增强），100 步 | 5.4% | 0.056 | 14.0% | 2.2% |
+| 对照：cont 起点，critic 不换（r1），100 步（RAG-S3-r1） | 7.7% | 0.081 | 14.3% | 2.2% |
+| **第三段：cont 起点，第一轮补盲 critic（bfcl），100 步（RAG-S3-bf）** | **4.7%** | **0.047** | 10.4% | 1.9% |
+| 第四段：S3-bf 起点，第二轮补盲 critic（rd2），100 步（RAG-S4-rd2） | 4.0% | 0.040 | 9.1% | 1.3% |
 
-同一个新 critic（r1）下，分段接着训比一次训完少 5.0 个点含显然错 [−7.6, −2.3]（90% 区间）。
+同一个新 critic（r1）下，分段接着训比一次训完少 5.0 个点含显然错 [−7.6, −2.3]（90% 区间）。同样多训 100 步，换成补盲后的 critic（S3-bf）比奖励不换（S3-r1）含显然错少 3.2 个点 [−5.3, −1.2]、含任意错少 4.0 个点 [−6.6, −1.5]；第二轮（S4-rd2）对 S3-bf 的下降不再显著。
 
 ### ③ 难样本合成（错误合成）
 
@@ -149,10 +154,10 @@
 
 | 模型 | 名字（adapters/） |
 | --- | --- |
-| RAG | RAG-SFT（rag-sft-core）→ RAG-S1 第 1 段强化（…_coreonly）→ RAG-S2 第 2 段（…_cont）→ RAG-S3-r2 / -r3 / **-bf**（第 3 段的三个平行尝试，…_cont2 / 3 / 4；-bf 当前最好）。每个版本的起点、奖励和训练数据见 [docs/MODELS.md](docs/MODELS.md) |
-| critic | rm1__core → rm1__core_r1（+ 循环一采集）→ rm1__core_r2（+ Claude 核实的盲区 581）→ r3（+ 长句增强） |
+| RAG | RAG-SFT（rag-sft-core）→ RAG-S1 第 1 段强化（…_coreonly）→ RAG-S2 第 2 段（…_cont）→ RAG-S3-r2 / -r3 / -bf（第 3 段的三个平行尝试，…_cont2 / 3 / 4）+ 对照 RAG-S3-r1（…_cont5）→ **RAG-S4-rd2**（第二轮闭环，…_cont6，最终版）。每个版本的起点、奖励和训练数据见 [docs/MODELS.md](docs/MODELS.md) |
+| critic | rm1__core → rm1__core_r1（+ 循环一采集）→ rm1__core_r2（+ Claude 核实的盲区 581）→ r3（+ 长句增强）；闭环：r2 → **rm1__core_r2_bfcl**（第一轮，多类型补盲 + Claude 核实；对照 bfnc 不核实）→ rm1__core_rd2（第二轮） |
 | 错误生成器 | gen-core-mc（v1）→ gen-v2-mc（v2：类型条件）→ gen-v2h / v2h2（难样本 SFT）→ g1（GRPO）→ v2h3 |
-| 打分 | sev__v3c0、rm2__v3b、sat_pair__core、refuse__core |
+| 打分 | sev__v3c0 / sev__v3d、rm2__v3b / rm2__v3d（v3d 加了第一轮盲区的 Claude 标注）、sat_pair__core、refuse__core |
 | 评测 | rm1__rm1_gold_9b（9B，只评测） |
 
 ## 评测
@@ -166,6 +171,8 @@
 - **错误合成**：64 个留出提示 × 32 试采（`gen_v2_grpo probe`），看各道门槛的通过率、过门槛样本的 critic 分布、全 0 组比例；训练中每 10 步看门槛通过率（`scripts/gate_stats.py`）。
 
 ## 奖励公式
+
+完整说明（硬规则、每个参数的取值和理由、做过的变体）见 [docs/rewards.md](docs/rewards.md)。
 
 **RAG GRPO（R3，`train/ans_reward.py`）**。记号：p_i = critic 对第 i 句的 P(错)；b、σ = 同组所有回答所有句子的 P 均值和标准差（σ 下限 0.1）；e_i = max(0, p_i − b)。
 
@@ -183,8 +190,6 @@ h(p) = 0（p < 0.1）| (p − 0.1)/0.2（0.1–0.3）| 1（0.3–0.5）| (0.9 �
 r = h(critic P(有幻觉))
 ```
 
-不设保底：保底会让明显错比没过门槛更划算，生成器会往 ≥ 0.9 走。不单调奖励「骗过 critic」：完全骗过的样本大多不是真错。
-
 ## 复现与运行
 
 ```bash
@@ -197,7 +202,7 @@ pip install -r requirements-gpu.txt         # GPU 端（训练 / vLLM），版�
 三个复现层级（L0 只看结果 / L1 从逐句打分重算 / L2 完整闭环）、公开的数据和模型（Hugging Face）及许可说明，见 [docs/RELEASE.md](docs/RELEASE.md)。代码许可证：Apache-2.0。每个模型（40 个 LoRA）的训练数据和训练配置见 [docs/MODELS.md](docs/MODELS.md)。
 
 - 全部运行用 `PYTHONHASHSEED=0` + 固定字符串种子，重跑得到同样的数据。
-- 数据包（Claude 标注、外部数据原件、评测集）不进 git：`python -m scripts.pack_data` → `dist/claim_critic_data.tar`，附 `MANIFEST.json`（SHA-256）。
+- 数据和模型不进 git，发布在 Hugging Face：`python -m scripts.fetch_release` 下载并校验 SHA-256（见 [docs/RELEASE.md](docs/RELEASE.md)）。
 - GPU 端（AutoDL，单张 RTX 5090）：`python -m scripts.autodl_extra --fs --roles <角色> --gpus 1 --gpu "RTX 5090"`，角色见 `scripts/remote/bootstrap_fs.sh`。
   - 多 LoRA vLLM 一律用 `scripts/remote/serve_loras.sh` 启动。
   - 训练、试采只读写本地盘 `/root/autodl-tmp`，共享盘 `/root/autodl-fs` 由 `scripts/remote/bg_sync.sh` 在后台同步。
