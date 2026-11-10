@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -19,6 +20,9 @@ from ragtruth.rm_data import RM1_SYSTEM
 from ragtruth.rm_eval import option_logprobs, probs
 from ragtruth.task import render_input
 from train.ans_reward import NO_THINK
+
+# EVAL_PRIORITY > 0：按低优先级排队（双机推理机上做中途评测，不抢训练采样；vLLM 数值越小越先）
+BODY = {**NO_THINK["extra_body"], **({"priority": int(os.environ["EVAL_PRIORITY"])} if int(os.environ.get("EVAL_PRIORITY", "0")) else {})}
 
 
 def usable(path: str) -> list[dict]:
@@ -41,7 +45,7 @@ async def score_all(client, jobs: list[dict], concurrency: int, log_every: float
         msgs = [{"role": "system", "content": RM1_SYSTEM}, {"role": "user", "content": render_input({"source": src, "sentences": sents, "idx": i})}]
         async with sem:
             r = await client.chat.completions.create(model=job["model"], messages=msgs, max_tokens=8, temperature=0.0, logprobs=True, top_logprobs=20,
-                                                     extra_body=NO_THINK["extra_body"])
+                                                     extra_body=BODY)
         done["req"] += 1
         return to_p(r.choices[0], job["temp"])
 
@@ -82,7 +86,7 @@ def main() -> None:
         print("MULTI_SCORED nothing to do", flush=True)
         return
     from openai import AsyncOpenAI
-    client = AsyncOpenAI(base_url=a.url, api_key="x", timeout=900, max_retries=3)
+    client = AsyncOpenAI(base_url=a.url, api_key=os.environ.get("VLLM_API_KEY", "x"), timeout=900, max_retries=3)   # 推理机上评测要带它的密钥
     t0 = time.time()
     res = asyncio.run(score_all(client, jobs, a.concurrency))
     for j in jobs:

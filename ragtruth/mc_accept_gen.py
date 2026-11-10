@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 from ragtruth.base_eval import to_answer
@@ -27,13 +28,16 @@ def main() -> None:
     ap.add_argument("--concurrency", type=int, default=32)
     a = ap.parse_args()
     from openai import OpenAI
-    cl = OpenAI(base_url=a.url, api_key="x", timeout=900)
+    # 双机推理机上做中途评测：VLLM_API_KEY 是推理机的密钥；EVAL_PRIORITY > 0 时按低优先级排队，不抢训练采样（vLLM 数值越小越先）
+    cl = OpenAI(base_url=a.url, api_key=os.environ.get("VLLM_API_KEY", "x"), timeout=900)
+    pri = int(os.environ.get("EVAL_PRIORITY", "0"))
+    body = {**NO_THINK["extra_body"], **({"priority": pri} if pri else {})}
     refs = [json.loads(l) for l in open(a.ref, encoding="utf-8")]
 
     def run(r: dict) -> dict:
         k = int(r["id"].rsplit("-", 1)[1])
         msgs = ([{"role": "system", "content": r["system"]}] if r.get("system") else []) + [{"role": "user", "content": r["source"]}]
-        c = cl.chat.completions.create(model=a.model, messages=msgs, max_tokens=1024, temperature=a.temperature, top_p=a.top_p, seed=k, **NO_THINK).choices[0]
+        c = cl.chat.completions.create(model=a.model, messages=msgs, max_tokens=1024, temperature=a.temperature, top_p=a.top_p, seed=k, extra_body=body).choices[0]
         return {**to_answer(r, k, (c.message.content or "").strip(), c.finish_reason), "id": r["id"], "ckpt": a.model, "system": r.get("system")}
 
     with ThreadPoolExecutor(a.concurrency) as ex:
