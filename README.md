@@ -260,7 +260,7 @@ pip install -r requirements-gpu.txt         # GPU 端（训练 / vLLM），版�
 
 三个复现层级（L0 只看结果 / L1 从逐句打分重算 / L2 完整闭环）、公开的数据和模型（Hugging Face：[数据集](https://huggingface.co/datasets/liao11/claim-critic-data)、[模型](https://huggingface.co/liao11/claim-critic-models)）及许可说明，见 [docs/RELEASE.md](docs/RELEASE.md)。代码许可证：Apache-2.0。每个模型（40 个 LoRA）的训练数据和训练配置见 [docs/MODELS.md](docs/MODELS.md)。
 
-- 全部运行用 `PYTHONHASHSEED=0` + 固定字符串种子，重跑得到同样的数据。
+- 全部运行用 `PYTHONHASHSEED=0` + 固定字符串种子，数据构建重跑逐位一致。用 vLLM 的生成和 GRPO 训练做不到逐位一致（GPU 批次和浮点累加顺序的细小差异会被逐步放大），只能保证趋势一致；我们在新服务器上重跑验证过：重新打分同一句平均差 0.005，重训 RAG 数字差约 2 个点，结论方向不变。
 - 数据和模型不进 git，发布在 Hugging Face：`python -m scripts.fetch_release` 下载并校验 SHA-256（见 [docs/RELEASE.md](docs/RELEASE.md)）。
 - GPU 端（AutoDL，单张 RTX 5090）：`python -m scripts.autodl_extra --fs --roles <角色> --gpus 1 --gpu "RTX 5090"`，角色见 `scripts/remote/bootstrap_fs.sh`。
   - 多 LoRA vLLM 一律用 `scripts/remote/serve_loras.sh` 启动。
