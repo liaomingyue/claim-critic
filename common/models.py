@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -28,8 +29,10 @@ def load(name: str = DEFAULT) -> dict:
 
 def env(m: dict) -> dict[str, str]:
     v = m["vllm"]
-    local = "/root/autodl-tmp/models/" + Path(m["path"]).name
-    return {"MODEL_NAME": m["name"], "MODEL_FS": m["path"], "MODEL_LOCAL": local, "MODEL_SUFFIX": m["suffix"],
+    # 复现用（2026-11-10）：FS_ROOT / TMP_ROOT 换掉 AutoDL 的共享盘 / 本地盘前缀；不设时行为不变
+    fs = m["path"].replace("/root/autodl-fs", os.environ.get("FS_ROOT", "/root/autodl-fs"), 1)
+    local = os.environ.get("TMP_ROOT", "/root/autodl-tmp") + "/models/" + Path(m["path"]).name
+    return {"MODEL_NAME": m["name"], "MODEL_FS": fs, "MODEL_LOCAL": local, "MODEL_SUFFIX": m["suffix"],
             "MODEL_CAUSAL": "1" if m["loader"] == "causal" else "0", "MODEL_SHARE_IMPL": m["share_impl"],
             "MODEL_SHARE": "0" if m["share_impl"] == "none" else "1", "MODEL_VLLM_MEM": str(v.get("gpu_mem", 0.45)),
             "MODEL_RM_BS": str(m.get("rm_batch", [4, 4])[0]), "MODEL_RM_GA": str(m.get("rm_batch", [4, 4])[1]),

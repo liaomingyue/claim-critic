@@ -6,8 +6,8 @@
 #   ③ run_r3full.sh：R3（去底噪计数 K = max(2, 0.5 × 参考句数)、句子层 β 0.6 / γ 0.3、满意度只罚 0.8、拒答 0.4 × P）、lr 5e-6、n 16 × 16、TripWire；
 #      第 50 / 100 / 200 步 + 起点在三套验收原文上生成、9B 金标 critic 打分 → outputs/rt/core/loop2_<组名>/eval/
 set -u
-cd ${CODE:-/root/autodl-fs/code/critic_model}
-A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; C=outputs/rt/core; ARM=${ARM:?}; LOG=$A/loop2_$ARM.log
+cd ${CODE:-${FS_ROOT:-/root/autodl-fs}/code/critic_model}
+A=${TMP_ROOT:-/root/autodl-tmp}; FS=${FS_ROOT:-/root/autodl-fs}; S=scripts/remote; C=outputs/rt/core; ARM=${ARM:?}; LOG=$A/loop2_$ARM.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x TOKENIZERS_PARALLELISM=false
 unset VLLM_API_KEY LORA_SYNC_URL
