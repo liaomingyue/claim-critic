@@ -1,7 +1,7 @@
 [project]
 name = "claim-critic"
 version = "0.1.0"
-description = "RAG hallucination critic (RAGTruth) + synthetic boundary-error generation loop, all-2B (MiniCPM5-2B)"
+description = "An end-to-end pipeline for reducing RAG hallucinations: sentence-level critic, critic-as-reward GRPO, blind-spot analysis and targeted hard-sample synthesis (MiniCPM5-2B)"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = ["pyyaml>=6", "openai>=1.40", "anthropic>=2", "paramiko>=3", "requests>=2"]
