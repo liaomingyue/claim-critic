@@ -11,15 +11,25 @@ log "waiting for infer node ($P)"
 until [ -f $P/infer_ready ] && [ -f $P/domains.json ]; do [ -f $P/infer_failed ] && { log "infer node FAILED"; exit 1; }; sleep 20; done
 export VLLM_API_KEY=$(cat $P/key)
 export OPENAI_API_KEY=$VLLM_API_KEY
-D6=$(python -c "import json;print(json.load(open('$P/domains.json'))['svc6006'])"); D8=$(python -c "import json;print(json.load(open('$P/domains.json'))['svc6008'])")
+# 多台推理机：$P/extra_pairs 每行一个配对名（runs/pair/<名>，同一把密钥、同一组 LoRA，由 bootstrap 角色 q9binf2 这类建好），
+# 采样和打分按 prompt 分摊到所有推理机，每步的 LoRA 推给每一台（RM_URL / LORA_SYNC_URL 逗号分隔、顺序对应）
+PS=$P; [ -f $P/extra_pairs ] && for x in $(cat $P/extra_pairs); do PS="$PS $FS/runs/pair/$x"; done
+RMS=; SYNCS=
+for p in $PS; do
+  until [ -f $p/infer_ready ] && [ -f $p/domains.json ]; do [ -f $p/infer_failed ] && { log "infer node FAILED ($p)"; exit 1; }; sleep 20; done
+  cmp -s $P/key $p/key || { log "key mismatch: $p"; exit 1; }
+  D6=$(python -c "import json;print(json.load(open('$p/domains.json'))['svc6006'])"); D8=$(python -c "import json;print(json.load(open('$p/domains.json'))['svc6008'])")
+  code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VLLM_API_KEY" https://$D6/v1/models)
+  [ "$code" = 200 ] || { log "remote vllm not reachable ($p: $code)"; exit 1; }
+  RMS="${RMS:+$RMS,}https://$D6/v1"; SYNCS="${SYNCS:+$SYNCS,}https://$D8"
+done
 # LoRA 直接上传给推理机（LORA_SYNC_MODE 默认 upload），存本机内存盘；要走共享盘就设 LORA_SYNC_MODE=fs PUSH_DIR=$FS/xfer/$PAIR
-export RM_URL=https://$D6/v1 LORA_SYNC_URL=https://$D8 SINGLE_GPU=1
-code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VLLM_API_KEY" $RM_URL/models)
-[ "$code" = 200 ] || { log "remote vllm not reachable ($code)"; exit 1; }
+export RM_URL=$RMS LORA_SYNC_URL=$SYNCS SINGLE_GPU=1
+log "inference nodes: $(echo $PS | wc -w)"
 log "remote inference reachable; running $JOB"
 bash $S/$JOB; rc=$?
 log "$JOB exit $rc"
 # 只有成功才让推理机收尾；失败时推理机留着，改好直接重跑训练机（踩过：训练机 OOM 退出，推理机跟着关掉，重启又要等 5 分钟加载）
-if [ $rc = 0 ]; then date '+%F %T' > $P/train_done; else date '+%F %T' > $P/train_failed; fi
+for p in $PS; do if [ $rc = 0 ]; then date '+%F %T' > $p/train_done; else date '+%F %T' > $p/train_failed; fi; done
 log "TRAIN_NODE_DONE"
 exit $rc

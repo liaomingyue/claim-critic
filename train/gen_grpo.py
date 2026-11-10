@@ -41,11 +41,18 @@ def vllm_headers() -> dict:
     return {"Authorization": f"Bearer {vllm_key()}"}
 
 
-def lora_sync_url() -> str:
+def lora_sync_url(server_url: str = "") -> str:
     """双机模式：推理机上的 LoRA 同步服务（scripts/lora_sync.py）。设了就不直接让 vLLM 读训练机路径，
-    而是让同步服务把共享盘上的 LoRA 拷到推理机内存盘再热加载（每步存共享盘，再加载到内存）。"""
+    而是让同步服务把共享盘上的 LoRA 拷到推理机内存盘再热加载（每步存共享盘，再加载到内存）。
+    多台推理机：RM_URL 和 LORA_SYNC_URL 都是逗号分隔、顺序一一对应，按这个 vLLM 服务的地址找它自己的同步服务。"""
     import os
-    return os.environ.get("LORA_SYNC_URL", "").rstrip("/")
+    syncs = [s.strip().rstrip("/") for s in os.environ.get("LORA_SYNC_URL", "").split(",") if s.strip()]
+    if len(syncs) <= 1:
+        return syncs[0] if syncs else ""
+    urls = [u.strip().rstrip("/") for u in os.environ.get("RM_URL", "").split(",") if u.strip()]
+    if server_url.rstrip("/") in urls and len(urls) == len(syncs):
+        return syncs[urls.index(server_url.rstrip("/"))]
+    raise RuntimeError(f"LORA_SYNC_URL has {len(syncs)} entries but server {server_url} not matched in RM_URL")
 
 
 def strip_visual_inplace(path: str) -> None:
@@ -111,7 +118,7 @@ class Server:
     def load_lora(self, name: str, path: str) -> None:
         import requests
         strip_visual_inplace(path)
-        sync = lora_sync_url()
+        sync = lora_sync_url(self.url)
         if sync:   # 双机：LoRA 交给推理机上的同步服务（scripts/lora_sync.py），在推理机内存盘热加载
             import os
             if os.environ.get("LORA_SYNC_MODE", "upload") == "upload":   # 直接上传，不经共享盘
@@ -149,7 +156,7 @@ class Server:
 
     def unload_lora(self, name: str) -> None:
         import requests
-        sync = lora_sync_url()
+        sync = lora_sync_url(self.url)
         if sync:
             requests.post(sync + "/unload", headers=vllm_headers(), json={"name": name}, timeout=600)
             import os
