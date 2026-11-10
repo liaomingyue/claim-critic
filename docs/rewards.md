@@ -17,6 +17,8 @@
 
 ## RAG 回答模型：R3 奖励
 
+先说为什么奖励是一个组合，而不是只有 critic。critic 只管"有没有幻觉"，而最省事的降幻觉策略恰恰是不好好回答：全部拒答（critic 对拒答句几乎恒判无错，P ≈ 0.01）、照抄原文、答非所问、越写越短。下面的每一项都对应其中一种：硬规则堵照抄和长度，拒答单独计分堵全部拒答，满意度护栏堵答非所问和写得空洞。它们都只扣分或设上限，不给额外奖励，避免模型转而去钻这些模型自己的空子。
+
 代码：`train/ans_reward.py`（`check`、`group_baseline`、`count_reward`、`sentence_adv`、`guarded`），`train/ans_grpo.py`（`token_advantages`）。
 
 ### 第一步：硬规则
