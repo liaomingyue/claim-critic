@@ -14,7 +14,7 @@ export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segm
 log() { echo "$(date '+%F %T') q9b $*"; }
 source $S/models9b.sh
 B9=$A/models/Qwen3.5-9B
-RMS9="rm1__core sat_pair__core refuse__core sev__v3c0 rm2__v3b"
+RMS9="rm1__core sat_pair__core refuse__core"   # 只做 RAG 这一组：critic、满意度、拒答
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 
 case $1 in
@@ -87,11 +87,21 @@ grpo)
     STEPS=200 EVAL_STEPS="100 200" EVAL_V0=1 SHARE_MB=$SM CODE=$PWD bash $S/run_loop2.sh
   [ -f outputs/rt/core/loop2_q9b_$arm/eval/s200_c_9b.json ] || exit 1
   log "GRPO_DONE $arm" ;;
-cmp)
+cap3)   # 9B critic 和 2B critic 在 Claude 金标验收集上直接比（同 critic_cap3 口径）
+  ensure_9b || exit 1; free_gpu
+  T=$(python -c "import json;print(json.load(open('outputs/rt/rm/rm1__core_9b/eval/report.json'))['temperature'])")
+  J="["; for s in grpo300 grpo300b grpo300c; do J+="{\"model\":\"c9\",\"temp\":$T,\"answers\":\"outputs/rt/minicpm/$s/answers.jsonl\",\"out\":\"outputs/rt/minicpm/$s/critic_rm1__core_9b.json\"},"; done
+  echo "${J%,}]" > $A/q9b_cap3_jobs.json
+  A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.85 --base $B9 --log $A/vllm-q9b-cap3.log c9=$FS/adapters/rm1__core_9b-9b/adapter || exit 1
+  python -u -m ragtruth.critic_score_multi --url http://127.0.0.1:8000/v1 --jobs $A/q9b_cap3_jobs.json --concurrency 256 || exit 1
+  free_gpu
+  python -m ragtruth.critic_cap3 --critics rm1__core rm1__core_9b --base rm1__core --by_type --out results/q9b_critic_cap3.json || exit 1
+  log "CAP3_DONE" ;;
+cmp)   # 9B 全套 vs 2B 全套（2B 全套 = 已有的 RAG-S1：从 RAG-SFT 出发、critic rm1__core、200 步）
   E=outputs/rt/core
-  python -m ragtruth.pol9b_cmp --arm p2r2=$E/loop2_coreonly/eval:s200 --arm p2r9=$E/loop2_q9b_p2r9/eval:s200 \
-    --arm p9r2=$E/loop2_q9b_p9r2/eval:s200 --arm p9r9=$E/loop2_q9b_p9r9/eval:s200 \
-    --arm sft2=$E/loop2_coreonly/eval:v0 --arm sft9=$E/loop2_q9b_p9r9/eval:v0 --base p2r2 --n_boot 1000 --out results/q9b_2x2_cmp.json || exit 1
+  python -m ragtruth.pol9b_cmp --arm sft2=$E/loop2_coreonly/eval:v0 --arm sft9=$E/loop2_q9b_p9r9/eval:v0 \
+    --arm s1_2b=$E/loop2_coreonly/eval:s200 --arm s100_9b=$E/loop2_q9b_p9r9/eval:s100 --arm s200_9b=$E/loop2_q9b_p9r9/eval:s200 \
+    --base s1_2b --n_boot 1000 --out results/q9b_cmp.json || exit 1
   log "CMP_DONE" ;;
-*) echo "usage: q9b_task.sh prep|rm <名字>|sft_rag|gen|grpo <组>|cmp"; exit 1 ;;
+*) echo "usage: q9b_task.sh prep|rm <名字>|sft_rag|cap3|grpo <组>|cmp"; exit 1 ;;
 esac

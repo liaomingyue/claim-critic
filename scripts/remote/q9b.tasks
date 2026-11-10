@@ -1,13 +1,9 @@
-# 9B 对照实验队列：名字|依赖|命令。g2_ 开头的要两张卡（queue_worker 只让双卡机器领）。同时可领的按行序优先。
+# 9B 对照实验队列（只做 9B 全套 vs 2B 全套这一组）：名字|依赖|命令。g2_ 开头的要两张卡（queue_worker 只让双卡机器领）。
 prep||bash scripts/remote/q9b_task.sh prep
 rm_rm1__core|prep|bash scripts/remote/q9b_task.sh rm rm1__core
+sft_rag|prep|bash scripts/remote/q9b_task.sh sft_rag
 rm_sat_pair__core|prep|bash scripts/remote/q9b_task.sh rm sat_pair__core
 rm_refuse__core|prep|bash scripts/remote/q9b_task.sh rm refuse__core
-sft_rag|prep|bash scripts/remote/q9b_task.sh sft_rag
-g2_p9r2|sft_rag|bash scripts/remote/q9b_task.sh grpo p9r2
-g2_p2r9|rm_rm1__core,rm_sat_pair__core,rm_refuse__core|bash scripts/remote/q9b_task.sh grpo p2r9
+cap3|rm_rm1__core|bash scripts/remote/q9b_task.sh cap3
 g2_p9r9|sft_rag,rm_rm1__core,rm_sat_pair__core,rm_refuse__core|bash scripts/remote/q9b_task.sh grpo p9r9
-rm_sev__v3c0|prep|bash scripts/remote/q9b_task.sh rm sev__v3c0
-rm_rm2__v3b|prep|bash scripts/remote/q9b_task.sh rm rm2__v3b
-gen|prep|bash scripts/remote/q9b_task.sh gen
-cmp|g2_p9r2,g2_p2r9,g2_p9r9|bash scripts/remote/q9b_task.sh cmp
+cmp|g2_p9r9|bash scripts/remote/q9b_task.sh cmp
