@@ -1,0 +1,329 @@
+# 发布的每个模型：训练数据、训练配置、起点、重训命令、用在哪个结论（2026-11-10，用户：每个模型给出具体的训练数据和训练配置）。
+# scripts/model_cards.py 读这个文件 + 数据目录里的 meta.json / eval/report.json，生成 docs/MODELS.md 和每个模型的 README。
+#
+# 训练方式（method）：
+#   option_rm   单字母选项打分模型：train.sft --mode coldstart，超参 configs/rt/rm_mc.yaml（9B 用 rm_9b.yaml）；
+#               数据 outputs/rt/rm/<名字>/train.jsonl，校准集 calib.jsonl 拟合一个全局温度（eval/report.json 的 temperature）。
+#               重训：RM=<名字> GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
+#   sft         train.sft --mode coldstart，config 里的 data 换成下面列的数据
+#   rag_grpo    train.ans_grpo，R3 奖励（scripts/remote/run_r3full.sh 的参数），从 init 接着训
+#   gen_grpo    train.gen_grpo（参数见 command）
+# 路径都是仓库根目录下的相对路径；发布包解压后就在这些位置。
+
+defaults:
+  base: openbmb/MiniCPM5-2B@f974000
+  option_rm: {config: configs/rt/rm_mc.yaml, lora: "r 16 / alpha 32 / all-linear", trainer: "2 轮，lr 1e-4 cosine，warmup 3%，批 4 × 累积 4 = 16，bf16，seed 0"}
+  rag_grpo:
+    script: scripts/remote/run_loop2cont.sh（内部 run_loop2.sh → run_r3full.sh）
+    trainer: "lr 5e-6，每步 16 个原文 × 每个 16 条回答，KL 相对起点，每 50 步存检查点，TripWire 开"
+    reward: "R3：critic 逐句 P(幻觉) 去底噪计数 K = max(2, 0.5 × 参考句数) + 句子层 β 0.6 + 前一句 γ 0.3；满意度 sat_pair__core 只罚（0.8 ×，最多 0.4）；拒答 refuse__core 0.4 × P；硬规则（长度、语言、照抄）"
+    prompts: "outputs/rt/core/grpo_train.jsonl（750 个原文，去掉核心集留出原文）+ outputs/rt/minicpm/grpo/dev.jsonl；起点重采参考回答（ans_data ref / ref2）→ outputs/rt/core/loop2_prompts_<起点>/"
+    eval: "起点 + 第 50 / 100（/ 200）步在三套验收原文上生成（grpo300 T1.0、grpo300b / grpo300c T0.7，top_p 0.95），9B 金标 critic 逐句打分 → outputs/rt/core/loop2_<组>/eval/"
+
+models:
+  # ---------------- critic（逐句 P(幻觉)，进 RAG 奖励） ----------------
+  - name: rm1__core
+    group: critic
+    method: option_rm
+    purpose: 第一版 critic：只用核心集（2B 原回答 + Claude 逐句改对 / 标注）
+    data_from: 核心集 outputs/rt/core/core.jsonl、pairs.jsonl（ragtruth.core rm1 构建）
+    used_in: 表 3（核心集底座）；表 2（RAG-S1 的奖励）
+  - name: rm1__core_r1
+    group: critic
+    method: option_rm
+    purpose: 循环一：rm1__core + 生成器 v0 造的错句（sev 门槛 0.5、RM2 自然度 ≥ 0.3，不限 critic 区间）
+    data_from: rm1__core 的训练集 + outputs/rt/core/harvest_r1.jsonl 中 550 条错句 + 550 条对应原句
+    used_in: 表 2（RAG-S2、RAG-S1x 的奖励）；表 8（对照组 RAG-S3-r1 的奖励）
+  - name: rm1__core_r2
+    group: critic
+    method: option_rm
+    purpose: 只加 critic 0.1–0.7 区间（边界）的错句
+    data_from: rm1__core + harvest_r1 中 critic P 在 [0.1, 0.7) 的 581 条错句 + 原句（id 列表 outputs/rt/core/r2_ids.tsv）
+    used_in: 表 3 最后一行（critic 拿不准的真错 581）；表 4、表 7 的底座；表 2（RAG-S3-r2 的奖励）
+  - name: rm1__core_r3
+    group: critic
+    method: option_rm
+    purpose: 长句 / 列表句增强（r2 + 2000 条合并句）
+    data_from: rm1__core_r2 + 2000 条长句 / 列表句（留出 310）
+    used_in: 表 2（RAG-S3-r3 的奖励）
+  - name: rm1__core_r2_sccl
+    group: critic
+    method: option_rm
+    purpose: 单类型补盲（范围偏移）：Claude 核实过的 285 条 + 原句
+    data_from: rm1__core_r2 + outputs/rt/core/scope_label 中 Claude 判真错且自然的 285 条
+    used_in: 表 4（单类型补盲，核实组）
+  - name: rm1__core_r2_scnc
+    group: critic
+    method: option_rm
+    purpose: 单类型补盲对照：同数量、不经 Claude 核实
+    data_from: rm1__core_r2 + 同候选池随机 285 条（不核实，真合格约 50%）
+    used_in: 表 4（不核实组）
+  - name: rm1__core_r2_sccl_no
+    group: critic
+    method: option_rm
+    purpose: 单类型补盲：只加错句、不配原句
+    data_from: 同 sccl，但不加对应原句
+    used_in: 表 4（配不配原句）
+  - name: rm1__core_r2_bfcl
+    group: critic
+    method: option_rm
+    purpose: 第一轮闭环 critic：多类型补盲（范围偏移 / 拼接 / 近义 / 张冠李戴），Claude 核实
+    data_from: rm1__core_r2 + outputs/rt/gen_v2_grpo/blind_fill（787 条候选经 Claude 标注；保留真错且自然的 558 条：主池 429 + 对照池 129）；只加错句
+    used_in: 表 7、表 8（RAG-S3-bf 的奖励）
+  - name: rm1__core_r2_bfnc
+    group: critic
+    method: option_rm
+    purpose: 第一轮闭环对照：同数量、不经 Claude 核实
+    data_from: rm1__core_r2 + blind_fill 同候选池同数量，不核实
+    used_in: 表 7（核实 vs 不核实）
+  - name: rm1__core_rd2
+    group: critic
+    method: option_rm
+    purpose: 第二轮闭环 critic：在 bfcl 基础上加第二轮补盲
+    data_from: rm1__core_r2_bfcl + outputs/rt/gen_v2_grpo/blind_fill_r2（1481 条 Claude 标注，真错 + 自然 799 条）
+    used_in: 表 9（静态评测；RAG-S4-rd2 的奖励）
+  - name: rm1__core_sevs1
+    group: critic
+    method: option_rm
+    purpose: sev 筛选对照：旧 sev 按分数取 733 条
+    data_from: rm1__core + 候选池 1370 条中 sev1 打分最高的 733 条
+    used_in: experiment_log「sev 当筛子」
+  - name: rm1__core_sevs2
+    group: critic
+    method: option_rm
+    purpose: sev 筛选对照：新 sev 门槛 0.8
+    data_from: rm1__core + 候选池中 sev2 ≥ 0.8 的 770 条里取 733
+    used_in: 同上
+  - name: rm1__core_sevrnd
+    group: critic
+    method: option_rm
+    purpose: sev 筛选对照：不过滤，随机 733 条
+    data_from: rm1__core + 候选池随机 733 条
+    used_in: 表 3（随机 733）
+  - name: rm1__core_sevcl
+    group: critic
+    method: option_rm
+    purpose: sev 筛选对照：Claude 判真错的 811 条
+    data_from: rm1__core + 候选池 2622 条中 Claude 判真错的 811 条
+    used_in: 表 3（Claude 确认真错 811）
+  - name: rm1__mcgold_ref
+    group: critic
+    method: option_rm
+    purpose: 早期 critic（RAGTruth 人工标注 + 9B 回答 Claude 金标 + 拒答句）
+    data_from: rm1__rm1_gold_9b 的训练集 + 10 句拒答改标 + refuse 训练切分原文各一条拒答（513 句；ragtruth/critic_refuse.py）
+    used_in: 表 3（ref 底座，6330 条）
+  - name: rm1__mcgold_h3ctl
+    group: critic
+    method: option_rm
+    purpose: rm1__mcgold_ref + 生成器 h3 造的 554 条错句（不限 critic 区间）
+    data_from: rm1__mcgold_ref + outputs/rt/gentarget/harvest_h3.jsonl 554 条错句 + 原句
+    used_in: 表 3（ref + 554 对）；表 1（奖励粒度 R0–R3 四组共用的 critic）
+  - name: rm1__mcgold_ref_z1500
+    group: critic
+    method: option_rm
+    purpose: 合成数据量对照：+1500 条（不加自然度门槛）
+    data_from: rm1__mcgold_ref + harvest_h3 1500 条
+    used_in: 表 3（ref + 1500 对）
+  - name: rm1__mcgold_ref_z6000
+    group: critic
+    method: option_rm
+    purpose: 合成数据量对照：+6000 条
+    data_from: rm1__mcgold_ref + harvest_h3 6000 条
+    used_in: 表 3（ref + 6000 对）
+  - name: rm1__mcgold_hum
+    group: critic
+    method: option_rm
+    purpose: 纯人工数据（3030 行）
+    data_from: rm1__mcgold_ref 中人工标注部分 2517 + 拒答 513
+    used_in: 表 3（只用人工标注 3030 条）
+  - name: rm1__mcgold_syn
+    group: critic
+    method: option_rm
+    purpose: 纯合成数据（同 3030 行）
+    data_from: harvest_h3 1500 条错句 + 原句 + 拒答
+    used_in: 表 3（只用合成数据 3030 条）
+  - name: rm1__rm1_gold_9b
+    group: critic
+    method: option_rm
+    base: Qwen/Qwen3.5-9B
+    config: configs/rt/rm_9b.yaml
+    train_rows: 5817
+    train_label: {A: 3724, B: 803, C: 1290}
+    temperature: 1.3
+    trainer: "2 轮，lr 1e-4 cosine，批 1 × 累积 16，bf16，seed 0（LoRA 同 2B 版）"
+    retrain: "RM=rm1__rm1_gold_9b bash scripts/remote/run_rmtrain.sh（9B 版，超参 configs/rt/rm_9b.yaml）"
+    purpose: 9B 金标 critic：只用于评测（RAG 各版本的含显然错 / 任意错比例），不进任何训练奖励
+    data_from: RAGTruth 人工标注 + 9B 在训练池 300 个原文上的回答（Claude 逐句金标 1479 行）
+    used_in: 表 2、表 8、表 9 的全部 RAG 评测
+
+  # ---------------- 其他打分模型 ----------------
+  - name: sev__v3c0
+    group: rm
+    method: option_rm
+    purpose: sev：给"原句 → 改写句"判错误严重程度 / 要求的错误类型（9 选 1）；生成器 GRPO 的门槛和奖励
+    data_from: 生成器 v2 输出的 Claude 标注（outputs/rt/core/gen_v2_label*）
+    used_in: 表 5、表 6（生成器迭代）
+  - name: sev__v3d
+    group: rm
+    method: option_rm
+    purpose: sev v3c0 的配方 + 第一轮盲区的 Claude 标注（sevaug_r1，887 行）
+    data_from: sev__v3c0 训练集 + outputs/rt/core/sevaug_r1
+    used_in: 第二轮补盲的候选打分
+  - name: rm2__v3b
+    group: rm
+    method: option_rm
+    purpose: RM2 自然度：改写句读起来是否像模型自然写出的
+    data_from: 生成器样本的 Claude 自然度标注
+    used_in: 表 5、表 6；补盲选样的自然度门槛
+  - name: rm2__v3d
+    group: rm
+    method: option_rm
+    purpose: RM2 v3b 的配方 + sevaug_r1
+    data_from: rm2__v3b 训练集 + sevaug_r1
+    used_in: 第二轮补盲
+  - name: sat_pair__core
+    group: rm
+    method: option_rm
+    purpose: 满意度（相对）：两条回答哪条更好，只用来罚，防钻空子
+    data_from: 核心集 Claude 满意度标注（label_raw.jsonl）
+    used_in: 所有 RAG GRPO 的奖励（只罚）
+  - name: refuse__core
+    group: rm
+    method: option_rm
+    purpose: 拒答：原文是否确实回答不了
+    data_from: 核心集拒答标注
+    used_in: 所有 RAG GRPO 的奖励（0.4 × P）
+
+  # ---------------- RAG（被训模型） ----------------
+  - name: rag-sft-core
+    display: rag-sft-core
+    group: rag
+    method: sft
+    config: configs/rt/sft_policy_mc.yaml
+    trainer: "LoRA r 32 / alpha 64（q k v o gate up down），2 轮，lr 5e-5 cosine，批 4 × 累积 4，max_length 4096，seed 0"
+    data: [outputs/rt/core/rag_sft_train.jsonl]
+    retrain: "python -m train.sft --config <sft_policy_mc.yaml，data 换成 outputs/rt/core/rag_sft_train.jsonl> --mode coldstart（scripts/remote/run_core1.sh 的 sft 函数）"
+    purpose: RAG 监督微调：核心集里 Claude 改对后的回答（726 条）
+    used_in: 所有 RAG GRPO 的起点（经 RAG-S1）
+  - name: mc-grpo-r3_core_coreonly/step200
+    display: RAG-S1
+    group: rag
+    method: rag_grpo
+    init: rag-sft-core
+    critic: rm1__core
+    steps: 200
+    retrain: "ARM=coreonly CRITIC=rm1__core bash scripts/remote/run_loop2.sh"
+    purpose: 第 1 段强化
+    used_in: 表 2
+  - name: mc-grpo-r3_core_cont/step100
+    display: RAG-S2
+    group: rag
+    method: rag_grpo
+    init: RAG-S1（mc-grpo-r3_core_coreonly/step200）
+    critic: rm1__core_r1
+    steps: 100
+    retrain: "START=adapters/mc-grpo-r3_core_coreonly/step200 CRITIC=rm1__core_r1 ARM=cont bash scripts/remote/run_loop2cont.sh"
+    purpose: 第 2 段强化（换循环一 critic）
+    used_in: 表 2；表 8、表 9 的起点
+  - name: mc-grpo-r3_core_cont2/step100
+    display: RAG-S3-r2
+    group: rag
+    method: rag_grpo
+    init: RAG-S2
+    critic: rm1__core_r2
+    steps: 100
+    retrain: "START=adapters/mc-grpo-r3_core_cont/step100 CRITIC=rm1__core_r2 ARM=cont2 bash scripts/remote/run_loop2cont.sh"
+    purpose: 第 3 段平行尝试：r2 当奖励
+    used_in: 表 2
+  - name: mc-grpo-r3_core_cont3/step100
+    display: RAG-S3-r3
+    group: rag
+    method: rag_grpo
+    init: RAG-S2
+    critic: rm1__core_r3
+    steps: 100
+    retrain: "START=adapters/mc-grpo-r3_core_cont/step100 CRITIC=rm1__core_r3 ARM=cont3 bash scripts/remote/run_loop2cont.sh"
+    purpose: 第 3 段平行尝试：r3 当奖励
+    used_in: 表 2
+  - name: mc-grpo-r3_core_cont4/step100
+    display: RAG-S3-bf
+    group: rag
+    method: rag_grpo
+    init: RAG-S2
+    critic: rm1__core_r2_bfcl
+    steps: 100
+    retrain: "START=adapters/mc-grpo-r3_core_cont/step100 CRITIC=rm1__core_r2_bfcl ARM=cont4 bash scripts/remote/run_loop2cont.sh"
+    purpose: 第一轮闭环：补盲后的 critic 当奖励
+    used_in: 表 8（核心结论）
+  - name: mc-grpo-r3_core_cont5/step100
+    display: RAG-S3-r1
+    group: rag
+    method: rag_grpo
+    init: RAG-S2
+    critic: rm1__core_r1
+    steps: 100
+    retrain: "START=adapters/mc-grpo-r3_core_cont/step100 CRITIC=rm1__core_r1 ARM=cont5 bash scripts/remote/run_loop2cont.sh"
+    purpose: 对照：奖励模型不换，同样多训 100 步
+    used_in: 表 8（核心结论的对照）
+  - name: mc-grpo-r3_core_cont6/step100
+    display: RAG-S4-rd2
+    group: rag
+    method: rag_grpo
+    init: RAG-S3-bf（mc-grpo-r3_core_cont4/step100）
+    critic: rm1__core_rd2
+    steps: 100
+    retrain: "START=adapters/mc-grpo-r3_core_cont4/step100 CRITIC=rm1__core_rd2 ARM=cont6 bash scripts/remote/run_loop2cont.sh"
+    purpose: 第二轮闭环
+    used_in: 表 9
+  - name: mc-grpo-r3_core_main/step200
+    display: RAG-S1x
+    group: rag
+    method: rag_grpo
+    init: rag-sft-core
+    critic: rm1__core_r1
+    steps: 200
+    retrain: "ARM=main CRITIC=rm1__core_r1 bash scripts/remote/run_loop2.sh"
+    purpose: 对照：用同一个新 critic r1，从 SFT 重新训 200 步（不分段）
+    used_in: 表 2（对照：新 critic r1 从 SFT 重新训 200 步）
+
+  # ---------------- 错误生成器 ----------------
+  - name: gen-v2-mc
+    group: gen
+    method: sft
+    config: configs/rt/sft_gen_v2_mc.yaml
+    trainer: "LoRA r 16 / alpha 32，1 轮，lr 5e-5，批 2 × 累积 2，max_length 4096"
+    data: [outputs/rt/core/seed_v2_train.jsonl]
+    retrain: "python -m train.sft --config configs/rt/sft_gen_v2_mc.yaml --mode coldstart"
+    purpose: 错误生成器 v2：输入原文 + 完整回答 + 9 种错误机制之一，输出第几句 + 改动 + 改写句
+    used_in: 表 5
+  - name: gen-v2h2-mc
+    group: gen
+    method: sft
+    config: configs/rt/sft_gen_v2h2_mc.yaml
+    trainer: 同 gen-v2-mc
+    data: [outputs/rt/gen_v2_grpo/sft_hard_v2.jsonl]
+    retrain: "python -m train.sft --config configs/rt/sft_gen_v2h2_mc.yaml --mode coldstart"
+    purpose: 难样本 SFT 第二轮（g1 的起点）
+    used_in: 表 5
+  - name: gen-g1/step50
+    display: gen-g1
+    group: gen
+    method: gen_grpo
+    init: gen-v2h2-mc
+    steps: 50
+    command: >-
+      python -m train.gen_grpo --causal 1 --base <MiniCPM5-2B> --init adapters/gen-v2h2 --prompts outputs/rt/gen_v2_grpo/prompts_w.jsonl
+      --reward v2sev --temps sev=sev__v3c0,rm2v3=rm2__v3b,rm1=rm1__core_r2 --max_tokens 512 --steps 50 --lr 5e-6 --n 32 --prompts_per_step 8
+      --v2_shape hard --err_gate 0.9 --nat_gate 0.5 --hard_shape tri --hard_base 0（scripts/remote/run_gen_c.sh）
+    reward: "过门槛（sev 有错 ≥ 0.9、RM2 自然 ≥ 0.5）后按 critic rm1__core_r2 的 P 给三角奖励：0.3–0.5 为 1，0.5 → 0.9 线性降到 0；没过门槛 0"
+    purpose: 生成器 GRPO：专门造 critic 拿不准（P 0.3–0.5）的错句
+    used_in: 表 6；两轮补盲的候选采样
+  - name: gen-v2h3-mc
+    group: gen
+    method: sft
+    config: configs/rt/sft_gen_v2h3_mc.yaml
+    trainer: 同 gen-v2-mc
+    data: [outputs/rt/gen_v2_grpo/sft_hard_v3.jsonl]
+    retrain: "python -m train.sft --config configs/rt/sft_gen_v2h3_mc.yaml --mode coldstart"
+    purpose: 难样本 SFT 第三轮：原 SFT 数据 + g1 采样里过门槛、critic 0.1–0.5、类型对的样本
+    used_in: 表 6；两轮补盲的候选采样

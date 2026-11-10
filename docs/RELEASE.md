@@ -27,6 +27,8 @@
 | `gen.tar` | 错误生成器：gen-v2-mc（SFT）、gen-v2h3-mc（难样本 SFT）、gen-g1（GRPO 50 步） |
 | `rm.tar` | sev（v3c0、v3d）、RM2 自然度（v3b、v3d）、满意度（sat_pair__core）、拒答（refuse__core） |
 
+每个模型用的训练数据（具体文件和条数）、训练配置（超参文件、LoRA、学习率、步数、奖励）、起点、重训命令，以及它对应哪张表，都列在 [MODELS.md](MODELS.md)。发布包里每个模型目录下的 `README.md` 和 `training.json` 也是同样的内容。
+
 RAG 版本的命名对照：
 
 | 名字 | 说明 |
@@ -98,16 +100,44 @@ python -m scripts.check_repro r_s4.json results/loop2_cont6_cmp.json
 - `--base` 不同，差值列就不同；
 - `pol9b_cmp` 只比所有版本都有回答的那些题，少放一个版本，配对条数就可能从 595 变成 596，比例会差零点几个点。
 
-### L1+：用发布的 LoRA 重新打分（需要单张 GPU）
+### 在 GPU 服务器上重跑（scripts/repro）
+
+这一层不再拿我们算好的分数，而是在你自己的机器上用发布的 LoRA 重新打分、重新训练。需要：
+- Linux 和 1 张显存不少于 32 GB 的卡，我们用的是 RTX 5090；
+- `pip install -r requirements-gpu.txt`；
+- 约 60 GB 磁盘。
 
 ```bash
-pip install -r requirements-gpu.txt
-python -m scripts.fetch_release --data_repo … --model_repo … --parts eval critic
-# 起 vLLM，挂上要测的 critic LoRA，温度取自 outputs/rt/rm/<名字>/eval/report.json：
-python -m ragtruth.critic_score --answers outputs/rt/minicpm/grpo300/answers.jsonl --model c --temp <T> --out …
+git clone https://github.com/liaomingyue/claim-critic && cd claim-critic
+bash scripts/repro/setup.sh --data_repo <用户>/claim-critic-data --model_repo <用户>/claim-critic-models
+bash scripts/repro/r1_rescore.sh        # R1：约半小时
+bash scripts/repro/r2_rag.sh            # R2：两组各约 6–8 小时；两台机器可以各跑一组：r2_rag.sh rp_bf / rp_r1，最后 r2_rag.sh cmp
 ```
 
-RAG 的重新生成和 9B 打分，见 `scripts/remote/run_r3eval.sh`。
+`setup.sh` 做四件事：
+1. 检查 GPU 和 vLLM 等依赖；
+2. 下载并校验发布包；
+3. 准备基座模型：MiniCPM5-2B 固定在提交 f974000，另加 Qwen3.5-9B；如果机器上已经有这两个模型，可以用 `--base_src <目录>` 直接拷过来；
+4. 把 LoRA 按训练脚本要找的目录结构做成软链接。
+
+所有东西都放在仓库下的 `.repro/` 里，可以用 `FS_ROOT` / `TMP_ROOT` 改到别的盘。原实验跑在 AutoDL 上，`scripts/remote/` 里的脚本在不设这两个变量时仍然用 AutoDL 的路径。
+
+**R1 重新打分**：用 6 代 critic 重新给三套验收回答逐句打分。分数写到 `critic_<名字>_re.json`，不覆盖发布的分数。报告分三部分：
+- 同一句话两次打分差多少；
+- 每个 critic 的 AUC 变化；
+- 两条结论在新分数上是否成立：
+  - 补盲时用 Claude 核实比不核实好（表 7）；
+  - 第二轮 critic 的静态指标反而变差（表 9）。
+
+全部成立时打印 `R1_CONCLUSIONS_HOLD`。
+
+**R2 重训 RAG**：复现核心结论"闭环的提升来自新 critic"（表 8）。从发布的 RAG-S2 出发训两组，各 100 步，只有奖励里的 critic 不同：
+- `rp_bf`：用第一轮补盲后的 critic；
+- `rp_r1`：用原来的 critic。
+
+训完在三套验收原文上生成，用 9B 金标 critic 打分，再做配对 bootstrap。判据：新 critic 组比对照组的含显然错、含任意错比例都更低，且 90% 区间不含 0。成立时打印 `R2_CONCLUSION_HOLDS`。
+
+GRPO 的采样和生成用 vLLM，有非确定性，所以 R2 的数字不会和原表逐位一致。举个例子：同一个起点模型重新生成一次，含显然错的比例就会在 6.5% 和 7.5% 之间变动。所以 R2 看的是结论方向和显著性，不看小数点。
 
 ### L2：从核心集开始，跑完整闭环
 
