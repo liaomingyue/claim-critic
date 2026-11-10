@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 2026-11-05：共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -111,6 +111,7 @@ case $ROLE in
   blindfill2) CODE=$R bash $S/run_blind_fill2.sh; rc=$? ;;   # 2026-11-09：补 critic 盲区第二台（g1 采样 + nc 组 critic）
   round2fill) CODE=$R bash $S/run_round2_fill.sh; rc=$? ;;   # 2026-11-09：第二轮闭环：新 RAG 回答 → 造难样本 → 等 Claude → rm1__core_rd2
   round2rag) CODE=$R bash $S/run_round2_rag.sh; rc=$? ;;
+  repro_bf|repro_r1) bash $S/run_repro_test.sh rp_${ROLE#repro_}; rc=$? ;;   # 2026-11-10：从头复现实测（scripts/repro），见 run_repro_test.sh
   sevrm2) CODE=$R bash $S/run_sevrm2_r1.sh; rc=$? ;;   # 2026-11-09：sev / RM2 加第一轮盲区 Claude 标注（sev__v3d / rm2__v3d）
   gengrpoh) CODE=$R bash $S/run_gengrpo_hard.sh; rc=$? ;;   # 2026-11-09：生成器 GRPO，critic 难度主奖励（ge / ge2）
   r2) CODE=$R bash $S/run_r2.sh; rc=$? ;;   # 2026-11-06：Claude 核验过的盲区 / 边界真错 → rm1__core_r2   # 2026-11-06：接着第一轮 GRPO（只种子集组第 200 步）用 rm1__core_r1 再训 100 步
