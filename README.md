@@ -264,6 +264,7 @@ pip install -r requirements-gpu.txt         # GPU 端（训练 / vLLM），版�
 - 数据和模型不进 git，发布在 Hugging Face：`python -m scripts.fetch_release` 下载并校验 SHA-256（见 [docs/RELEASE.md](docs/RELEASE.md)）。
 - GPU 端（AutoDL，单张 RTX 5090）：`python -m scripts.autodl_extra --fs --roles <角色> --gpus 1 --gpu "RTX 5090"`，角色见 `scripts/remote/bootstrap_fs.sh`。
   - 多 LoRA vLLM 一律用 `scripts/remote/serve_loras.sh` 启动。
+  - 9B 的 GRPO 一张卡放不下：拆成一台训练机 + 一台或多台推理机（采样和打分分摊到各推理机，每步 LoRA 后台推给每一台），见 [docs/distributed.md](docs/distributed.md)。
   - 训练、试采只读写本地盘 `/root/autodl-tmp`，共享盘 `/root/autodl-fs` 由 `scripts/remote/bg_sync.sh` 在后台同步。
   - 登录信息文件（`autodl_web.json`、`autodl_token.txt`、`smtp.json`）不进仓库。
 
