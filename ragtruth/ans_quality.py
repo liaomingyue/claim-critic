@@ -1,4 +1,4 @@
-"""回答质量抽查（2026-11-02，用户：幻觉降了但没答对问题就没意义；抽查约 30 次 Claude 调用）。
+"""回答质量抽查（幻觉降了但没答对问题就没意义；抽查约 30 次 Claude 调用）。
 
 critic 只看忠实度，看不出答非所问。这里让 Claude 判回答本身有没有用：dev 上抽 15 个原文（Summary 8、QA 7），第 0 步和检查点各取第一条，
 打乱后逐条判断，Claude 不知道回答来自哪个模型。样本来自 train.ans_grpo 的 quick_samples。
@@ -80,7 +80,7 @@ def summarize(rows: list[dict]) -> dict:
 def cmd_label(args) -> None:
     load = lambda s: {r["id"]: r for r in read_jsonl(Path(args.samples_dir) / f"quick_samples_a_s{s}.jsonl")}
     items = pick_pairs(list(read_jsonl("outputs/rt/ansgrpo/dev.jsonl")), load(0), load(args.step), args.n_qa, args.n_summary, args.seed)
-    assert len(items) <= 30, "用户同意的是约 30 次调用"
+    assert len(items) <= 30, "Claude 调用预算：约 30 次"
     src = {r["id"]: r["source"] for r in read_jsonl("outputs/rt/ansgrpo/dev.jsonl")}
     D.mkdir(parents=True, exist_ok=True)
     llm = LLM(LLMConfig(model=args.model, provider="claude_cli", effort=args.effort, concurrency=args.concurrency))

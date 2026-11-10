@@ -1,4 +1,4 @@
-# 错误改写模型第二版格式（2026-11-08，用户），9B 版：数据同 sft_gen_v2_mc（seed_v2_train.jsonl），超参同 sft_gen_core_9b（1 轮、lr 1e-4、有效批 16），只存 LoRA。
+# 错误改写模型第二版格式，9B 版：数据同 sft_gen_v2_mc（seed_v2_train.jsonl），超参同 sft_gen_core_9b（1 轮、lr 1e-4、有效批 16），只存 LoRA。
 task: gen
 prompt_tips: false
 base_model: /root/autodl-tmp/models/Qwen3.5-9B

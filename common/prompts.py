@@ -49,7 +49,7 @@ evidence 规则：faithful 时引被引用文献中支持 claim 的原文；cita
 
 
 # 用 Claude 当判定模型（label_positive）时的 system prompt：Claude 的安全分类器会拦截「把推理过程写进 <think> 输出」
-# 的请求（2026-10-23 实测，Opus 5.5 / claude -p），所以把这一项换成简短的判定依据 <analysis>，
+# 的请求（实测，Opus 5.5 / claude -p），所以把这一项换成简短的判定依据 <analysis>，
 # 拿到输出后再换回 <think>，后面的解析、证据校验与 critic 完全一致。critic 自己的训练格式不变。
 JUDGE_SYSTEM = CRITIC_SYSTEM.replace("<think>你的分析</think>", "<analysis>2-4 句判定依据</analysis>")
 

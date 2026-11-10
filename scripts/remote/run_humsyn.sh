@@ -1,5 +1,5 @@
 #!/bin/bash
-# 纯人工 vs 纯合成 critic（2026-11-06，用户：对比一下纯合成数据和人工数据，判断一下效果）。ARM=hum|syn，一台单卡跑一组：
+# 纯人工 vs 纯合成 critic（对比一下纯合成数据和人工数据，判断一下效果）。ARM=hum|syn，一台单卡跑一组：
 #   hum = RAGTruth 原版人工 2517 + 拒答 513 = 3030；syn = 早期合成 907 + 生成器 805 对（1610，RM2 ≥ 0.3，取自 n1500 池前 805 对）+ 拒答 513 = 3030
 #   两组都不含 b9 / gold（Claude 标的真实回答）；校准 / 测试集相同；训练配方同 ref（configs/rt/rm_mc.yaml）。
 #   ① 建数据 → ② 训 critic（run_mcrm.sh：校准 + RAGTruth++）→ ③ 扩充 Claude 集打分（grpo300 / b / c，本地 critic_cap3 算）

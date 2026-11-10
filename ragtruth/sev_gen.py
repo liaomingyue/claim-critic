@@ -1,5 +1,5 @@
-"""sev 第二版：训练数据全部来自错误改写模型的真实输出 + Claude 判断（2026-11-08，用户：sev 训练集不该从种子集程序造，
-要从 2B / 9B 生成器的输出里标；核心是把 sev 的效果提上去）。批准约 75 次 Claude 调用。
+"""sev 第二版：训练数据全部来自错误改写模型的真实输出 + Claude 判断（sev 训练集不该从种子集程序造，
+要从 2B / 9B 生成器的输出里标；核心是把 sev 的效果提上去）。约 75 次 Claude 调用。
 
 和 sev__core 的区别：
   - 去掉种子集程序造的 A–D（类型反转 / 证据换成别处的反例太好认，和生成器真实的解释错误不像）；
@@ -49,7 +49,7 @@ def prompt(x: dict) -> list[dict]:
     return [{"role": "system", "content": SEV2_SYSTEM}, {"role": "user", "content": audit_synth.render(rec)}]
 
 
-# ── 变体（2026-11-08，用户：把改动明确告诉模型再判，应该容易很多）────────────────────────────
+# ── 变体（把改动明确告诉模型再判，应该容易很多）────────────────────────────
 # diff ：现有输入 + 逐词 diff 标出的改动（Change: "旧" → "新"），5 选 1 不变
 # dne  ：原文 + 回答 + 原句 / 改写句 + 改动标记，不给生成器的类型 / 证据 / 理由，只判严重程度 3 选 1（A 显然错 / B 细微错 / C 没错）
 #        —— 36 条误判（sev__gen ≥ 0.8 但 Claude 判没错）都是生成器写了像样但不成立的理由，sev 跟着理由走
@@ -97,7 +97,7 @@ def prompt_dne(x: dict) -> list[dict]:
     return [{"role": "system", "content": DNE_SYSTEM}, {"role": "user", "content": u}]
 
 
-# ── 第三版（2026-11-08，用户）：输入带「要求的机制」+ 改动描述（9B 基座写、不给机制）+ 完整逐词改动；判有没有造成要求的那种错 ──
+# ── 第三版：输入带「要求的机制」+ 改动描述（9B 基座写、不给机制）+ 完整逐词改动；判有没有造成要求的那种错 ──
 V3_SYSTEM = """You check whether an edit to one sentence of a response introduced the REQUESTED kind of error. You see the source (the exact input an assistant received), the assistant's response with the edited sentence in place, the ORIGINAL (faithful) and EDITED versions of that sentence, the requested kind of error, a description of the edit and the exact word-level changes.
 
 Judge the changes against the source (use the other sentences only to resolve references):
@@ -126,7 +126,7 @@ def prompt_v3(x: dict) -> list[dict]:
 
 
 def option_v3(c: dict, req: str = "", relax: frozenset = frozenset()) -> str | None:
-    """relax：这些要求的机制只要是真错就算「符合要求」（用户 2026-11-09：直接矛盾是结果不是手法，和其他细类重叠，放宽为真错即可）。"""
+    """relax：这些要求的机制只要是真错就算「符合要求」（直接矛盾是结果不是手法，和其他细类重叠，放宽为真错即可）。"""
     s = c.get("severity")
     if s == "none":
         return "D"

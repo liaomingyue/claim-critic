@@ -1,4 +1,4 @@
-"""生成器 v2 的 GRPO（2026-11-09，用户：批量生产 + GRPO 优化，核心目标是 sev 奖励，看能不能增加合格样本量）。
+"""生成器 v2 的 GRPO（批量生产 + GRPO 优化，核心目标是 sev 奖励，看能不能增加合格样本量）。
 
   prompts  训练池（genpool_train 657 回答）× 9 机制 → outputs/rt/gen_v2_grpo/prompts.jsonl（gen_grpo 的行格式 + source / sentences / mechanism）
   items    评测采样（genpool_eval 留出原文）→ <name>/items.jsonl（aid = 2b/ + id，score_samples 用）
@@ -74,7 +74,7 @@ def cmd_report(a) -> None:
 
 
 def cmd_probe(a) -> None:
-    """训练前试采（2026-11-09 用户：担心大量组没有可选的正样本，跑之前先测）：训练提示里取 --n_prompts 个，
+    """训练前试采（担心大量组没有可选的正样本，跑之前先测）：训练提示里取 --n_prompts 个，
     每个采 --n 条，用训练同款奖励（V2SevRewarder hard）打分，统计每组正样本（过门槛且难度 > 0）个数的分布。"""
     import zlib
     from concurrent.futures import ThreadPoolExecutor
@@ -91,7 +91,7 @@ def cmd_probe(a) -> None:
     def one(r):
         out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, r["prompt"]))["input_ids"], max_tokens=512, temperature=1.0,
                                     n=a.n, seed=zlib.crc32(r["id"].encode()) % 100000, extra_body={"top_k": -1})
-        with ThreadPoolExecutor(32) as ex:   # 并发打分（用户：推理要并发）
+        with ThreadPoolExecutor(32) as ex:   # 并发打分
             ss = list(ex.map(lambda c: rw.score(c.text, r), out.choices))
         keep = ("why", "idx", "original", "sentence", "p_req", "p_err", "p_natural", "p_halluc", "gate", "hardness", "reward", "qualified")
         return {"id": r["id"], "mechanism": r["mechanism"], "pos": sum(bool(x["qualified"]) for x in ss), "gate": sum(bool(x.get("gate")) for x in ss),
@@ -123,7 +123,7 @@ def cmd_probe(a) -> None:
 
 
 def cmd_harvest(a) -> None:
-    """方向②（2026-11-09 用户同意）：现有生成器在训练提示（去掉末尾 64 个试采提示）上大批量采样，用训练同款奖励打分，
+    """方向②：现有生成器在训练提示（去掉末尾 64 个试采提示）上大批量采样，用训练同款奖励打分，
     挑「过门槛（sev 有错 ≥ 0.9、自然 ≥ 0.5）且 critic ∈ [0.1, 0.7)」的难样本（每提示最多 --per_prompt 条），
     和原 SFT 数据（seed_v2_train）拼成热启动 SFT 数据 → O/sft_hard.jsonl。目标 = 生成器自己写的 JSON（idx / sentence / edit）。"""
     import zlib
@@ -136,7 +136,7 @@ def cmd_harvest(a) -> None:
     cl = OpenAI(base_url=a.url, api_key="x", timeout=1800, max_retries=3)
     tok = AutoTokenizer.from_pretrained(a.tokenizer)
     rw = V2SevRewarder(cl, load_temps(a.temps), shape="hard", err_gate=a.err_gate, nat_gate=0.5)
-    # --prompts：别的提示池（如 rag_pool/prompts.jsonl，2026-11-09 用户：更多问答对、每个提示温度 0 采 1 条）；默认 = 训练提示去掉末尾 64 个试采提示
+    # --prompts：别的提示池（如 rag_pool/prompts.jsonl，更多问答对、每个提示温度 0 采 1 条）；默认 = 训练提示去掉末尾 64 个试采提示
     rows = list(read_jsonl(O / a.prompts)) if a.prompts else list(read_jsonl(O / "prompts.jsonl"))[:-a.n_prompts]
 
     def one(r):

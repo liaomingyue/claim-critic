@@ -1,4 +1,4 @@
-# MiniCPM5-2B 造错生成器 SFT，种子第五版（2026-11-03，用户：critic 判不出的只有 108 条，快速补到 172 条左右）：第三版种子 + hardpool 里没进种子的 61 句
+# MiniCPM5-2B 造错生成器 SFT，种子第五版（critic 判不出的只有 108 条，快速补到 172 条左右）：第三版种子 + hardpool 里没进种子的 61 句
 # 按上下文改对（Claude 7 次调用）后，只留 2B critic 判不出的，共 151 条（长度上限放到 14000 字符）。其余同 sft_gen_seed4_mc，单卡 1 轮。
 task: gen
 prompt_tips: false

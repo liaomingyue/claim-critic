@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：rm1 / rm2 / rm3(sev) 分别给有 Claude 标注的生成器 v2 样本打分，本地对照 Claude 看各模型靠不靠得住。
+# rm1 / rm2 / rm3(sev) 分别给有 Claude 标注的生成器 v2 样本打分，本地对照 Claude 看各模型靠不靠得住。
 # 等 genv2（9B-only 描述版）做完 + 本地上传 gen_v2_label_r2/items.jsonl（UPLOADED 标记）→ 2B 服务挂 rm1 / rm2 / dne / gen 四个适配器 → gen_v2_label/model_scores.jsonl
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/score_samples.log; C=outputs/rt/core

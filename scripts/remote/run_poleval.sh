@@ -1,17 +1,17 @@
 #!/bin/bash
-# 策略独立评测（2026-11-05，通用）：NAME=<名> ADAPTER=<LoRA 目录> OUT=<输出目录>，在三套验收原文上生成
+# 策略独立评测（通用）：NAME=<名> ADAPTER=<LoRA 目录> OUT=<输出目录>，在三套验收原文上生成
 # （grpo300 T1.0、grpo300b T0.7、grpo300c T0.7，top_p 0.95，同 run_r3full），9B 金标 critic 用 critic_score_multi 打分。已有的跳过。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; MC=$A/models/MiniCPM5-2B; E=${OUT:?}; mkdir -p $E; LOG=$A/poleval.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
-( while kill -0 $$ 2>/dev/null; do touch /root/autodl-tmp/KEEPALIVE; sleep 60; done ) & KA=$!   # 保活进程 PID：下面的 wait 不能等它（2026-11-05 worker1 生成完卡死在 wait）
+( while kill -0 $$ 2>/dev/null; do touch /root/autodl-tmp/KEEPALIVE; sleep 60; done ) & KA=$!   # 保活进程 PID：下面的 wait 不能等它（踩过：worker1 生成完卡死在 wait）
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x TOKENIZERS_PARALLELISM=false
 unset VLLM_API_KEY
 temp() { python -c "import json;print(json.load(open('outputs/rt/rm/$1/eval/report.json'))['temperature'])"; }
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 [ -f $MC/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
-source scripts/remote/models9b.sh; start_9b_bg   # 2026-11-05 用户：先拷马上要用的 2B，9B 后台拷，把时间岔开
+source scripts/remote/models9b.sh; start_9b_bg   # 先拷马上要用的 2B，9B 后台拷，把时间岔开
 m=${NAME:?}
 free_gpu; mkdir -p $A/s0
 A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --base $MC --log $A/vllm-poleval.log $m=${ADAPTER:?} >> $LOG 2>&1 || { log "serve $m FAILED"; exit 1; }

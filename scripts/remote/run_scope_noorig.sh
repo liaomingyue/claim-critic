@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：试试不配原句。rm1__core_r2 + Claude 核实的 285 条范围偏移错句（不加同位置原句）→ rm1__core_r2_sccl_no → 三套验收打分（本地 critic_cap3 两个口径 + 按类型）。
+# 试试不配原句。rm1__core_r2 + Claude 核实的 285 条范围偏移错句（不加同位置原句）→ rm1__core_r2_sccl_no → 三套验收打分（本地 critic_cap3 两个口径 + 按类型）。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/scopeno.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

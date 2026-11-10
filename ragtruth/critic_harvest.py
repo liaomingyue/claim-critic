@@ -1,4 +1,4 @@
-"""定向造错生成器的数据加进 2B critic（2026-11-03，用户：数据生成和 critic 重训的脚本先准备）。
+"""定向造错生成器的数据加进 2B critic。
 
 harvest（gen_target_data harvest）存下的样本里取合格（P(真错) = RM3 A + B ≥ gate、原句干净）且 2B critic P(判出) 在 [lo, hi) 的——
 Claude 判真错：0.1–0.3 11/16、0.3–0.7 14/16（< 0.1 只有 11/33，不要）；这些正是 2B critic 拿不准、读起来又自然的错。
@@ -40,16 +40,16 @@ def main() -> None:
     ap.add_argument("--per_prompt", type=int, default=2, help="同一个 prompt 最多取几条，防止一篇原文占太多")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--min_nat", type=float, default=0.0, help="RM2 P(自然) 至少这么多（循环第 2 步：验证自然）")
-    ap.add_argument("--per_source", type=int, default=0, help="同一篇原文最多几条（0 = 不限；多样性对照，2026-11-05）")
+    ap.add_argument("--per_source", type=int, default=0, help="同一篇原文最多几条（0 = 不限；多样性对照）")
     ap.add_argument("--top_sources", type=int, default=0, help="只用合格样本最多的前 M 篇原文（0 = 不限；多样性对照的「集中」组）")
     ap.add_argument("--ids", default="", help="只用这些 harvest id（每行一个；清洗后的白名单），不再按区间筛；"
-                    "可写成「id<TAB>类型」（conflict / baseless）覆盖生成器给的类型（2026-11-05：按 Claude 复核的 mechanism 改正）")
+                    "可写成「id<TAB>类型」（conflict / baseless）覆盖生成器给的类型（按 Claude 复核的 mechanism 改正）")
     ap.add_argument("--scores9b", default="", help="9B 翻转门（gen_target_data score9b 产出的 id→{orig_9b,err_9b} json/jsonl）：要求原句 9B 判 P(错)≤lo_clean "
-                    "且 错句 9B 判 P(错)≥hi_err，即「改写前无幻觉、改写后有幻觉」的独立确认；缺 9B 分的样本丢掉（2026-11-07，用户：宁丢多保精度）")
+                    "且 错句 9B 判 P(错)≥hi_err，即「改写前无幻觉、改写后有幻觉」的独立确认；缺 9B 分的样本丢掉（宁可多丢，保精度）")
     ap.add_argument("--lo_clean", type=float, default=0.1, help="改写前：9B 判原句 P(错) 上限")
     ap.add_argument("--hi_err", type=float, default=0.7, help="改写后：9B 判错句 P(错) 下限")
     ap.add_argument("--no_orig", action="store_true", help="只加错句（负样本），不配同位置原句（Aug-A：纯负样本注入，验证'合成风格捷径'风险；"
-                    "不加则默认每条错句配一条干净原句 = Aug-B 负+真正样本 1:1 平衡，2026-11-07）")
+                    "不加则默认每条错句配一条干净原句 = Aug-B 负+真正样本 1:1 平衡）")
     a = ap.parse_args()
     fix: dict[str, str] = {}
     if a.ids:

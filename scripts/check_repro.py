@@ -1,4 +1,4 @@
-"""L1 复现核对：把重算出的 json 和仓库里的 results/<名字>.json 逐字段比较（2026-11-10）。
+"""L1 复现核对：把重算出的 json 和仓库里的 results/<名字>.json 逐字段比较。
   python -m scripts.check_repro <重算的 json> results/<名字>.json
 完全一致时打印 REPRO_MATCH；数字（含 bootstrap 区间）都应逐位相同，因为种子是固定的。
 """

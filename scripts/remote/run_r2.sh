@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-06 用户：入库样本要 Claude 确认是真错。rm1__core_r2 = 种子集 4604 行 + Claude 核验为真错的盲区（critic P < 0.3）/ 边界（0.3–0.7）改写句 581 条
+# 入库样本要 Claude 确认是真错。rm1__core_r2 = 种子集 4604 行 + Claude 核验为真错的盲区（critic P < 0.3）/ 边界（0.3–0.7）改写句 581 条
 # （类型：Claude 判解释对时用改写模型自报的类型，否则按 Claude 的机制换算）+ 每条配同位置原句（A）。名单 outputs/rt/core/r2_ids.tsv（本地生成、随代码上传）。
 #   ① critic_harvest --ids → rm1__core_r2 → run_mcrm.sh（校准 + RAGTruth++）
 #   ② 三套验收回答打分（本地 critic_cap3 算）+ 接着训第 100 步回答上的盲区召回

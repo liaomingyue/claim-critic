@@ -1,5 +1,5 @@
 #!/bin/bash
-# 双机 GRPO 的训练机（2026-11-04）：等推理机就绪（run_infer_node.sh 写 runs/pair/$PAIR/infer_ready），
+# 双机 GRPO 的训练机：等推理机就绪（run_infer_node.sh 写 runs/pair/$PAIR/infer_ready），
 # 读密钥和推理机的对外域名（domains.json 由本地 scripts/pair_setup.py 写：{"svc6006": "...", "svc6008": "..."}），
 # 设好 RM_URL / LORA_SYNC_URL / VLLM_API_KEY / PUSH_DIR 后跑 JOB（默认 run_grpo_h2.sh，训练卡 GPU0），结束写 train_done 让推理机收尾。
 set -u
@@ -19,7 +19,7 @@ code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $V
 log "remote inference reachable; running $JOB"
 bash $S/$JOB; rc=$?
 log "$JOB exit $rc"
-# 只有成功才让推理机收尾；失败时推理机留着，改好直接重跑训练机（2026-11-04 踩过：训练机 OOM 退出，推理机跟着关掉，重启又要等 5 分钟加载）
+# 只有成功才让推理机收尾；失败时推理机留着，改好直接重跑训练机（踩过：训练机 OOM 退出，推理机跟着关掉，重启又要等 5 分钟加载）
 if [ $rc = 0 ]; then date '+%F %T' > $P/train_done; else date '+%F %T' > $P/train_failed; fi
 log "TRAIN_NODE_DONE"
 exit $rc

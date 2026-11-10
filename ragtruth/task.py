@@ -51,7 +51,7 @@ Output exactly this format and nothing else:
 <type>conflict, baseless or none</type>
 <verdict>hallucination or faithful</verdict>"""
 
-# 判定要点：针对 0.6B 逐句模型在测试集上的主要错误（2026-10-26 错误分析）。critic 的 system prompt 可选带上
+# 判定要点：针对 0.6B 逐句模型在测试集上的主要错误（错误分析）。critic 的 system prompt 可选带上
 # （messages(tips=True)，做「有 / 无 tips」对比），补写 evidence / reason 的 prompt 总是带上。
 TIPS = """Tips:
 - Structured data (JSON): True/False means the feature is offered or not; times such as 17:30-21:0 mean 5:30 PM to 9:00 PM, and a correct conversion is supported; 0:0-0:0 means no listed hours.
@@ -310,7 +310,7 @@ def expand_claims(s: dict, require_analysis: bool = False) -> list[dict]:
 
 def balance(claims: list[dict], faithful_per_bad: float | None, seed: int = 0) -> list[dict]:
     """保留全部有问题的句子，无问题的句子按比例抽样；None 表示不下采样（保持自然比例）。
-    1:2 下采样时训练集幻觉句占 33%、测试集只有 8%，模型误报偏多（2026-10-26 错误分析）。"""
+    1:2 下采样时训练集幻觉句占 33%、测试集只有 8%，模型误报偏多（错误分析）。"""
     bad = [c for c in claims if c["label"] == "hallucination"]
     good = [c for c in claims if c["label"] == "faithful"]
     rng = random.Random(seed)

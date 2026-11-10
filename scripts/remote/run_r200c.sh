@@ -1,5 +1,5 @@
 #!/bin/bash
-# 三档 200 步续跑（2026-11-05）：TripWire 的 KL 上限 0.10 在第 ~100 步触发（ref 第 98 步窗口均值 0.101，其他护栏都正常），
+# 三档 200 步续跑：TripWire 的 KL 上限 0.10 在第 ~100 步触发（ref 第 98 步窗口均值 0.101，其他护栏都正常），
 # 放宽到 TRIP_KL=0.2（只改 KL 这一项），从最近的续训状态接着训到 200 步，评第 100 / 200 步（不重评 v0）。用法：ARM=ref|z1500|h3ctl bash run_r200c.sh
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}

@@ -1,4 +1,4 @@
-"""回答策略的两组 SFT 对照（2026-11-05，用户：先把 S2 拒绝采样 SFT 跑出来；S1 人工（Claude）修正、不用 critic 也要做；两组比较看重）。
+"""回答策略的两组 SFT 对照（先把 S2 拒绝采样 SFT 跑出来；S1 人工（Claude）修正、不用 critic 也要做；两组比较看重）。
 两组和回答 GRPO 用同一批数据：outputs/rt/minicpm/grpo/train_ref.jsonl 的 831 个 prompt（同原文、同 QA 系统提示、同聊天模板）。
 
 S2 拒绝采样 SFT（不调 Claude）：
@@ -206,7 +206,7 @@ def cmd_s1_build(a) -> None:
 
 
 def cmd_s1_targets(a) -> None:
-    """SFT 上限（2026-11-05）：把 S1 的训练目标（拼回后的回答）和原参考回答各写成验收回答格式，给 9B 打分 —— 模仿学习最多学到目标这么干净。"""
+    """SFT 上限：把 S1 的训练目标（拼回后的回答）和原参考回答各写成验收回答格式，给 9B 打分 —— 模仿学习最多学到目标这么干净。"""
     from common.llm import kept
     from train.ans_reward import sentences
     out = Path(a.out)
@@ -242,7 +242,7 @@ def main() -> None:
     ap.add_argument("--tokenizer", default="/root/autodl-tmp/models/MiniCPM5-2B")
     ap.add_argument("--n", type=int, default=16)
     ap.add_argument("--concurrency", type=int, default=16)
-    ap.add_argument("--per_call", type=int, default=10)   # 用户：一次多丢几条给 Claude，减少总调用次数（4 条约 210 次 → 10 条约 84 次）
+    ap.add_argument("--per_call", type=int, default=10)   # 一次多丢几条给 Claude，减少总调用次数（4 条约 210 次 → 10 条约 84 次）
     ap.add_argument("--max_calls", type=int, default=90)
     ap.add_argument("--limit_calls", type=int, default=0, help="只跑前 N 次调用（试跑看质量）")
     ap.add_argument("--max_single", type=int, default=40)

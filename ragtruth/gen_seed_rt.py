@@ -1,4 +1,4 @@
-"""真实错误种子（2026-11-06，用户：RAG 训练数据里 Claude 修过的那批可以当错误生成器的起始种子样本；critic 也单独用这批训一个，
+"""真实错误种子（RAG 训练数据里 Claude 修过的那批可以当错误生成器的起始种子样本；critic 也单独用这批训一个，
 拿去优化 RAG 生成的 GRPO 看效果）。
 
 来源：S1 的 Claude 修正（outputs/rt/minicpm/s1/fix_raw.jsonl / fix_single_raw.jsonl）—— 831 个 GRPO 训练 prompt 的参考回答

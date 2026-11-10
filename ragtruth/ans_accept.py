@@ -1,4 +1,4 @@
-"""回答 GRPO 的最终验收（2026-11-02，用户同意）。
+"""回答 GRPO 的最终验收。
 
 原始 9B 的基线是 ragtruth.base_eval 留出集：评测集原文上的 100 条回答，Claude 按金标 v1 单轮标注。这里用选定的检查点在同样的原文、同样的种子上重新生成（温度 0.7，
 格式和 base_eval gen 相同），金标提示词不变，保证和基线同一口径。回答质量另外单独判（ragtruth.ans_quality 的提示词），两边打乱，Claude 不知道回答来自哪个模型；
@@ -9,7 +9,7 @@
   python -m ragtruth.ans_accept quality --pairs 50 [--gap 20]    # 质量，每对 2 次
   python -m ragtruth.ans_accept report
 
-别的模型的摸底（2026-11-02，用户：MiniCPM5-2B 和 9B 比）也用它，--dir 换目录、--prefix 换回答 id 前缀，例如
+别的模型的摸底（MiniCPM5-2B 和 9B 比）也用它，--dir 换目录、--prefix 换回答 id 前缀，例如
   python -m ragtruth.ans_accept gen --model minicpm --dir outputs/rt/minicpm/base --prefix mc --source_model minicpm5-2b
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ D = Path("outputs/rt/ansgrpo/accept")   # 默认目录；--dir 覆盖
 
 
 class Paced:
-    """每次调用前等 gap 秒，把 Claude 调用摊到较长时间里（用户）。"""
+    """每次调用前等 gap 秒，把 Claude 调用摊到较长时间里。"""
 
     def __init__(self, llm: LLM, gap: float):
         self.llm, self.gap = llm, gap
@@ -67,7 +67,7 @@ def cmd_gen(args) -> None:
 def cmd_label(args) -> None:
     D = Path(args.dir)
     picks = {r["id"]: r for r in kept(D / "answers.jsonl") if r["finish"] == "stop" and r["sentences"]}
-    assert len(picks) <= 100, "用户同意的是 100 次幻觉标注"
+    assert len(picks) <= 100, "Claude 调用预算：最多 100 次幻觉标注"
     label(claude(args), [{"id": f"{rid}#p1", "r": picks[rid]} for rid in sorted(picks)], D / "labels.jsonl", args.concurrency)
     by = {x["resp_id"]: {1: x["sentences"]} for x in kept(D / "labels.jsonl")}
     rows = write_final(picks, by, D / "final.jsonl")
@@ -96,7 +96,7 @@ def quality_items(base: list[dict], arm: list[dict], pairs: int, seed: int) -> l
 def cmd_quality(args) -> None:
     D = Path(args.dir)
     items = quality_items(list(read_jsonl(BASE / "picks.jsonl")), kept(D / "answers.jsonl"), args.pairs, args.seed)
-    assert len(items) <= 2 * args.max_pairs, "超出用户同意的调用数"
+    assert len(items) <= 2 * args.max_pairs, "超出 Claude 调用预算"
     llm = claude(args)
 
     def run(it: dict) -> dict | None:
@@ -159,7 +159,7 @@ def main() -> None:
     ap.add_argument("--concurrency", type=int, default=2)
     ap.add_argument("--gap", type=float, default=20.0, help="每次 Claude 调用前等几秒")
     ap.add_argument("--pairs", type=int, default=50)
-    ap.add_argument("--max_pairs", type=int, default=50, help="用户同意的上限")
+    ap.add_argument("--max_pairs", type=int, default=50, help="Claude 调用上限")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dir", default=str(D))
     ap.add_argument("--prefix", default="ag", help="回答 id 前缀（替换基线的 b9）")

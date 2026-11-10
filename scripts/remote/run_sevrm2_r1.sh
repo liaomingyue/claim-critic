@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：新机器上训 sev 和 RM2。第一轮在 critic 盲区里的 Claude 标注（hard_check 100 + blind_fill 787 = 887 条，outputs/rt/core/sevaug_r1）只进训练集：
+# 训 sev 和 RM2。第一轮在 critic 盲区里的 Claude 标注（hard_check 100 + blind_fill 787 = 887 条，outputs/rt/core/sevaug_r1）只进训练集：
 #   sev__v3d = sev__v3c0 的配方 + sevaug_r1；rm2__v3d = rm2__v3b 的配方 + sevaug_r1。校准 / 测试切分不变，和 v3c0 / v3b 直接比。
 #   盲区里的效果，等第二轮 Claude 标注（blind_fill_r2，没进训练）出来再在上面比。
 cd ${CODE:-/root/autodl-fs/code/critic_model}

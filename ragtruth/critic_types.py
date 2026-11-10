@@ -1,4 +1,4 @@
-"""按 Claude 标的错误类型看 critic 的抓取率（2026-11-03，用户：critic 自己能不能判出这些错误）。
+"""按 Claude 标的错误类型看 critic 的抓取率（critic 自己能不能判出这些错误）。
 验收目录里 final.jsonl（Claude 逐句标注，含 severity / mechanism）+ critic 分数文件（[{"id": 句子 id, "p": P(有错)}]），P ≥ 0.5 算判出。
 
   python -m ragtruth.critic_types     # 写 outputs/rt/critic_types.json

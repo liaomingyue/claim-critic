@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：多开卡并行。补 critic 盲区（blind_fill）的第二台机器：
+# 多开卡并行。补 critic 盲区（blind_fill）的第二台机器：
 #   ① g1（GRPO 50 步的生成器，共享盘 outputs/rt/gen_v2_grpo/g1/ckpt/step50）在大提示池上温度 0 采样 → samples_g1.jsonl + G1_DONE
 #   ② 等主机器 build 出 rm1__core_r2_bfnc 的训练集 → 训 nc 组 critic → 三套验收打分
 cd ${CODE:-/root/autodl-fs/code/critic_model}

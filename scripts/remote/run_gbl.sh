@@ -1,5 +1,5 @@
 #!/bin/bash
-# 按长度分桶的验证（2026-11-05，用户：先做 A）：等这台的奖励对照领完（RWQUEUE_DONE），抢占位，用 ref 同一份数据、只加 group_by_length 重训，
+# 按长度分桶的验证：等这台的奖励对照领完（RWQUEUE_DONE），抢占位，用 ref 同一份数据、只加 group_by_length 重训，
 # 比训练耗时和 Claude 200 条 / RAGTruth++ 指标（应与 ref 持平）。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}

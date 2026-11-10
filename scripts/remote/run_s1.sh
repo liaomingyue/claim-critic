@@ -1,5 +1,5 @@
 #!/bin/bash
-# S1 Claude 修正 SFT（2026-11-05，用户：Claude 只改错句，正确部分原样拼回；和 S2 / GRPO 同一批 831 个 prompt）。
+# S1 Claude 修正 SFT（Claude 只改错句，正确部分原样拼回；和 S2 / GRPO 同一批 831 个 prompt）。
 #   ① Claude 修正结果（本地已跑完：fix_raw.jsonl + fix_single_raw.jsonl，上传到共享盘）→ s1_build 把改写按句子区间拼回参考回答
 #   ② SFT（同 S2：LoRA r 32 / alpha 64，2 轮，lr 5e-5）
 #   ③ 独立评测：三套验收原文生成 + 9B 打分（run_poleval.sh）→ outputs/rt/minicpm/s1/eval/

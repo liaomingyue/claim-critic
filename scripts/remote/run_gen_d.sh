@@ -1,7 +1,7 @@
 #!/bin/bash
-# 2026-11-09 用户：第 ③ 步改成更大的提示池，不局限核心集。
+# 第 ③ 步改成更大的提示池，不局限核心集。
 #   ① 2B RAG 模型（RAG GRPO 最好版 cont s100；rag-sft-core 版的池子留在 rag_pool_sftcore）在 RAGTruth 训练原文（QA / Summary，去掉评测 / 留出原文）上采回答：温度 1.0、每个原文 8 条（可用原文只有 690 个）、种子固定
-#   ② critic r2 逐句打分，P(有幻觉) < 0.1 的算干净句（用户 2026-11-09），只允许在干净句上造错；回答 × 9 种错误类型 = 提示
+#   ② critic r2 逐句打分，P(有幻觉) < 0.1 的算干净句，只允许在干净句上造错；回答 × 9 种错误类型 = 提示
 #   ③ g1（GRPO 50 步）在这些提示上各采 1 条、温度 0（确定性），筛选同 B：过门槛、critic 0.1–0.5、要求类型 ≥ 0.5，并入前两轮难样本
 #   ④ SFT → gen-v2h3-mc → 在同一批 64 个试采提示 × 32 上试采
 # 接管 run_gen_c.sh：等它把 g1 试采完（PROBE g1s50），停掉它（原定的第 ③ 步不跑），从这里接着做。
@@ -13,7 +13,7 @@ export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segm
 free_gpus() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 source $S/model_env.sh minicpm5-2b && MC=$MODEL_LOCAL
 source $S/bg_sync.sh
-R=$A/runs; V2H3=$A/ckpt/gen-v2h3-mc/adapter; SEV=sev__v3c0; RAG=${RAG:-$FS/adapters/mc-grpo-r3_core_cont/step100/policy}   # 用户：用效果最好的 RAG GRPO（cont 第 100 步：多段、句子级 R3 奖励）采回答
+R=$A/runs; V2H3=$A/ckpt/gen-v2h3-mc/adapter; SEV=sev__v3c0; RAG=${RAG:-$FS/adapters/mc-grpo-r3_core_cont/step100/policy}   # 用效果最好的 RAG GRPO（cont 第 100 步：多段、句子级 R3 奖励）采回答
 RMS="sev=$FS/adapters/$SEV-mc/adapter rm2v3=$FS/adapters/rm2__v3b-mc/adapter rm1=$FS/adapters/rm1__core_r2-mc/adapter"
 ck() { local c=$R/$1/ckpt/step50; [ -d $c/policy ] && c=$c/policy; echo $c; }
 probe() {

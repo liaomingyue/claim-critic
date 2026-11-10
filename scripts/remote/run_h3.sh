@@ -1,12 +1,12 @@
 #!/bin/bash
-# 循环第 2–3 步（2026-11-05，用户：把要跑的实验都跑下）。训练机单卡，等区间奖励的生成器训完（ckpt/step100）后依次：
+# 循环第 2–3 步。训练机单卡，等区间奖励的生成器训完（ckpt/step100）后依次：
 #   ① 放大评测：v0 / 第 50 步 / 第 100 步，评测 prompt × 16，口径同训练（sev 门槛 0.5、critic = rm1__mcgold_ref、rm2v2__mcgen3）
 #   ② 造数据：第 100 步生成器在训练 prompt 上每个采 8 条，sev 门槛（不用 RM3、不用 9B），存全部打分 → harvest_h3.jsonl
 #   ③ 建 critic 数据（基于 rm1__mcgold_ref，只加训练集）：
 #        rm1__mcgold_h3    ：P(显然) ≥ 0.5、sev P(F) ≤ 0.5、RM2 P(自然) ≥ MIN_NAT、critic P 0.3–0.7（边界）+ 配对原句
 #        rm1__mcgold_h3ctl ：同条数、同门槛，critic P 不限——区分「加了显然错误」和「加的是边界样本」
 #   ④ 依次训两个 critic（run_mcrm.sh：校准 + RAGTruth++ 报告）
-#   ⑤ 能力评测（用户：主要看这两个能力）：基线 / ref / h2 / h3 / h3ctl 给 200 条 Claude 标过的 2B GRPO 回答、回答 GRPO 策略自己的回答（cmp_h2，9B 只当评测标签）打分
+#   ⑤ 能力评测（主要看这两个能力）：基线 / ref / h2 / h3 / h3ctl 给 200 条 Claude 标过的 2B GRPO 回答、回答 GRPO 策略自己的回答（cmp_h2，9B 只当评测标签）打分
 #      → ragtruth.critic_cap：显然错误 AUC、误报 5% / 10% 下的召回、细节多的正确句子误报
 # 基座用本地盘副本（共享盘加载太慢，GPU 空着超过 10 分钟会被看门狗关机）。跑完 GPU 空闲，看门狗关机。
 set -u

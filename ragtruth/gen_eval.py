@@ -1,4 +1,4 @@
-"""种子生成器：SFT 数据的 RM1 复核 + 多次采样评测（2026-10-30，用户：生成器只要种子级启动，看多次采样能不能造出多样的合格错误）。
+"""种子生成器：SFT 数据的 RM1 复核 + 多次采样评测（生成器只要种子级启动，看多次采样能不能造出多样的合格错误）。
 
   python -m ragtruth.gen_eval rm1check --model rm1-9b      # SFT 行里整条（修复后）回答逐句打 P(有幻觉)，P > 0.5 的行丢掉
   python -m ragtruth.gen_eval sample --model gen --tag gseed  # 评测种子回答（gen_seed select 选的 198 条）每条采样 K 次
@@ -174,7 +174,7 @@ def cmd_score(args) -> None:
             except (AttributeError, TypeError, ValueError, KeyError) as e:   # 字段写成列表 / 字典等：算规则不过
                 fs, res, problems = None, {}, [f"malformed output: {type(e).__name__}"]
             item = {"id": f"{r['id']}#{j}", "resp_id": r["id"], "j": j, "rule_ok": not problems, "problems": problems[:2]}
-            if args.no_rules:   # 用户：不在意是否遵守规则（格式问题后面靠 DPO / GRPO 调），能读出句号和改写句就交给 RM3
+            if args.no_rules:   # 不在意是否遵守规则（格式问题后面靠 DPO / GRPO 调），能读出句号和改写句就交给 RM3
                 obj, s = parse_json_obj(text), resps[r["id"]]
                 try:
                     i = int((obj or {}).get("idx"))
@@ -221,7 +221,7 @@ def cmd_score(args) -> None:
 
 def cmd_report(args) -> None:
     rep = {}
-    for f in sorted(D.glob("scored_*.jsonl")):   # 用户：种子生成器评测不用 RM1，有 scored2_（补了 RM1）就用它，没有就只看 RM3
+    for f in sorted(D.glob("scored_*.jsonl")):   # 种子生成器评测不用 RM1，有 scored2_（补了 RM1）就用它，没有就只看 RM3
         tag = f.stem[len("scored_"):]
         if tag.startswith("dpo_"):   # DPO 训练用的采样，不是评测
             continue

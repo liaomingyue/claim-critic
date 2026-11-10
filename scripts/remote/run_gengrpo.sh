@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：生成器 GRPO，核心目标是 sev 奖励、增加合格样本量；自然度和 critic 作为门槛过滤。单卡 5090（用户：2B 不用双卡）：vLLM 和训练同卡，vLLM 占 40%。
+# 生成器 GRPO，核心目标是 sev 奖励、增加合格样本量；自然度和 critic 作为门槛过滤。单卡 5090（2B 不用双卡）：vLLM 和训练同卡，vLLM 占 40%。
 #   策略 = 2B 生成器 v2（gen-v2-mc）；提示 = 训练池 657 回答 × 9 机制；奖励 train/gen_reward_v2.py（--reward v2sev）
 #   ga：sev + 自然度门槛；gb：sev + 自然度门槛 + critic r2 区间 [0.1, 0.7) 门槛。各 STEPS 步。
 #   评测：留出原文 genpool_eval（70 回答 × 9 机制 × 4）上 v0 / ga / gb 采样 → 9B 基座写描述 → sev v3c0（带描述）/ RM2 v3b / critic r2 打分 → 产出率。

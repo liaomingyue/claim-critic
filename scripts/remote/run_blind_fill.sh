@@ -1,6 +1,6 @@
 #!/bin/bash
-# 2026-11-09 用户：多类型补 critic 盲区（ragtruth/blind_fill.py）。范围偏移 / 跨段拼接按 sev 排序各取 300 交 Claude；近义 / 张冠李戴各 100 做「核实 vs 不核实」对照。
-#   一、v2h3（本机）+ g1（第二台机器，run_blind_fill2.sh，用户：多开卡并行）各在大提示池（RAG GRPO 版 + SFT 版回答 × 干净句，只这 4 种类型）每个提示温度 0 采 1 条并打分
+# 多类型补 critic 盲区（ragtruth/blind_fill.py）。范围偏移 / 跨段拼接按 sev 排序各取 300 交 Claude；近义 / 张冠李戴各 100 做「核实 vs 不核实」对照。
+#   一、v2h3（本机）+ g1（第二台机器，run_blind_fill2.sh，多开卡并行）各在大提示池（RAG GRPO 版 + SFT 版回答 × 干净句，只这 4 种类型）每个提示温度 0 采 1 条并打分
 #   二、select → items.jsonl，等本地 Claude 标完上传 labels.jsonl
 #   三、build cl / nc → 本机训 cl、第二台训 nc → 三套验收打分（本地 critic_cap3：显然错 / 任意错 / 按类型）
 cd ${CODE:-/root/autodl-fs/code/critic_model}

@@ -1,10 +1,10 @@
 #!/bin/bash
-# 放大评测（2026-11-03，用户：a6 评测是否骗过 critic，核心看离 0.5 附近的样本是不是多了，这个最重要）：
+# 放大评测（a6 评测是否骗过 critic，核心看离 0.5 附近的样本是不是多了，这个最重要）：
 # 每组快评只有 144 个 prompt × 4 次，同一起点第 0 步的边界条数在 4–16 之间，比不出差别。这里每个 prompt 采 16 次：
 #   CKPTS="v0=v0 a6=outputs/rt/gentarget/grpo_seed5_a6/ckpt/step50" TAG=p1 bash run_bigeval.sh
 # 2B 服务上的 rm1 / rm2 / rm3 和训练时一样打分（P(真错) = A + B），再用 9B 金标 critic（GPU0）和第一版 RM2（GPU1）补独立分，
 # 最后按边界口径（2B P(判出) 0.3–0.7、9B 判得出）出表。名字的序号就是 quick_samples 里的 step。
-# 双卡（用户：评测都用多卡跑，更快）：评测 prompt 按 id 哈希对半分，两张卡各起一个同样的服务各评一半，最后把 quick_samples 拼起来。
+# 双卡（评测都用多卡跑，更快）：评测 prompt 按 id 哈希对半分，两张卡各起一个同样的服务各评一半，最后把 quick_samples 拼起来。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; LOG=$A/bigeval.log; S=$(dirname $(readlink -f $0))

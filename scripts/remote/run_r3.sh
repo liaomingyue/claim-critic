@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-07 用户：按「合并句子导致 r2 漏判」的方向改，再重跑。
+# 按「合并句子导致 r2 漏判」的方向改，再重跑。
 #   ① merge_aug：种子集 Claude 核实过的错句 / 改对句拼成长句、列表句（1000 对 → 2000 行），加到 r2 训练集 → rm1__core_r3；run_mcrm（校准 + RAGTruth++）
 #   ② r3 打分：三套验收（critic_cap3，本地算）+ cont2 起点 / 第 100 步回答（按句长的盲区召回，和 r2 比）
 #   ③ 用 r3 当奖励接着训：同 cont2 的起点（adapters/mc-grpo-r3_core_cont/step100）100 步 → ARM=cont3，9B 评测

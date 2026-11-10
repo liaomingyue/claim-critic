@@ -1,14 +1,14 @@
-"""生成器 v2 的 GRPO 奖励（2026-11-09，用户：核心目标是 sev 奖励、提高合格样本量；自然度和 critic 作为门槛过滤）。
+"""生成器 v2 的 GRPO 奖励（核心目标是 sev 奖励、提高合格样本量；自然度和 critic 作为门槛过滤）。
 
 策略输出 = gen_v2 格式（{"idx", "sentence", "edit"}），prompt 行带 source / sentences / mechanism（要求的机制）。
   1. 硬规则（0 分）：gen_v2.parse 不过（解析不出、句号越界、原样输出、照抄别的句子）；改写句 > 原句 3 倍且多 300 字以上；点破题目的词。
   2. sev = sev v3（输入：要求的机制 + 规则改动清单；训练中不调 9B 写描述，描述留空）的 P(要求的那种·显然) + P(要求的那种·细微)。
   3. 门槛：自然度 RM2 v3b P(自然) ≥ nat_gate；--crit 时另加 critic r2 P(有幻觉) ∈ [crit_lo, crit_hi)。
      过了门槛：奖励 = sev；没过：奖励 = fail_scale × sev（低于任何过门槛的样本，留一点梯度）。
-shape="hard"（2026-11-09 用户：核心是造 critic 盲区样本——critic 难度当主奖励，自然度和是否真错作为过滤）：
+shape="hard"（核心是造 critic 盲区样本——critic 难度当主奖励，自然度和是否真错作为过滤）：
   门槛 = sev P(有错) ≥ err_gate（默认 0.9；难区 sev ≥ 0.5 精度只有约 55%，≥ 0.9 约 85%）且 RM2 自然 ≥ nat_gate；没过 0 分。
   过了：奖励 = 0.1 + 0.9 × h(critic P)，h 在 0.3–0.5 为 1，0.1→0.3 线性升、0.5→0.9 线性降，< 0.1 和 ≥ 0.9 为 0
-  （不单调奖励「骗过 critic」：11-08 gated 版就是这样坍缩成造 sev 会误判的非错句，真错只剩 24%）。
+  （不单调奖励「骗过 critic」：之前的 gated 版就是这样坍缩成造 sev 会误判的非错句，真错只剩 24%）。
 组内优势值（gen_grpo.group_advantages）按「类型」= 要求的机制分组，同一 prompt 机制相同，等于组均值。
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ BANNED = re.compile(r"hallucinat|faithful|\bthe source\b|\bsource text\b|\bnot (
 
 
 def hardness_shape(p: float, shape: str) -> float:
-    """难度系数的几种形状（2026-11-09 用户：0.7 以上的比例要压下去，往 0.5 以下推；做几组对比）。
+    """难度系数的几种形状（0.7 以上的比例要压下去，往 0.5 以下推；做几组对比）。
     tri：0.1→0.3 升、0.3–0.5 为 1、0.5→0.9 降；low：只奖励 < 0.7（0.1–0.5 为 1、0.5→0.7 降）。"""
     if shape == "rank":   # 绝对部分同 tri；组内排名部分在 group_post 里加
         return hardness(p)
@@ -51,7 +51,7 @@ class V2SevRewarder:
         self.client, self.t = client, temps
         self.shape, self.err_gate = shape, err_gate
         self.hard_shape, self.hard_base = hard_shape, hard_base   # 过门槛的奖励 = base + (1 − base) × h
-        # 动态门槛（2026-11-09 用户：前期 sev 门槛调低一点）：已打分样本数 0 → warm_samples，门槛从 err_gate_start 线性升到 err_gate
+        # 动态门槛（前期 sev 门槛调低一点）：已打分样本数 0 → warm_samples，门槛从 err_gate_start 线性升到 err_gate
         self.err_gate_start, self.warm_samples, self.n_scored, self.lock = err_gate_start, warm_samples, 0, threading.Lock()
         if shape == "hard":
             crit = True
@@ -125,7 +125,7 @@ class V2SevRewarder:
                 "p_correct": s["p_req"], "hard": 0.0, "real": s["p_natural"], "div": 0.0}
 
     def group_post(self, scores: list[dict]) -> None:
-        """组内相对难度（2026-11-09 用户同意，方向①）：同一提示的一组里，过门槛且 critic ≥ 0.1 的样本按 critic P 从低到高排名，
+        """组内相对难度（方向①）：同一提示的一组里，过门槛且 critic ≥ 0.1 的样本按 critic P 从低到高排名，
         奖励 = 0.5 × 排名分（比它更容易被 critic 判出的同伴占比）+ 0.5 × 绝对难度 tri(P)；critic < 0.1、没过门槛仍是 0（不奖励完全骗过 critic）。
         这样 0.99 和 0.93 之间也拉得开，每组都有梯度，模型一步步往下推；不设保底（h1 证明保底会鼓励明显错）。"""
         if self.shape != "hard" or self.hard_shape != "rank":

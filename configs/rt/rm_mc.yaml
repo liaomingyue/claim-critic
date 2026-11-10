@@ -1,4 +1,4 @@
-# MiniCPM5-2B 版单字符选项 RM（2026-11-02，用户：做 2B 适配）。和 rm_9b.yaml 只差底座和批大小：
+# MiniCPM5-2B 版单字符选项 RM（2B 适配）。和 rm_9b.yaml 只差底座和批大小：
 # 9B 每次 1 条、累积 16 步是显存所迫，2B 用同样设置 GPU 只跑到约 30%；改成每次 4 条、累积 4 步，总批量仍是 16（8 条时 13 万词表的 logits 在 4096 长度下约 8.5 GB，怕 OOM），学习率、轮数、LoRA 不变。
 # data / output_dir / max_length 由 run_mcrm.sh 按 RM 改写。
 task: option

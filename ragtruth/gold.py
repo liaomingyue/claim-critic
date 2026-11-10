@@ -1,7 +1,7 @@
-"""核心种子集和金标（2026-11-01，用户：选 100 条回答，完全按 Claude 的标准标注，作为核心种子集和核心标准）。规范见 docs/gold_standard.md。
+"""核心种子集和金标（选 100 条回答，完全按 Claude 的标准标注，作为核心种子集和核心标准）。规范见 docs/gold_standard.md。
 
   python -m ragtruth.gold pilot    # 第 1 步：选 10 条回答，每条独立标两遍 → outputs/rt/gold/pilot_labels.jsonl
-  python -m ragtruth.gold review   # 比较两遍，挑约 20 句给用户看 → outputs/rt/gold/pilot_review.json
+  python -m ragtruth.gold review   # 比较两遍，挑约 20 句供人工查看 → outputs/rt/gold/pilot_review.json
   python -m ragtruth.gold seed     # 种子集 100 条回答（含试标的 10 条）：先随机补到 40 条，再分批补 60 条缺的错误机制，每条两遍，不一致的第三遍裁决 → seed_final.jsonl
   python -m ragtruth.gold test     # 测试集 402 条回答全部标一遍，不挑分布 → test_final.jsonl
 """
@@ -133,7 +133,7 @@ def cmd_pilot(args) -> None:
         for r in picks:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     print("picked", collections.Counter((r["task_type"], r["model"]) for r in picks), "sentences", sum(len(r["sentences"]) for r in picks), flush=True)
-    assert 2 * len(picks) <= 24, "用户同意的第 1 步约 20 次调用"
+    assert 2 * len(picks) <= 24, "Claude 调用预算：第 1 步约 20 次"
     items = [{"id": f"{r['id']}#p{p}", "r": r} for r in picks for p in (1, 2)]
     llm = LLM(LLMConfig(model=args.model, provider="claude_cli", effort=args.effort, concurrency=args.concurrency))
 
@@ -229,7 +229,7 @@ def cmd_seed(args) -> None:
     if len(picks) < args.n_random:
         take(None, args.n_random - len(picks))
         save()
-    assert len(picks) <= 100, "用户同意的种子集是 100 条回答"
+    assert len(picks) <= 100, "种子集是 100 条回答"
     rows = write_final(picks, seed_passes(picks, llm, args), D / "seed_final.jsonl")
     print("random", len(picks), "coverage", coverage(rows), flush=True)
     while len(picks) < args.n_seed:

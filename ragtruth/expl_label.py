@@ -1,4 +1,4 @@
-"""SFT 错误生成器解释质量审计：类型 / 证据 / 理由分开判（2026-11-08，用户：看 SFT 生成器的错误是否真错、证据和理由效果）。
+"""SFT 错误生成器解释质量审计：类型 / 证据 / 理由分开判（看 SFT 生成器的错误是否真错、证据和理由效果）。
 
 样本：outputs/rt/core/sevpool.jsonl（改写模型 v0 = 种子 SFT，在 D4 训练池上的原始输出，未按 critic 筛）里，
 Claude 已判为真错（sevpool_labels.jsonl：severity clear / minor）的 524 条。旧标注只有合并的 explanation_ok，这里拆成三项：

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 循环二（RAG 生成，2026-11-06，用户：一台单卡顺序跑）：从 RAG SFT 出发，R3 奖励 GRPO。只用核心集派生的数据 / 模型；9B 金标 critic 只做训完后的评测。
+# 循环二（RAG 生成，一台单卡顺序跑）：从 RAG SFT 出发，R3 奖励 GRPO。只用核心集派生的数据 / 模型；9B 金标 critic 只做训完后的评测。
 #   ARM=<组名> CRITIC=<critic> [INIT=<起点 LoRA>] [STEPS=200] bash run_loop2.sh
 #   ① 原文池 D2（outputs/rt/core/grpo_train.jsonl，750 个，去掉核心集留出原文）+ 原 dev
 #   ② 起点模型重采参考回答（同 1.4：ans_data ref 温度 1.0 × 4 定长度范围、ref2 温度 0.7 × 4 取长度居中的一条当满意度参考）
@@ -35,7 +35,7 @@ fi
 log "R3 GRPO arm $ARM: init $INIT critic ${CRITIC:?} steps ${STEPS:-200}"
 SRC=$P INIT=$INIT CRITIC=$CRITIC SAT=${SAT:-sat_pair__core} REFUSE=${REFUSE:-refuse__core} STEPS=${STEPS:-200} EVAL_STEPS="${EVAL_STEPS:-50 100 200}" EVAL_V0=${EVAL_V0:-1} \
   TAG=_core_$ARM O=${O_LOCAL:-$C/loop2_$ARM} bash $S/run_r3full.sh >> $LOG 2>&1
-# 2026-11-09 用户：训练只读写本地盘（O_LOCAL），结束后整份同步到共享盘
+# 训练只读写本地盘（O_LOCAL），结束后整份同步到共享盘
 [ -n "${O_LOCAL:-}" ] && mkdir -p $C/loop2_$ARM && rsync -a $O_LOCAL/ $C/loop2_$ARM/ && log "synced $O_LOCAL -> $C/loop2_$ARM"
 grep -a "R3FULL_DONE\|FAILED" $A/r3full_core_$ARM.log | tail -3
 log "LOOP2_DONE $ARM"

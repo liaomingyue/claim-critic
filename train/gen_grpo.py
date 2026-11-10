@@ -1,4 +1,4 @@
-"""生成器 GRPO：两张卡，训练卡只训 LoRA，推理卡一个 vLLM 服务同时放生成器 LoRA 和三个 RM LoRA（2026-10-31，用户）。
+"""生成器 GRPO：两张卡，训练卡只训 LoRA，推理卡一个 vLLM 服务同时放生成器 LoRA 和三个 RM LoRA。
 
   GPU1：vllm serve <9B 基座> --enable-lora --max-lora-rank 32 --lora-modules rm1=… rm2=… rm3=… policy_v0=<起点 LoRA>
         （VLLM_ALLOW_RUNTIME_LORA_UPDATING=True，训练中热加载新版本生成器 LoRA）
@@ -8,7 +8,7 @@
 每一步：生产者用当前最新版本的生成器 LoRA 给一批 prompt 各采 n 条（同时拿到采样时每个 token 的 logprob），
 在同一服务上用三个 RM 打分（train.gen_reward），算组内优势值（同类型基线）；训练者取一批，算当前策略和参考策略
 （起点 LoRA，冻结副本）的 logprob，PPO 截断的重要性比值 × 优势值 − β·KL，更新一次，保存 LoRA 推给推理卡。
-async：生产者一直往前生成，队列最多 max_stale 批，落后超过 max_stale 个版本的批丢掉重采（用户：两张卡并行，参数
+async：生产者一直往前生成，队列最多 max_stale 批，落后超过 max_stale 个版本的批丢掉重采（两张卡并行，参数
 有一点延迟没关系）；sync：训练者等这一批生成完再训（对照，用来测并行的收益）。
 每步记一行 log.jsonl（奖励各项、合格率、类型占比、硬规则拦下的原因、落后版本数、截断比例、KL、耗时）；
 每 save_every 步存一个检查点，训练后做阶段性评测。
@@ -32,7 +32,7 @@ PROMPTS = "outputs/rt/realgen/grpo/prompts.jsonl"
 
 
 def vllm_key() -> str:
-    """推理服务的 API 密钥。双机模式下推理机的 vLLM 经 AutoDL 对外域名访问，必须带密钥（2026-11-04）；单机默认 "x"（服务不校验）。"""
+    """推理服务的 API 密钥。双机模式下推理机的 vLLM 经 AutoDL 对外域名访问，必须带密钥；单机默认 "x"（服务不校验）。"""
     import os
     return os.environ.get("VLLM_API_KEY", "x")
 
@@ -43,7 +43,7 @@ def vllm_headers() -> dict:
 
 def lora_sync_url() -> str:
     """双机模式：推理机上的 LoRA 同步服务（scripts/lora_sync.py）。设了就不直接让 vLLM 读训练机路径，
-    而是让同步服务把共享盘上的 LoRA 拷到推理机内存盘再热加载（用户：每步存共享盘，再加载到内存）。"""
+    而是让同步服务把共享盘上的 LoRA 拷到推理机内存盘再热加载（每步存共享盘，再加载到内存）。"""
     import os
     return os.environ.get("LORA_SYNC_URL", "").rstrip("/")
 
@@ -57,7 +57,7 @@ class Server:
         self.client = OpenAI(base_url=self.url, api_key=vllm_key(), timeout=1800, max_retries=3)
 
     def sample(self, model: str, prompt: str | list[int], n: int, max_tokens: int, temperature: float, priority: int = 0) -> list[dict]:
-        # top_p / top_k 显式关掉：vLLM 默认沿用模型 generation_config（MiniCPM5 是 top_p 0.95），截断采样和策略梯度假设的完整分布不一致（2026-11-02）
+        # top_p / top_k 显式关掉：vLLM 默认沿用模型 generation_config（MiniCPM5 是 top_p 0.95），截断采样和策略梯度假设的完整分布不一致
         r = self.client.completions.create(model=model, prompt=prompt, n=n, max_tokens=max_tokens, temperature=temperature, top_p=1.0,
                                            logprobs=1, extra_body={"return_tokens_as_token_ids": True, "top_k": -1, **({"priority": priority} if priority else {})})
         out = []
@@ -79,7 +79,7 @@ class Server:
         return [float(pl[P + k][str(t)]["logprob"]) for k, t in enumerate(comp_ids)]
 
     def ref_logprobs_batch(self, model: str, prompt_ids: list[int], comps: list[list[int]]) -> list[list[float]]:
-        """同一个 prompt 的几条 completion 一次请求（2026-11-05：双机模式每个请求经对外域名多约 30 ms，256 个单条请求 35 秒）。
+        """同一个 prompt 的几条 completion 一次请求（双机模式每个请求经对外域名多约 30 ms，256 个单条请求 35 秒）。
         vLLM completions 的 prompt 可以是多个 token 序列，choices 按 index 对应。"""
         import requests
         r = requests.post(self.url + "/completions", headers=vllm_headers(), json={"model": model, "prompt": [prompt_ids + c for c in comps], "max_tokens": 1,
@@ -94,7 +94,7 @@ class Server:
         sync = lora_sync_url()
         if sync:   # 双机：LoRA 交给推理机上的同步服务（scripts/lora_sync.py），在推理机内存盘热加载
             import os
-            if os.environ.get("LORA_SYNC_MODE", "upload") == "upload":   # 直接上传，不经共享盘（用户，2026-11-04）
+            if os.environ.get("LORA_SYNC_MODE", "upload") == "upload":   # 直接上传，不经共享盘
                 import io
                 import tarfile
                 buf = io.BytesIO()
@@ -103,7 +103,7 @@ class Server:
                         if f.is_file():
                             tf.add(str(f), arcname=f.name)
                 r = requests.put(f"{sync}/push/{name}", headers=vllm_headers(), data=buf.getvalue(), timeout=900)
-            else:   # 经共享盘（跨区上传慢时用：2026-11-04 westc → westd 只有 6 MB/s，192 MB 要 20 秒；共享盘写 + 读约 3 秒）
+            else:   # 经共享盘（跨区上传慢时用：实测 westc → westd 只有 6 MB/s，192 MB 要 20 秒；共享盘写 + 读约 3 秒）
                 fs_dir = os.environ.get("LORA_SYNC_FS_DIR", "")
                 if fs_dir and not str(path).startswith(fs_dir):   # 主线程只存本机内存盘，这里（后台线程）再拷到共享盘，不挡训练
                     import shutil
@@ -174,9 +174,9 @@ class Producer:
         t0 = time.time()
         prompts = [chat_prompt(self.tok, r["prompt"]) for r in rows]
         name = "policy_v0" if v == 0 else f"{self.a.version_prefix}policy_v{v}"
-        # 发 token id、训练侧用同一份（MiniCPM 的分词器默认加开头 <s>，vLLM 自己分词会加、训练侧原来不加：ans_grpo 第 1 步截断比例 22%，2026-11-02）
+        # 发 token id、训练侧用同一份（MiniCPM 的分词器默认加开头 <s>，vLLM 自己分词会加、训练侧原来不加：ans_grpo 第 1 步截断比例 22%）
         ids = [self.tok(p)["input_ids"] for p in prompts]
-        if getattr(self.a, "pipeline", 0):   # 每个 prompt 生成完立刻提交打分，生成和打分重叠（2026-11-05，用户：采样端也优化）
+        if getattr(self.a, "pipeline", 0):   # 每个 prompt 生成完立刻提交打分，生成和打分重叠（采样端优化）
             def one(k):
                 g = self.srv.sample(name, ids[k], self.a.n, self.a.max_tokens, self.a.temperature)
                 return g, [self.rm_pool.submit(self.rw.score, x["text"], rows[k]) for x in g], time.time()
@@ -239,7 +239,7 @@ def build_rewarder(args):
     from openai import OpenAI
     from train.gen_reward import Rewarder, TargetRewarder, load_temps
     cl = OpenAI(base_url=args.vllm_url, api_key=vllm_key(), timeout=600, max_retries=3)
-    if args.reward == "v2sev":   # 2026-11-09 生成器 v2：sev 主奖励，自然度 / critic 门槛（train.gen_reward_v2）
+    if args.reward == "v2sev":   # 生成器 v2：sev 主奖励，自然度 / critic 门槛（train.gen_reward_v2）
         from train.gen_reward_v2 import V2SevRewarder
         return V2SevRewarder(cl, load_temps(args.temps), nat_gate=args.nat_gate, crit=bool(args.crit_gate), crit_lo=args.crit_lo, crit_hi=args.crit_hi,
                              fail_scale=args.fail_scale, shape=args.v2_shape, err_gate=args.err_gate,
@@ -253,7 +253,7 @@ def build_rewarder(args):
 
 
 def _gen_producer_proc(args, out: str, start_pos: int, rw_state, vval, bq, cmd, ack) -> None:
-    """子进程（2026-11-05，用户：训练慢，定位到是锁）：采样 / 打分 / 快评都在这里，训练进程独占 GIL。
+    """子进程（训练慢，定位到是锁）：采样 / 打分 / 快评都在这里，训练进程独占 GIL。
     奖励的滑动统计在这里，主进程存状态时用 state 命令要。"""
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.base)
@@ -571,7 +571,7 @@ def push(model, out: Path, server: Server, version: int, keep_versions: int, pre
 
 
 def save_state(model, opt, rw, prod, step: int, version: int, out: Path, keep: int) -> Path:
-    """完整检查点：LoRA + 优化器 + 奖励统计 + prompt 位置 + 随机数（用户：不能每次 reward hack 都重训，要能只回退一小段）。只留最近 keep 个。"""
+    """完整检查点：LoRA + 优化器 + 奖励统计 + prompt 位置 + 随机数（不能每次 reward hack 都重训，要能只回退一小段）。只留最近 keep 个。"""
     import torch
     d = out / "state" / f"step{step}"
     model.save_pretrained(str(d), selected_adapters=["policy"])
@@ -602,7 +602,7 @@ def load_state(model, opt, rw, prod, d: Path, reset_reward: bool = False) -> dic
 
 
 class TripWire:
-    """自动报警（用户：不能等人发现 reward hack）：每步的便宜指标，最近 window 步均值和训练初期的基线比，越线就存状态、停训练。
+    """自动报警（不能等人发现 reward hack）：每步的便宜指标，最近 window 步均值和训练初期的基线比，越线就存状态、停训练。
     只看 RM 分数以外的东西；把冷门的标准改法名硬贴到错误上这种作弊这里抓不到，要看快评的 distinct_qualified 和 distinct_place_type 是否背离。"""
 
     def __init__(self, start: int = 45, window: int = 20, base=(5, 25), other_max: float = 0.08, raw_ratio: float = 2.0,
@@ -650,7 +650,7 @@ def save_samples(batch: dict, step: int, out: Path) -> None:
 
 
 class QuickEval:
-    """每个检查点存完就在推理卡上快速评测（2026-10-31，用户：每个检查点完成后快速评测一下）。
+    """每个检查点存完就在推理卡上快速评测。
     评测集 = 生成器评测的 198 条种子回答（ragtruth.gen_eval.eval_resps，和训练 prompt 不重叠的原文），每条采 k 次，
     示例和 gen_eval sample 一样固定；只打 RM 原始概率（Rewarder.raw，不动训练的滑动统计）。检查点另起名字加载，
     评完卸载，不受训练里旧版本卸载的影响。后台单线程排队跑，不挡训练。step 0 = 起点 G_dpo2。"""
@@ -685,13 +685,13 @@ class QuickEval:
             if path is not None:
                 name = f"{self.a.version_prefix}eval_s{step}"
                 self.srv.load_lora(name, str(path / "policy" if (path / "policy").exists() else path))
-            # 只用推理卡的空闲（用户：生成和打分时评测别做）：生产者空着才开始下一条；一直没有空闲时按 eval_minutes 的进度兜底，保证能评完
+            # 只用推理卡的空闲（生成和打分时不做评测）：生产者空着才开始下一条；一直没有空闲时按 eval_minutes 的进度兜底，保证能评完
             gap = self.a.eval_minutes * 60 / len(self.rows)
             spent = collections.Counter()
 
             t0 = time.time()
             sem = threading.Semaphore(4)
-            pr = 1 if self.gate is not None else 0   # vLLM 优先级调度：数字大的靠后，训练要的推理优先（用户）
+            pr = 1 if self.gate is not None else 0   # vLLM 优先级调度：数字大的靠后，训练要的推理优先
 
             def one(r: dict) -> tuple[list[dict], list[dict]]:
                 t = time.time()
@@ -895,7 +895,7 @@ def eval_ckpts(args) -> None:
     tok = AutoTokenizer.from_pretrained(args.base)
     server = Server(args.vllm_url)
     cl = OpenAI(base_url=args.vllm_url, api_key=vllm_key(), timeout=600, max_retries=3)
-    if args.reward == "target":   # 定向版的评测口径（P(真错) 口径、门槛、2B critic / RM2 分数）和训练时一样（2026-11-03 放大评测）
+    if args.reward == "target":   # 定向版的评测口径（P(真错) 口径、门槛、2B critic / RM2 分数）和训练时一样（放大评测）
         from train.gen_reward import TargetRewarder
         rw = TargetRewarder(cl, load_temps(args.temps), gate=args.gate, type_floor=args.type_floor, err_mode=args.err_mode, shape=args.shape,
                             rm2_ens=[m for m in args.rm2_ens.split(",") if m], gate_lo=args.gate_lo)
@@ -1055,11 +1055,11 @@ def main() -> None:
     ap.add_argument("--max_stale", type=int, default=2)
     ap.add_argument("--keep_versions", type=int, default=3)
     ap.add_argument("--micro_batch", type=int, default=4, help="同一 prompt 的几条一起前向 / 反向")
-    ap.add_argument("--proc_producer", type=int, default=0, help="1：采样 / 打分 / 快评放子进程（async 模式），训练进程独占 GIL（2026-11-05 定位）")
+    ap.add_argument("--proc_producer", type=int, default=0, help="1：采样 / 打分 / 快评放子进程（async 模式），训练进程独占 GIL")
     ap.add_argument("--pipeline", type=int, default=0, help="1：每个 prompt 生成完立刻打分（生成和打分重叠）")
-    ap.add_argument("--blind_bonus", type=float, default=0.0, help="shape=sev：critic 判不出（P < blind_thr）的合格样本额外加这么多（方案 A，2026-11-05）")
+    ap.add_argument("--blind_bonus", type=float, default=0.0, help="shape=sev：critic 判不出（P < blind_thr）的合格样本额外加这么多（方案 A）")
     ap.add_argument("--blind_thr", type=float, default=0.5, help="加分区间上沿")
-    ap.add_argument("--blind_lo", type=float, default=0.0, help="加分区间下沿（用户：边界样本 0.3–0.7 最好）")
+    ap.add_argument("--blind_lo", type=float, default=0.0, help="加分区间下沿（边界样本 0.3–0.7 最好）")
     ap.add_argument("--ref_batch", type=int, default=0, help="1：参考 logprob 按 prompt 合并成一次请求（双机模式省对外域名的往返）")
     ap.add_argument("--ref_on_vllm", type=int, default=1, help="参考 logprob 在推理卡上算（1）还是训练卡（0）")
     ap.add_argument("--version_prefix", default="", help="热加载的 LoRA 名前缀（同一个服务上跑几次时互不冲突；v0 都是 policy_v0）")
@@ -1086,7 +1086,7 @@ def main() -> None:
     ap.add_argument("--share_prompts", type=int, default=4)
     ap.add_argument("--share_mbs", type=int, nargs="+", default=[4, 8])
     ap.add_argument("--seed_adapter", default="")
-    # 定向造错（2026-11-03）
+    # 定向造错
     ap.add_argument("--causal", type=int, default=0, help="1 = 纯文本 CausalLM 底座（MiniCPM5-2B）")
     ap.add_argument("--share_impl", default="train.prefix_share", help="prompt 共享实现；Llama 结构用 train.prefix_share_llama")
     ap.add_argument("--nat_gate", type=float, default=0.5, help="v2sev：RM2 v3 P(自然) 门槛")

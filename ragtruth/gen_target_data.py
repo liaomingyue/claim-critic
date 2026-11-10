@@ -1,9 +1,9 @@
-"""定向造错生成器 GRPO 的提示池（2026-11-03，用户：合成 2B critic 漏掉的几大类错误，用 GRPO 训出和真实模型一致的错误）。
+"""定向造错生成器 GRPO 的提示池（合成 2B critic 漏掉的几大类错误，用 GRPO 训出和真实模型一致的错误）。
 
 种子是 2B GRPO 第 300 步策略自己写的回答（在策略：造出来的错要像这个模型会犯的），原文是回答 GRPO 的训练原文
 （outputs/rt/ansgrpo/train_all.jsonl，和 critic 按类型的测试集 outputs/rt/minicpm/grpo300 的评测原文不重叠）。
 prompt 用自由版 + 定向改法（synth.FOCUS_TACTICS：张冠李戴、跨段拼接、数字、确定性 / 范围、顺序、关系反转、泛化、因果连接），
-正好覆盖 critic 按类型统计里 2B critic 的盲区。每句原句预先用 9B 金标 critic 打 P(有错)（训练外调用用 9B，用户），
+正好覆盖 critic 按类型统计里 2B critic 的盲区。每句原句预先用 9B 金标 critic 打 P(有错)（训练外调用用 9B），
 存在行里的 orig_p：改的原句本来就有错，奖励给 0。
 
   python -m ragtruth.gen_target_data answers --url http://127.0.0.1:8000/v1 --model g300     # 每个原文采 k 条回答
@@ -54,7 +54,7 @@ def cmd_answers(a) -> None:
 
 
 def cmd_hardpool(a) -> None:
-    """骗过 critic 的示例池（2026-11-03，用户：目前骗不过 critic，要想办法）：两轮 Claude 确认的 2B 真错，用 2B critic（rm1）在原回答里打分，
+    """骗过 critic 的示例池（目前骗不过 critic，要想办法）：两轮 Claude 确认的 2B 真错，用 2B critic（rm1）在原回答里打分，
     P(判出) < 0.5 的就是 critic 真实漏掉的 2B 错误，存成 synth.example_pool 的格式，给 build --example_pool 当 prompt 里的示例
     （原来的示例是 RAGTruth 里别的模型的错句）。"""
     from ragtruth.rm_data import RM1_SYSTEM
@@ -152,7 +152,7 @@ def _pick(cls: list, key: str):
 
 
 def cmd_synth(a) -> None:
-    """RM2 的「合成」一侧（用户，2026-11-03：RM2 完全重造；SFT 完的 2B 造错生成器采出来的就是合成，回答 GRPO 策略自己写出的错就是自然）：
+    """RM2 的「合成」一侧（RM2 完全重造；SFT 完的 2B 造错生成器采出来的就是合成，回答 GRPO 策略自己写出的错就是自然）：
     gen-seed-mc 在训练 prompt 上各采 1 条，过硬规则，2B RM3 P(合格) ≥ gate、原句 orig_p ≤ 0.5 的留下。"""
     from transformers import AutoTokenizer
     from ragtruth import audit_synth
@@ -193,7 +193,7 @@ def cmd_synth(a) -> None:
 
 
 def cmd_harvest(a) -> None:
-    """批量造 critic 训练数据（2026-11-03，用户：数据生成和 critic 重训的脚本先准备）：选定的生成器检查点在训练 prompt 上每个采 --samples 条，
+    """批量造 critic 训练数据（数据生成和 critic 重训的脚本）：选定的生成器检查点在训练 prompt 上每个采 --samples 条，
     和训练时一样打分：RM3 P(真错) = A + B、原句 orig_p（9B 预先算好）、2B critic P(判出)、RM2 P(自然)。全部存下（之后按边界区间筛），
     输出 outputs/rt/gentarget/<--out>。双卡：--url 逗号分隔，每条样本的生成和打分走同一个服务。"""
     from transformers import AutoTokenizer
@@ -227,7 +227,7 @@ def cmd_harvest(a) -> None:
             if rec is None or rec["op"] != "rewrite":
                 res.append(x)
                 continue
-            if a.sev:   # 新循环（2026-11-05）：门槛用严重程度 RM，输入同 sev_rm.prompt（回答里已换成改写句）；原句有错用 sev 的 P(F)，不用 9B 的 orig_p
+            if a.sev:   # 新循环：门槛用严重程度 RM，输入同 sev_rm.prompt（回答里已换成改写句）；原句有错用 sev 的 P(F)，不用 9B 的 orig_p
                 p3 = opt(cl, a.sev, SEV_SYSTEM, audit_synth.render({**rec, "sentences": context(rec)}), "ABCDEF", a.sev_temp)
             else:
                 p3 = opt(cl, a.rm3, RM3_SYSTEM, audit_synth.render(rec), "ABCD", t3)
@@ -257,7 +257,7 @@ def cmd_harvest(a) -> None:
 
 
 def cmd_score9b(a) -> None:
-    """9B 翻转门打分（2026-11-07，用户：错误生成器大概率造出错，但要「改写前无幻觉、改写后有幻觉」双向确认，且零 Claude）：
+    """9B 翻转门打分（错误生成器大概率造出错，但要「改写前无幻觉、改写后有幻觉」双向确认，且零 Claude）：
     对 harvest 文件里每条改写记录，用 9B 金标 critic 给「错句上下文」(context) 和「原句上下文」(sentences_orig) 各打一次 P(错)=B+C，
     写 {id, orig_9b, err_9b}。critic_harvest --scores9b 据此卡翻转门（orig_9b≤lo_clean 且 err_9b≥hi_err）。--model 是 vLLM 上 9B critic 的名字。"""
     from ragtruth.rm_data import RM1_SYSTEM
@@ -290,7 +290,7 @@ def cmd_score9b(a) -> None:
 
 
 def cmd_rm2score(a) -> None:
-    """新旧种子生成器对比（2026-11-03，种子换成 2B 自己的错句）：synth 文件里合格的样本用 RM2 打 P(自然)；
+    """新旧种子生成器对比（种子换成 2B 自己的错句）：synth 文件里合格的样本用 RM2 打 P(自然)；
     只统计原文不在 RM2 训练集里的（旧 synth 的合格样本有一部分就是 RM2 的训练负例）。"""
     from ragtruth import discrim
     from ragtruth.rm_data import OUT, RM2G_SYSTEM
@@ -321,7 +321,7 @@ def cmd_rm2score(a) -> None:
 
 def cmd_rm2data(a) -> None:
     """重造 RM2（rm2v2__mcgen，A 自然 / B 合成；系统提示 RM2G_SYSTEM，不假定句子有错）：
-      自然 = 2B GRPO 第 300 步策略在训练原文上写的回答里的句子，不看对错（用户：不是错误的也行，不然容易走捷径——
+      自然 = 2B GRPO 第 300 步策略在训练原文上写的回答里的句子，不看对错（不是错误的也行，不然容易走捷径——
              只拿 9B 判错的句子当自然，合成又只改 9B 判对的句子，RM2 就能靠「像不像 9B 判错的句子」来区分）；
              另加 MiniCPM 2B 基线里 Claude 标出的有错句（outputs/rt/minicpm/sys，156 句，全留）；
       合成 = synth：同一批回答上 gen-seed-mc 造出、RM3 判合格的改写句。
@@ -365,7 +365,7 @@ def cmd_rm2data(a) -> None:
         auto = sorted((r for r in nat if r["task_type"] == t), key=lambda r: r["id"])
         b = sorted((r for r in syn if r["task_type"] == t), key=lambda r: r["id"])
         m = min(len(c) + len(auto), len(b))
-        if a.seed_errors:   # Claude 确认的真错最多占自然一侧一半（用户：自然一侧不能只有错句，不然容易走捷径），随机抽
+        if a.seed_errors:   # Claude 确认的真错最多占自然一侧一半（自然一侧不能只有错句，不然容易走捷径），随机抽
             c = rng.sample(c, min(len(c), m // 2))
         else:
             c = c[:m]

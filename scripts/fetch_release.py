@@ -1,4 +1,4 @@
-"""下载并解压开源发布的数据和模型，核对 SHA-256（2026-11-10）。
+"""下载并解压开源发布的数据和模型，核对 SHA-256。
 
   pip install huggingface_hub
   python -m scripts.fetch_release --data_repo <用户>/claim-critic-data --model_repo <用户>/claim-critic-models [--only data|models] [--parts eval core]

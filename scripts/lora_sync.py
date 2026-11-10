@@ -1,15 +1,15 @@
-"""双机 GRPO 的 LoRA 同步服务，跑在推理机上（2026-11-04，用户：抢不到双卡就两台单卡，一台训练一台推理；
+"""双机 GRPO 的 LoRA 同步服务，跑在推理机上（抢不到双卡就两台单卡，一台训练一台推理；
 每步训完存到共享盘，推理机直接加载到内存）。
 
 两种推送方式（训练机 train.gen_grpo.Server 按 LORA_SYNC_MODE 选，默认 upload）：
   PUT /push/<name>：请求体是 LoRA 目录的 tar（不压缩），直接写到推理机内存盘 /dev/shm/lora_sync/<name> 再热加载——不经共享盘
-                    （用户：不写共享盘，直接传给推理机；实测 100 MB 上传 1.5 秒、网关 200 MB 以内不限大小）
+                    （不写共享盘，直接传给推理机；实测 100 MB 上传 1.5 秒、网关 200 MB 以内不限大小）
   POST /sync {"name", "src"}：训练机先存到共享盘，这里把 src 目录拷到内存盘再热加载（备用）
 POST /unload {"name"} 卸载并删掉内存盘副本。所有接口都要带和 vLLM 相同的 API 密钥（经 AutoDL 对外域名访问）。
 训练机那边只要设 LORA_SYNC_URL=https://<推理机 6008 域名>，train.gen_grpo.Server 的 load_lora / unload_lora 就会改走这里。
 
   VLLM_API_KEY=... python scripts/lora_sync.py --port 6008 --vllm http://127.0.0.1:6006/v1
-实测（2026-11-04，两台无卡实例）：共享盘写 100 MB 1.2–2.1 秒（训练机），读出并拷到内存盘 0.4 秒（推理机）。
+实测（两台无卡实例）：共享盘写 100 MB 1.2–2.1 秒（训练机），读出并拷到内存盘 0.4 秒（推理机）。
 """
 from __future__ import annotations
 

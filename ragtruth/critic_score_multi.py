@@ -1,4 +1,4 @@
-"""多个 critic × 多个回答集一起打分（2026-11-05，用户：16 个 critic 评测 GPU 利用率才 33%，要打满）。
+"""多个 critic × 多个回答集一起打分（16 个 critic 评测 GPU 利用率才 33%，要打满）。
 打分口径和 ragtruth.critic_score 完全一样（同 prompt、max_tokens 8、温度校准、P = B + C、同输出格式），只改调度：
   - asyncio 一个进程挂几百个请求（原来 8 条回答 × 8 线程，最多 64 个，GPU 等客户端）；
   - 所有任务的请求混在一起发，vLLM 一个批次里同时处理多个 LoRA（原来一次只打一个 critic，其余 LoRA 槽空着）；

@@ -1,4 +1,4 @@
-# MiniCPM5-2B 造错生成器 SFT，种子第四版（2026-11-03，用户：种子里选出来的错句改对后做样本，这部分要用 2B 筛一下，只选 2B 不知道是错的）：
+# MiniCPM5-2B 造错生成器 SFT，种子第四版（种子里选出来的错句改对后做样本，这部分要用 2B 筛一下，只选 2B 不知道是错的）：
 # 第三版 172 条里只留 2B critic（rm1__mcgold）在原回答里判不出（P < 0.5，hardpool）的那些。其余同 sft_gen_seed3_mc，单卡 1 轮。
 task: gen
 prompt_tips: false

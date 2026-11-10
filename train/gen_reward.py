@@ -1,20 +1,20 @@
-"""生成器 GRPO 的奖励（2026-10-31，用户：RM1 / 2 / 3 打分；考虑 DPO 的规则，避免 reward hack、不让模型走捷径）。
+"""生成器 GRPO 的奖励（RM1 / 2 / 3 打分；考虑 DPO 的规则，避免 reward hack、不让模型走捷径）。
 
 三个 RM 都是同一个 9B 底座上的 LoRA，挂在推理卡的同一个 vLLM 服务上（模型名 rm1 / rm2 / rm3），读选项概率、用各自的
 全局温度校准。每条输出的奖励：
 
-1. 硬规则（不满足直接 0 分，是「没造出合格错误」，不是格式扣分；用户：不在意格式规则本身）：
+1. 硬规则（不满足直接 0 分，是「没造出合格错误」，不是格式扣分；不在意格式规则本身）：
    能解析出句号、改写句、类型；句号在范围内；改写句不能和原句相同（规范化后）；不能整句照抄回答里的另一句；
    不能写成一大段（> 原句 3 倍且多出 300 字符以上，防止「一句里塞好几个错」骗过 RM）；改写句里不能出现
    hallucination / faithful / "the source" 这类点破题目的词（防止「明说这里有错」骗 RM3）。
 2. RM3 门槛：P(合格) < 0.5 时只给 0.1 × P(合格)（比任何合格样本都低，但保留一点梯度）。
-   原句本身被 RM1 判有幻觉（P > 0.5）时给 0 分（用户，2026-10-31：Claude 抽检发现模型更常改本来就有问题的句子）。
+   原句本身被 RM1 判有幻觉（P > 0.5）时给 0 分（Claude 抽检发现模型更常改本来就有问题的句子）。
 3. 合格时：(w_hard × 难度 + w_real × 真实性 + w_div × 多样性) / 权重和，三项都在 [0, 1]：
    - 难度：4p(1−p)，p = RM1 P(有幻觉)；
    - 真实性：RM2 P(自然)；
    - 两项都在同一错误类型内用滑动均值 / 标准差标准化后过 sigmoid（DPO 第二轮的「按类型分组」：类型之间不互相挤压，
      模型不能靠只写某一类拿高分）；
-   - 多样性：1/√(1 + N(类型, 改法))，N 是最近 window（512）条合格样本里这一类出现的次数（用户：按实时分布算；累计计数到第 50 步就只剩
+   - 多样性：1/√(1 + N(类型, 改法))，N 是最近 window（512）条合格样本里这一类出现的次数（按实时分布算；累计计数到第 50 步就只剩
      0.06，等于没有）。改法封闭到标准清单，对不上的归 other，other 不给多样性分（防编名字）；
      另外某一类型在最近窗口里占比低于 type_floor 时，这一类型的样本多样性记满分（防类型塌缩）。
 组内优势值（train.gen_grpo）按「同一 prompt、同一类型」的均值减（DPO 第二轮的「chosen 和 rejected 同一类型」）。
@@ -44,7 +44,7 @@ OTHER_TACTIC = "other"
 
 def closed_tactic(t: str, kind: str) -> str:
     """改法封闭到标准清单，对不上的一律归 other（共用一个计数）。改法是模型自填的字符串，开放时每编一个新名字
-    N(类型, 改法) 都是 0、多样性拿满分——第一版正式训练第 50–100 步模型就学会了这个（2026-10-31，改法 18 → 71 种）。"""
+    N(类型, 改法) 都是 0、多样性拿满分——第一版正式训练第 50–100 步模型就学会了这个（改法 18 → 71 种）。"""
     n = norm_tactic(t, kind)
     return n if n in TACTICS.get(kind, []) else OTHER_TACTIC
 
@@ -198,42 +198,42 @@ def focus_tactic(t: str, kind: str) -> str:
 
 
 class TargetRewarder(Rewarder):
-    """定向造错（2026-11-03，用户：合成 2B critic 漏掉的那几类错误，生成器也给出类型和理由；GRPO 训出和真实模型一致的错误）。
+    """定向造错（合成 2B critic 漏掉的那几类错误，生成器也给出类型和理由；GRPO 训出和真实模型一致的错误）。
     主力奖励是真实性（RM2 P(自然)，同类型内标准化）；正确性（RM3）和 critic（RM1）只扣分：
       - 硬规则没过：0；RM3 P(合格) < gate：0.1 × P（过滤，和旧版一样保留一点梯度）；原句本身有错：0。
-        原句有没有错优先用 prompt 里预先算好的 orig_p（训练外用 9B 金标 critic 打的，用户：训练外调用用 9B），没有才用 RM1 现场打；
+        原句有没有错优先用 prompt 里预先算好的 orig_p（训练外用 9B 金标 critic 打的，训练外调用用 9B），没有才用 RM1 现场打；
       - 合格时 r = (真实性 + w_div × 多样性) / (1 + w_div) − w_corr × (1 − P(合格)) − w_crit × 2 × max(0, P(critic 判出) − 0.5)，截到 [0, 1]：
-        critic 一眼看出的错没有训练价值（它已经会了），扣分；判不出的不加分，避免生成器去钻 critic 的噪声（10-29 定向版失败的原因之一）。
+        critic 一眼看出的错没有训练价值（它已经会了），扣分；判不出的不加分，避免生成器去钻 critic 的噪声（早先定向版失败的原因之一）。
     多样性只看同一 prompt 这组里的位置（place_diversity_target），改法和类型是模型自填的，不进奖励。"""
 
     def __init__(self, client, temps, w_div=0.2, w_corr=0.5, w_crit=0.3, gate=0.7, err_mode="a", shape="v1", w_real2=0.45, w_hard2=0.45, crit_max=0.98, crit_floor=0.4, rm2_ens=(), gate_lo=None, min_sim=0.0, base_fail=0.1, obvious_pen=0.1, blind_bonus=0.0, blind_thr=0.5, blind_lo=0.0, **kw):
-        """第二版奖励（2026-11-03，用户：GRPO 打分拉不开差距，要改奖励；骗不过 critic 要想办法；只是理由或证据不对、句子确实错了的不该罚）：
+        """第二版奖励（GRPO 打分拉不开差距，要改奖励；骗不过 critic 要想办法；只是理由或证据不对、句子确实错了的不该罚）：
         err_mode="ab"：P(真错) = RM3 的 P(A 合格) + P(B 句子错了但解释不对)，门槛和扣分都用它；
         shape="v2"：真实性和骗过 critic 都用对数几率映射到 [0, 1]（logodds01）的绝对分、都是加分项，按 w_real2 / w_hard2 / w_div 加权平均，
         再减 w_corr × (1 − P(真错))。v1 的真实性是类型内标准化的排名、critic 只在 P > 0.5 时线性扣分，合格样本 P(判出) 平均约 0.89，扣分几乎一样，拉不开。
-        shape="filter"（用户：几项分数有的好拿有的难拿，加权相加有问题；真实性做主奖励，其他用过滤）：没过滤掉的样本奖励只看真实性
+        shape="filter"（几项分数有的好拿有的难拿，加权相加有问题；真实性做主奖励，其他用过滤）：没过滤掉的样本奖励只看真实性
         r = (logodds01(P自然) + w_div × 多样性) / (1 + w_div)；过滤：规则、原句干净、P(真错) ≥ gate、critic P(判出) ≤ crit_max，没过一律 0
         （门槛以下不再给 0.1 × P）。grpo3 合格样本 critic P(判出) 中位 0.982，≤ 0.98 约留一半；骗过 critic 的样本判自然的比例高得多
         （≤ 0.5 的一档 50% vs 全体 8%），真实性做主奖励也会顺带把 critic 判出的概率往下推。
-        shape="soft"（用户：过不了 critic 这关就永远拿不到自然度奖励，门卡不能太高；P < 0.5 就算骗过；正确性只保证句子真的错）：
+        shape="soft"（过不了 critic 这关就永远拿不到自然度奖励，门卡不能太高；P < 0.5 就算骗过；正确性只保证句子真的错）：
         critic 不做过滤，改成乘在真实性上的系数：P(判出) < 0.5 记 1，0.5 → 1 线性降到 crit_floor；
         r = 系数 × (logodds01(P自然) + w_div × 多样性) / (1 + w_div)。只有 P(真错) = A + B < gate、原句有错、规则不过记 0。
-        奖励设计对比（2026-11-03，用户：先把可能的实验列上去，跑 50 步看数据）：
+        奖励设计对比（先把可能的实验列上去，各跑 50 步看数据）：
         shape="mult"：r = (sqrt(logodds01(P自然) × logodds01(1 − P判出)) + w_div × 多样性) / (1 + w_div)，两项都连续、相乘（实验 A5）；
         rm2_ens：再用这几个 RM2 各打一次 P(自然)，和 rm2 取平均（实验 B3，降尖锐度、少钻单个 RM2 的空子）。
-        gate_lo（实验 C3，用户：「是真错」的硬门槛改成连续系数）：P(真错) < gate_lo 记 0，gate_lo → gate 线性升到 1，再乘到奖励上。
+        gate_lo（实验 C3：「是真错」的硬门槛改成连续系数）：P(真错) < gate_lo 记 0，gate_lo → gate 线性升到 1，再乘到奖励上。
         a0 上 50 步合格率 16.7% → 30.7%、骗过 9B 16.7% → 1.1%：没过门槛 0、过了奖励中位约 0.07，组内「过没过门槛」的分差
         压过了自然度的分差，GRPO 主要学会了过门槛（明显的错最容易过）。
         min_sim（实验 C4）：改写句和原句的词序列相似度（difflib ratio）低于它的记 0（几乎整句换掉）。Claude 抽查 a0 的 20 条 B 样本：
         18 条是真错，但第 50 步 15 条里 10 条和原句相似度 < 0.4（换成一句不相干的话，"S1: Some oral infections cause bad breath."）；
         2B 真实错句和改对句相似度 < 0.4 的只有 10%。
-        shape="boundary"（实验 A6，用户：critic 很大很小都不意味着好，越接近 0.5 越合适）：critic 系数 = max(crit_floor, 4P(1 − P))，
+        shape="boundary"（实验 A6：critic 很大很小都不意味着好，越接近 0.5 越合适）：critic 系数 = max(crit_floor, 4P(1 − P))，
         0.5 处最高。a0/a1/a4 的 1031 条合格样本按 2B P(判出) 分段：0.3–0.7 的 9B 平均 P 0.81（确实是错、2B 拿不准）、判自然 49%；
         < 0.1 的 9B 也有 85% 判不出、判自然 97%（可能根本不算错）；≥ 0.98 的 428 条 9B 全判出、判自然 1%。
-        shape="sev"（2026-11-04，用户：奖励显然错误、尤其张冠李戴 / 与原文矛盾）：用严重程度 RM（sev，6 选 1）代替 RM3，
+        shape="sev"（奖励显然错误、尤其张冠李戴 / 与原文矛盾）：用严重程度 RM（sev，6 选 1）代替 RM3，
         门槛 P(显然) = A + B ≥ gate（建议 0.5：盲区独立测试过门槛的 93% 确实有错），原句有错用 sev 的 P(F) > orig_max 判；
         合格的 r = (1 − P(critic 判出)) × (logodds01(P自然) + w_div × 多样性) / (1 + w_div)；没过门槛给 base_fail × P(显然) / gate。
-        shape="boundary2"（实验 A7，用户同意）：a6 放大评测（每 prompt 16 次）里 0.9 以上的样本涨了约 2.9 倍、0.3–0.7 只涨 1.05–1.3 倍——
+        shape="boundary2"（实验 A7）：a6 放大评测（每 prompt 16 次）里 0.9 以上的样本涨了约 2.9 倍、0.3–0.7 只涨 1.05–1.3 倍——
         没过门槛记 0、组里六七成过不了，明显的错（P 0.95 → 系数 0.19、奖励约 0.03）仍高于 0，照样拿正优势。
         改成：P(真错) 没过门槛给基线 base_fail（规则不过、原句有错仍是 0）；合格的 r = 自然度项 × 4P(1 − P)，P ≥ 0.98 记 0。
         base_fail 0.1：用 a6 放大评测样本模拟，0.9–0.98 只有 17% 高于基线，0.3–0.7 全部高于，0.7–0.9 92%；造一个明显的错比没造出错还亏。"""
@@ -261,7 +261,7 @@ class TargetRewarder(Rewarder):
         out = {"why": "ok", "type": rec["type"], "op": rec["op"], "idx": rec["idx"], "tactic": rec["tactic"], "tactic_raw": rec["tactic_raw"],
                "p_correct": pc, "p_a": pa, "p_rm3": p3, "original": rec["original"], "sentence": rec["sentence"], "reason": rec["reason"], "evidence": rec["evidence"]}
         if self.shape in ("sev", "gated", "add"):
-            out["p_orig_halluc"] = p3["F"] if p3 else 0.0   # 原句本身有错：用 sev 的 F（全 2B；不用 9B 预先算的 orig_p，用户 2026-11-04：9B 不能用于筛选）
+            out["p_orig_halluc"] = p3["F"] if p3 else 0.0   # 原句本身有错：用 sev 的 F（全 2B；不用 9B 预先算的 orig_p：9B 不能用于筛选）
         if pc >= (self.gate if self.gate_lo is None else self.gate_lo):
             if rec["op"] == "rewrite" and self.shape not in ("sev", "gated", "add"):
                 if row.get("orig_p"):
@@ -277,29 +277,29 @@ class TargetRewarder(Rewarder):
         return out
 
     def combine(self, s: dict) -> float:
-        if self.shape == "gated":   # 2026-11-07（用户）：真错(sev，score() 已卡 pc≥gate)+ critic 盲区 = 硬门；自然度 = 唯一优化目标，不设门（门槛放松）。
+        if self.shape == "gated":   # 真错(sev，score() 已卡 pc≥gate)+ critic 盲区 = 硬门；自然度 = 唯一优化目标，不设门（门槛放松）。
             ph = s["p_halluc"]
             if not (self.blind_lo <= ph <= self.blind_thr):   # critic 盲区硬门：判出 P 要落在 [blind_lo, blind_thr]（盲区/边界），否则无训练价值记 0
                 return 0.0
             return (logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (1 + self.w[2])   # 自然度（p_natural 用 rm2__coreerr 服务）+ 多样性
-        if self.shape == "add":   # 2026-11-07（用户）：critic 盲区 = 主目标，自然度 = 次目标，相加；sev门已卡真错。w_hard2>w_real2 让盲区为主
+        if self.shape == "add":   # critic 盲区 = 主目标，自然度 = 次目标，相加；sev门已卡真错。w_hard2>w_real2 让盲区为主
             blind = max(0.0, 1.0 - s["p_halluc"])   # critic 盲区深度：判不出（P 低）越深
             return (self.w_hard2 * blind + self.w_real2 * logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (self.w_hard2 + self.w_real2 + self.w[2])
-        if self.shape == "sev":   # 新循环（2026-11-04，用户）：门槛 P(显然) ≥ gate 之后，critic 越判不出越高、读起来越自然越高
+        if self.shape == "sev":   # 新循环：门槛 P(显然) ≥ gate 之后，critic 越判不出越高、读起来越自然越高
             ph = s["p_halluc"]
-            # 区间模式（blind_lo > 0，用户：不要 critic 评分很低的，要离 0.5 近的）：难度项用离 0.5 的接近度（0.5 → 1，0 / 1 → 0）代替 1 − P
+            # 区间模式（blind_lo > 0：不要 critic 评分很低的，要离 0.5 近的）：难度项用离 0.5 的接近度（0.5 → 1，0 / 1 → 0）代替 1 − P
             hard = max(0.0, 1.0 - abs(ph - 0.5) / 0.5) if self.blind_lo > 0 else 1.0 - ph
             r = hard * (logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (1 + self.w[2])
-            # 盲区加分（2026-11-05，用户选方案 A）：50 步里合格样本 P(critic) 约 0.9、自然度约 0.15，乘出来 0.01–0.02，组内拉不开，
+            # 盲区加分（方案 A）：50 步里合格样本 P(critic) 约 0.9、自然度约 0.15，乘出来 0.01–0.02，组内拉不开，
             # 梯度主要来自没过门槛的保底项（推着过门槛 → 多造 critic 一眼看出的错）。critic 判不出（P < blind_thr）的合格样本固定加 blind_bonus
-            # 用户（2026-11-05）：对 critic 最有用的是离 0.5 近的边界样本（0.3–0.7），加分只给 [blind_lo, blind_thr] 区间
+            # 对 critic 最有用的是离 0.5 近的边界样本（0.3–0.7），加分只给 [blind_lo, blind_thr] 区间
             return r + (self.blind_bonus if self.blind_lo <= s["p_halluc"] <= self.blind_thr else 0.0)
         if self.shape == "mult":
             return (math.sqrt(logodds01(s["p_natural"]) * logodds01(1 - s["p_halluc"])) + self.w[2] * s["div"]) / (1 + self.w[2])
         if self.shape in ("filter", "soft"):
             r = (logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (1 + self.w[2])
             return r * (1.0 if self.shape == "filter" else crit_factor(s["p_halluc"], self.crit_floor))
-        if self.shape == "boundary7":   # a12（用户）：明显的错（P ≥ 0.9）给负分 obvious_pen；P < 0.1 记 0；其余同 a11；保底同 a9（按离真错多近给）
+        if self.shape == "boundary7":   # a12：明显的错（P ≥ 0.9）给负分 obvious_pen；P < 0.1 记 0；其余同 a11；保底同 a9（按离真错多近给）
             ph = s["p_halluc"]
             if ph >= 0.9:
                 return -self.obvious_pen
@@ -307,7 +307,7 @@ class TargetRewarder(Rewarder):
                 return 0.0
             r = (logodds01(s["p_natural"]) + self.w[2] * s["div"]) / (1 + self.w[2])
             return r * 4 * ph * (1 - ph)
-        if self.shape == "boundary6":   # a11（用户：critic 基本能判清楚的两头，阈值用 0.1 和 0.9）：4P(1 − P) 只在 [0.1, 0.9) 给，外面记 0
+        if self.shape == "boundary6":   # a11（critic 基本能判清楚的两头，阈值用 0.1 和 0.9）：4P(1 − P) 只在 [0.1, 0.9) 给，外面记 0
             ph = s["p_halluc"]
             if ph < 0.1 or ph >= 0.9:
                 return 0.0
@@ -355,7 +355,7 @@ class TargetRewarder(Rewarder):
         if pc < (self.gate if self.gate_lo is None else self.gate_lo):
             if self.shape in ("boundary2", "boundary3"):
                 return {**out, "reward": self.base_fail, "qualified": False}
-            if self.shape in ("boundary4", "boundary5", "boundary6", "boundary7", "sev", "gated", "add"):   # a9 / a10：保底按离真错多近给（用户同意）。a8 固定 0.1：81–100 步 86% 的样本拿保底、合格 22.5% → 13.4%，平均奖励反而升
+            if self.shape in ("boundary4", "boundary5", "boundary6", "boundary7", "sev", "gated", "add"):   # a9 / a10：保底按离真错多近给。a8 固定 0.1：81–100 步 86% 的样本拿保底、合格 22.5% → 13.4%，平均奖励反而升
                 return {**out, "reward": self.base_fail * pc / self.gate, "qualified": False}
             return {**out, "reward": 0.0 if self.shape in ("filter", "soft", "mult", "boundary") else 0.1 * pc, "qualified": False}
         if s.get("p_orig_halluc", 0.0) > self.orig_max:
@@ -381,7 +381,7 @@ def edit_sim(a: str, b: str) -> float:
 
 
 def tent(p: float, lo: float = 0.02, peak: float = 0.3, hi: float = 0.9) -> float:
-    """a8 的 critic 系数（2026-11-03）：lo → peak 线性升到 1，peak → hi 线性降到 0，两头外面记 0。
+    """a8 的 critic 系数：lo → peak 线性升到 1，peak → hi 线性降到 0，两头外面记 0。
     Claude 判真错（5 次调用，48 条）：a7 的 2B P 0.1–0.3 真错 11/16、0.3–0.7 14/16，起点 0.3–0.7 14/16；< 0.1 先前 11/33。
     0.1–0.3 多半是真错、判自然的更多，峰值从 0.5 挪到 0.3；a7 在 0.9–0.98 还剩 84 条，P ≥ 0.9 记 0。"""
     if p < lo or p >= hi:
@@ -412,7 +412,7 @@ def place_diversity_target(scores: list[dict], rw: TargetRewarder) -> None:
 
 def place_diversity(scores: list[dict], w: tuple[float, float, float]) -> None:
     """按同一 prompt 的一组输出算多样性：同一位置（操作, 句号）在这组合格样本里出现 n 次，每条 1/√n，替换 Rewarder.score 里按改法算的那一项。
-    只看位置（用户，2026-10-31：要奖励换位置，不是在一个位置上换标签）：改法和类型都是模型自填，不进这一项。改法归 other 的仍记 0。原地改 div 和 reward。"""
+    只看位置（要奖励换位置，不是在一个位置上换标签）：改法和类型都是模型自填，不进这一项。改法归 other 的仍记 0。原地改 div 和 reward。"""
     q = [s for s in scores if s.get("qualified")]
     n = collections.Counter((s["op"], s["idx"]) for s in q)
     wh, wr, wd = w

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：RM2 也要训一版 → rm2__v3（标签 = Claude 在生成器 v2 采样上标的「自然」）；排在 sev__v3r 之后；训完给 1200 条打分。
+# RM2 也训一版 → rm2__v3（标签 = Claude 在生成器 v2 采样上标的「自然」）；排在 sev__v3r 之后；训完给 1200 条打分。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/rm2v3.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

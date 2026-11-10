@@ -1,5 +1,5 @@
 #!/bin/bash
-# 只跑 50 步（2026-11-05，用户：两个 RM 的 R3 对照先只跑 50 步）：等第 50 步检查点存好，停掉训练和等待中的补评，存 adapter，直接评第 50 步（含 v0、三套验收原文）。
+# 只跑 50 步（两个 RM 的 R3 对照先只跑 50 步）：等第 50 步检查点存好，停掉训练和等待中的补评，存 adapter，直接评第 50 步（含 v0、三套验收原文）。
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; TAG=${TAG:-}; O=outputs/rt/minicpm/r3full$TAG; LOG=$A/r3full$TAG.log

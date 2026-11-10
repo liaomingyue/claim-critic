@@ -1,6 +1,6 @@
 # RAG 幻觉 critic：盲区驱动的迭代优化
 
-2026-11-09 · 在线版：https://claude.ai/artifact/CzjFY2SQcd74zv5Tce4mQe
+在线版：https://claude.ai/artifact/CzjFY2SQcd74zv5Tce4mQe
 
 ## 一句话
 

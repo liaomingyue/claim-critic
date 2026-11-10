@@ -1,4 +1,4 @@
-"""GRPO 训练卡的 prompt 共享，Llama 结构版（2026-11-02，用户：MiniCPM5-2B 也要有，速度才能更快）。接口和 train.prefix_share（Qwen3.5 版）相同，
+"""GRPO 训练卡的 prompt 共享，Llama 结构版（MiniCPM5-2B 用，速度才能更快）。接口和 train.prefix_share（Qwen3.5 版）相同，
 train.gen_grpo._accum_grads_shared 按 --share_impl 选用。
 
 做法同 Qwen3.5 版：prompt 逐层梯度检查点过一遍，拿到每层的 K / V 和末位隐状态 → detach 成叶子 → completion 分批接在后面算 logprob、反向
@@ -96,7 +96,7 @@ def completion_logprobs(model, prefix: list, comps: list[list[int]], pad_id: int
         lg = lm_head(h_).float()
         return lg.gather(1, t_[:, None])[:, 0] - torch.logsumexp(lg, -1)
 
-    # 只算有效 token、拉平后按 LM_CHUNK 分块（原来一条回答一块：块多且含补齐位置，2B 上 GPU0 利用率只有 30%，2026-11-02）
+    # 只算有效 token、拉平后按 LM_CHUNK 分块（原来一条回答一块：块多且含补齐位置，2B 上 GPU0 利用率只有 30%）
     hv, tv = hs[mask], ids[mask]
     out = [checkpoint(head, hv[k:k + LM_CHUNK], tv[k:k + LM_CHUNK], use_reentrant=False) if grad else head(hv[k:k + LM_CHUNK], tv[k:k + LM_CHUNK])
            for k in range(0, hv.shape[0], LM_CHUNK)]

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-09 用户：只做「原生 + 组内排行」两组（r1：SFT 起点；r2：v2h 起点），都只训 50 步。
+# 只做「原生 + 组内排行」两组（r1：SFT 起点；r2：v2h 起点），都只训 50 步。
 #   r1 已在 run_gen_rank.sh 里按 100 步在跑 → 等第 50 步检查点存好就停掉，试采；r2 只训 50 步，试采。h4 续训 / r3 取消。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/gen_rank3.log; O=outputs/rt/gen_v2_grpo

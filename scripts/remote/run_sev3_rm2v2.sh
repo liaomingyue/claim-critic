@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：训新版 sev（sev__v3：输入带要求的机制 + 9B 描述 + 逐词改动）和新版 RM2（rm2__v2：真实错误 vs 经 sev / critic 过滤的合成错误），再在新样本集上重跑。
+# 训新版 sev（sev__v3：输入带要求的机制 + 9B 描述 + 逐词改动）和新版 RM2（rm2__v2：真实错误 vs 经 sev / critic 过滤的合成错误），再在新样本集上重跑。
 #   ① 9B 基座给 1200 条有 Claude 标注的生成器 v2 样本写改动描述（不给机制）→ labitems_desc9b.jsonl
 #   ② sev__v3 数据（ragtruth.sev_gen data_v3）→ run_mcrm；③ rm2__v2（本地建好上传）→ run_mcrm
 #   ④ 1200 条样本用 rm1 / rm2 / rm2v2 / dne / v3 打分 → gen_v2_label/model_scores_v3.jsonl

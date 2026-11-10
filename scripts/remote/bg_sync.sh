@@ -1,5 +1,5 @@
 # 用法：source scripts/remote/bg_sync.sh（需要先设 A=/root/autodl-tmp）
-# 2026-11-09 用户：保存时本地盘、共享盘都要存，但共享盘那份放后台——训练 / 试采只读写本地盘，不等共享盘。
+# 保存时本地盘、共享盘都要存，但共享盘那份放后台——训练 / 试采只读写本地盘，不等共享盘。
 # bg_sync 源 目标目录：后台 rsync 一次（不挡后续步骤）；日志 $A/bg_sync.log
 bg_sync() {
   mkdir -p "$2"

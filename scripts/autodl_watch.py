@@ -28,7 +28,7 @@ def sh(cmd: str) -> str:
 
 def safe_get(s, remote: str, local: str) -> bool:
     """先下到 .part 再替换；本地已有且远端更小（加开机器上只有不完整的副本）时不覆盖。
-    paramiko 的 get 会先清空本地文件再读远端，直接 get 曾把本地完整的 18,919 行预测截成几千行（2026-10-27）。"""
+    paramiko 的 get 会先清空本地文件再读远端，直接 get 曾把本地完整的 18,919 行预测截成几千行。"""
     try:
         size = s.stat(remote).st_size
     except OSError:
@@ -85,7 +85,7 @@ def main() -> None:
     ap.add_argument("--proc", default="run_format_exp", help="流水线脚本名，用来判断进程是否还在")
     ap.add_argument("--keep_on_file", default="outputs/autodl/keep_on", help="这个文件存在就不关机；none = 总是关机（加开的机器）")
     ap.add_argument("--log_dir", default="outputs/autodl/remote_logs", help="远端日志下载到哪（多台机器各用一个目录）")
-    ap.add_argument("--gpu_idle_only", type=int, default=1, help="1 = 只看 GPU：所有卡利用率 ≤ 5% 持续 idle_minutes 就收尾，流水线进程还在也关（卡死时不空烧，用户 2026-11-03）")
+    ap.add_argument("--gpu_idle_only", type=int, default=1, help="1 = 只看 GPU：所有卡利用率 ≤ 5% 持续 idle_minutes 就收尾，流水线进程还在也关（卡死时不空烧）")
     ap.add_argument("--remote_dir", default=REMOTE, help="远端代码目录；文件存储模式为 /root/autodl-fs/code/critic_model")
     args = ap.parse_args()
 
@@ -110,7 +110,7 @@ def main() -> None:
         gpu_busy = any(u > 5 for u in utils)
         busy = (running != "0" or gpu_busy) if not args.gpu_idle_only else gpu_busy
         idle_since = None if busy else (idle_since or time.time())
-        ov = Path("outputs/autodl/idle_minutes")   # 运行中改空闲时长（用户：GPU 空闲 20 分钟自动关机）
+        ov = Path("outputs/autodl/idle_minutes")   # 运行中改空闲时长（例如 GPU 空闲 20 分钟自动关机）
         idle_min = int(ov.read_text().strip()) if ov.exists() else args.idle_minutes
         if idle_since and time.time() - idle_since > idle_min * 60:
             reason = f"GPU 空闲 {idle_min} 分钟（流水线进程 {running} 个，最后一步：{last}）"
@@ -119,7 +119,7 @@ def main() -> None:
 
     log(f"finishing: {reason}", logf)
     REMOTE = args.remote_dir
-    try:   # 下载失败（目录不在等）不能挡住关机：2026-10-28 文件存储模式下这里抛错，机器没关、空转
+    try:   # 下载失败（目录不在等）不能挡住关机。踩过：文件存储模式下这里抛错，机器没关、空转
         download_evals(logf, args.log_dir)
     except Exception as e:  # noqa: BLE001
         log(f"download failed ({type(e).__name__}: {e}); powering off anyway", logf)

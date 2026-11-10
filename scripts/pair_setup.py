@@ -1,4 +1,4 @@
-"""双机 GRPO 配对（2026-11-04）：本地跑。推理机实例的对外服务域名只有 AutoDL 接口查得到（容器里拿不到），
+"""双机 GRPO 配对：本地跑。推理机实例的对外服务域名只有 AutoDL 接口查得到（容器里拿不到），
 这里查到后写到共享盘 runs/pair/<pair>/domains.json，并把 runs/pair/CURRENT 指向这个配对；训练机（run_train_node.sh）等这个文件。
 登录信息读 outputs/autodl/<info>.json，不打印。
 

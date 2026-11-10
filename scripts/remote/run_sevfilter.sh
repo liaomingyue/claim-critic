@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：sev 模型就是判「是不是真错、解释对不对」的 → 量它当过滤器（不当奖励）的精确率。
+# sev 模型就是判「是不是真错、解释对不对」的 → 量它当过滤器（不当奖励）的精确率。
 # sev__core（MiniCPM5-2B）给已审计的 2B / 9B / 种子集样本 + 9B 全部合格样本打分 → outputs/rt/core/gen_audit/sev_scores.jsonl（本地对 Claude 结论算精确率）
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/sevfilter.log

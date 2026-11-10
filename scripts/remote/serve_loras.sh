@@ -1,7 +1,7 @@
 #!/bin/bash
-# 启动多 LoRA 的 vLLM 服务并等它就绪（2026-11-02，用户：做成固定脚本复用）。以后脚本都用它，不要自己写 vllm serve 和等待循环。
+# 启动多 LoRA 的 vLLM 服务并等它就绪（固定脚本复用）。以后脚本都用它，不要自己写 vllm serve 和等待循环。
 #   自动去掉 LoRA 里的视觉塔参数（strip_visual_lora.py，结果放 $A/lora/<名字>；vLLM 不接受，踩过：缺这步服务起不来）；
-#   批量 token 上限默认 16384（vLLM 对 5090 的默认值只有 2048，一批只装得下一两个 prompt，显存空着请求却在排队，2026-11-02）；
+#   批量 token 上限默认 16384（vLLM 对 5090 的默认值只有 2048，一批只装得下一两个 prompt，显存空着请求却在排队）；
 #   前缀匹配细化到 16 token（重发同样的请求命中 82% → 99%；改不了线性注意力层状态的存储密度：块固定 528，--mamba-block-size 无效，换回答第一句只命中 34%）；
 #   服务一退出就报错并打印日志尾，不等到超时（踩过：崩了还空等 20 分钟）。
 #
@@ -29,7 +29,7 @@ done
 [ ${#LORAS[@]} -gt 0 ] || { echo "serve_loras: no loras"; exit 1; }
 # 等上一个服务真正放开显存（踩过：pkill 后 sleep 8 不够，启动报显存不足）
 for i in $(seq 1 30); do [ "$(nvidia-smi -i "$GPU" --query-gpu=memory.used --format=csv,noheader,nounits)" -lt 1000 ] && break; sleep 3; done
-# 双机模式（2026-11-04）：推理机的服务经 AutoDL 对外域名访问，VLLM_API_KEY 设了就要求密钥（单机默认不设，行为不变）
+# 双机模式：推理机的服务经 AutoDL 对外域名访问，VLLM_API_KEY 设了就要求密钥（单机默认不设，行为不变）
 KEYARG=(); AUTH=()
 if [ -n "${VLLM_API_KEY:-}" ] && [ "${VLLM_API_KEY}" != x ]; then KEYARG=(--api-key "$VLLM_API_KEY"); AUTH=(-H "Authorization: Bearer $VLLM_API_KEY"); fi
 MODS=(); LAST=

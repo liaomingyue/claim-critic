@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：sev 训练集要从生成器真实输出里标（Claude 统一审计），把 sev 效果提上去。
+# sev 训练集要从生成器真实输出里标（Claude 统一审计），把 sev 效果提上去。
 #   ① 训 sev__gen（数据 outputs/rt/rm/sev__gen，随代码上传；超参同 sev__core：configs/rt/rm_mc.yaml）→ 校准 + 报告
 #   ② 新旧 sev 逐条打分（同一批审计样本），本地按测试切分比过滤精确率：
 #      新 sev__gen（新提示词）→ gen_audit/sev2_scores.jsonl；旧 sev__core 补打 items_sevnew → gen_audit/sev_scores_sevnew.jsonl
@@ -10,7 +10,7 @@ log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x; unset VLLM_API_KEY
 source $S/model_env.sh minicpm5-2b && MC=$MODEL_LOCAL
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
-# 机器先开、数据后到（2026-11-08 用户：现在就申请 5090）：等本地标完后单独上传的 sev__gen 数据和 Claude 标签
+# 机器先开、数据后到：等本地标完后单独上传的 sev__gen 数据和 Claude 标签
 log "waiting for sev__gen data"
 until [ -f outputs/rt/rm/sev__gen/UPLOADED ]; do sleep 30; done
 log "data ready: $(cat outputs/rt/rm/sev__gen/meta.json | tr -d '

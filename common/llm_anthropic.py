@@ -3,7 +3,7 @@
 与 OpenAI 兼容接口的差别在这里抹平：
 - system 消息提到顶层 system 参数；
 - 不支持 n>1，循环调用；
-- 不再接受 temperature（2026-10-21 起 Messages API 对所有模型返回 400），调用方传的 temperature 直接忽略，
+- 不再接受 temperature（Messages API 对所有模型返回 400），调用方传的 temperature 直接忽略，
   多样性靠 prompt；
 - 思考不能关（Opus 5.5），用 output_config.effort 控制深浅，max_tokens 要留出思考的余量；
 - 开启服务端 refusal fallback（fallbacks="default"），被安全分类器拒答时由 API 自动换模型重试；

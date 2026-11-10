@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：错误改写模型第二版格式（ragtruth/gen_v2.py：输入原文 + 完整回答 + 9 个细类机制之一，输出第几句 + 逐词改动 + 改写句）。
+# 错误改写模型第二版格式（ragtruth/gen_v2.py：输入原文 + 完整回答 + 9 个细类机制之一，输出第几句 + 逐词改动 + 改写句）。
 #   ① 训 gen-v2-mc（MiniCPM5-2B）、gen-v2-9b（Qwen3.5-9B），数据 outputs/rt/core/seed_v2_train.jsonl（1411 条，种子集真实错误，本地建好随代码上传）
 #   ② 两个模型在留出原文的 70 条回答（genpool_eval.jsonl）× 9 个机制 × 每个 2 条上采样 → samples_v2_{mc,9b}.jsonl（之后本地交 Claude 审可控性）
 # 等同机的 critic 验证（run_critic_sev.sh）做完再开始。

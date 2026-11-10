@@ -1,4 +1,4 @@
-"""critic 静态能力评测（扩充 Claude 集；2026-11-05 起的主口径，原在 scratchpad cap3.py / cap3n.py，2026-11-06 收进仓库）。
+"""critic 静态能力评测（扩充 Claude 集；主口径）。
 
 三批验收回答（grpo300 / grpo300b / grpo300c，Claude 金标 v1 逐句）：显然错 vs 没错（轻微错不进），默认去掉拒答句
 （GRPO 里拒答走 refuse 模型、不经 critic）。排序法 AUC，按原文 bootstrap（1000 次，90%），和 --base 配对比；误报 10% / 5% 时的召回。
@@ -46,7 +46,7 @@ def main() -> None:
     rows = [dict(x, _set=d[-1]) for d in DIRS for x in read_jsonl(Path(d) / "final.jsonl")]
     sc = {c: {k: v for d in DIRS for k, v in (scores(critic_file(d, c)) or {}).items()} for c in names}
     base_rows = [x for x in rows if (a.with_refusal or "unable to answer" not in x["sentence"].lower()) and all(x["id"] in sc[c] for c in names)]
-    # 口径（2026-11-09 用户：两个指标都报）：clear = 显然错 vs 没错（原主口径）；any = 显然 + 细微 vs 没错；type:<机制> = 该机制的任意错 vs 没错
+    # 口径（两个指标都报）：clear = 显然错 vs 没错（原主口径）；any = 显然 + 细微 vs 没错；type:<机制> = 该机制的任意错 vs 没错
     views = [("clear", lambda x: x["severity"] == "clear"), ("any", lambda x: True)]
     if a.by_type:
         mc = collections.Counter(x["mechanism"] for x in base_rows if x["is_error"])

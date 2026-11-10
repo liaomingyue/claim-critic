@@ -177,8 +177,8 @@ def format_hard_examples(recs: list[dict]) -> str:
 
 
 def build_prompt(seed: dict, examples: list[dict], hard_examples: list[dict] | None = None) -> str:
-    """hard_examples：之前被强 critic 漏检、且过了全文核对的合成样本，作为额外示例（2026-10-27 用户建议，
-    增加多样性和难度）；None 时与原 prompt 完全相同。"""
+    """hard_examples：之前被强 critic 漏检、且过了全文核对的合成样本，作为额外示例，
+    增加多样性和难度；None 时与原 prompt 完全相同。"""
     kind = seed["type"]
     p = PROMPT.format(input=render_response(seed["resp"]), idx=seed["idx"], kind=kind, type_def=TYPE_DEF[kind],
                       tactic=seed["tactic"], examples=format_examples(examples) or "(none)",
@@ -189,7 +189,7 @@ def build_prompt(seed: dict, examples: list[dict], hard_examples: list[dict] | N
     return p
 
 
-# ---------- 自由选择版：句子、类型、改法都由生成器自己定（2026-10-28 用户提出） ----------
+# ---------- 自由选择版：句子、类型、改法都由生成器自己定 ----------
 # 指定版随机挑句、指定类型和改法，会把错误分布推离真实分布（真实幻觉集中在某些位置和某些句子上）；
 # 自由版只给整条回答和改法清单（仅供参考），生成器自己判断哪里最像真实模型会出错。生成器经过真实错误 SFT
 # （ragtruth.realgen build --free）后，选择本身就学的是真实分布；DPO 的 KL 约束让它不偏离太远。
@@ -227,8 +227,8 @@ Output only one JSON object, nothing else:
 {{"plan": "which sentence you chose, why a real assistant could get it wrong, and how you introduce the error", "idx": <number of the chosen sentence>, "type": "conflict or baseless", "tactic": "the way you introduced the error", "sentence": "the rewritten sentence", "evidence": "...", "reason": "...", "original_evidence": "...", "original_reason": "..."}}"""
 
 
-# 定向版改法（2026-10-29）：RAGTruth++ 有效幻觉里 critic-clean-gfree 仍漏掉的那几类——张冠李戴、跨段拼接、
-# 数字 / 时间 / 确定性的细微改动、顺序、关系反转、把分开的事实无依据地连起来（见 docs/experiment_log.md 的 542 句分析）
+# 定向版改法：RAGTruth++ 有效幻觉里 critic-clean-gfree 仍漏掉的那几类——张冠李戴、跨段拼接、
+# 数字 / 时间 / 确定性的细微改动、顺序、关系反转、把分开的事实无依据地连起来（见 docs/experiments.md 的 542 句分析）
 FOCUS_TACTICS = {
     "conflict": ["attribute a statement, action or property to the wrong person, entity, passage or step (who said or did what)",
                  "splice a detail from a different part of the source (another passage, step, entity or review) into the claim",
@@ -243,7 +243,7 @@ FOCUS_NOTE = ("\nPrefer errors that a reader can only catch by checking the sour
               "or passages, not errors visible from the rewritten sentence alone.")
 
 
-# 自由版 v2（2026-10-30，用户：「只改一点点」不一定是好方法，只注重多样性）：可以改写一句（大小不限），也可以插入一整句；
+# 自由版 v2（「只改一点点」不一定是好方法，只注重多样性）：可以改写一句（大小不限），也可以插入一整句；
 # 去掉「尽量少改」的要求。插入时 idx 是新句子在最终回答里的序号，original_evidence / original_reason 为 null。
 FREE_PROMPT_V2 = (FREE_PROMPT
     .replace("Choose one sentence of this response and rewrite it so that it contains exactly one error of one of these kinds:",
@@ -267,11 +267,11 @@ assert FREE_PROMPT_V2.count('"op"') == 1 and "change as little as possible" not 
 
 
 MINIMAL_LINE = "- change as little as possible; keep the wording, style and length close to the original; the response must still read naturally;"
-# 改动大小不限（2026-11-03，用户：种子集加 100 条不约束只改一点的，核心是改完的句子也要自然）：只改写一句，不插入
+# 改动大小不限（种子集加 100 条不约束只改一点的，核心是改完的句子也要自然）：只改写一句，不插入
 FREE_SIZE_LINE = ("- the error can be small or large: a word, a phrase, a clause or most of the sentence; keep the style of the response; "
                   "the rewritten sentence must read as if the assistant had written it this way, and the response must still read naturally;")
 assert FREE_PROMPT.count(MINIMAL_LINE) == 1
-# 结合整条回答、尤其上下句（2026-11-03，用户：改写要放在上下文里看，结合整个回答，上句和下句尤其重要）
+# 结合整条回答、尤其上下句（改写要放在上下文里看，结合整个回答，上句和下句尤其重要）
 CONTEXT_LINE = ("- read the whole response with your rewritten sentence in place, above all the sentence before and the sentence after it: "
                 "together they must read as one passage written in one go; pronouns and connectives (however, also, then) still fit; "
                 "nothing repeats or contradicts the other sentences; the rewritten sentence mentions nothing the response has not introduced;")

@@ -1,4 +1,4 @@
-# 回答策略 SFT（2026-11-05，用户：S2 拒绝采样 SFT、S1 Claude 修正 SFT，和 GRPO 同一批 831 个 prompt）。
+# 回答策略 SFT（S2 拒绝采样 SFT、S1 Claude 修正 SFT，和 GRPO 同一批 831 个 prompt）。
 # LoRA 和回答 GRPO 的策略 LoRA 一样（mc-init：r 32 / alpha 64 / 7 个线性层 / dropout 0），从同一个底座开始。
 # data / output_dir 由 scripts/remote/run_s2.sh、run_s1.sh 改写。不合并：评测时和 GRPO 检查点一样当 LoRA 挂在 vLLM 上。
 task: policy_text

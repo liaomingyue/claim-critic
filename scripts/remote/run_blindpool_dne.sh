@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08：sev__gen_dne（不给生成器解释）判真错最好 → 等 run_blindpool.sh 做完，用 dne 也给全部 9B 样本 + 审计样本打分 → gen_audit/sev_dne_scores_all.jsonl
+# sev__gen_dne（不给生成器解释）判真错最好 → 等 run_blindpool.sh 做完，用 dne 也给全部 9B 样本 + 审计样本打分 → gen_audit/sev_dne_scores_all.jsonl
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/blindpool.log; G=outputs/rt/core/gen_audit
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

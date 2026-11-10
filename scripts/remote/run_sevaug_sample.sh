@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：多造样本扩充 sev 训练数据（2B、9B 都采）。生成器 = 定版 gen-v2（先句子后 edit），训练池 657 条回答 × 3 个按权重分配的机制 × 2 条。
+# 多造样本扩充 sev 训练数据（2B、9B 都采）。生成器 = 定版 gen-v2（先句子后 edit），训练池 657 条回答 × 3 个按权重分配的机制 × 2 条。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/sevaug.log; C=outputs/rt/core
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

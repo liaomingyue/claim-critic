@@ -1,4 +1,4 @@
-"""回答 GRPO 的奖励（2026-11-02，用户：用 rm1_gold_9b 当回报训 9B，看幻觉能不能降）。
+"""回答 GRPO 的奖励（用 rm1_gold_9b 当回报训 9B，看幻觉能不能降）。
 
 critic 逐句给 P(有幻觉) = P(B) + P(C)（温度校准后）。每条回答：
   奖励 = 1 − (0.5 × 平均 P + 0.5 × 最大 P)
@@ -11,7 +11,7 @@ critic 逐句给 P(有幻觉) = P(B) + P(C)（温度校准后）。每条回答�
   照抄原文（连续 6 词都在原文里的词占比，QA ≥ 0.9、Summary ≥ 0.5，取自 9B 原始回答 p99 以上）；
   结尾没有句末标点（故意打断；9B 原始 300 条回答 0 条）；原文没有中文而回答夹中文（9B 原始约 0.5%，Claude 判这种回答不可用）。
 
-满意度护栏（第二轮，用户：不需要很准，只是不让模型为了降幻觉去钻空子）：只罚不奖。sat_pair 和这个 prompt 上 9B 原始的参考回答比，P = 新回答更好；sat_abs 直接判好不好。
+满意度护栏（第二轮，不需要很准，只是不让模型为了降幻觉去钻空子）：只罚不奖。sat_pair 和这个 prompt 上 9B 原始的参考回答比，P = 新回答更好；sat_abs 直接判好不好。
   奖励 = max(0, 幻觉项 − w × max(0, 0.5 − P))
 """
 from __future__ import annotations
@@ -73,7 +73,7 @@ def combine(ps: list[float]) -> float:
     return 1.0 - 0.5 * sum(ps) / len(ps) - 0.5 * max(ps)
 
 
-# ── 计数 + 去底噪奖励、句子层优势（2026-11-05，用户：一句错和两句错分数要不一样；分步奖励，单独优化出错的那一句）──
+# ── 计数 + 去底噪奖励、句子层优势（一句错和两句错分数要不一样；分步奖励，单独优化出错的那一句）──
 # 旧公式 combine 的问题：第 1 句错扣 0.6、之后每句只多扣 0.1（最大值那一半一次扣满）；平均值那一半会被多写的安全句稀释。
 # 直接改成「P(至少一句错) + 期望错句数 / K」又会把 critic 的底噪按句数累加（Claude 200 条：策略回答里没错的句子 ref 平均 P 0.10、
 # 显然错的中位数才 0.20），8 句全对 0.58 < 4 句带 1 句显然错 0.71，逼模型少写。阈值也不行（显然错的一半在 0.2 以下）。
@@ -134,7 +134,7 @@ class AnswerRewarder:
         self.refuse_model, self.refuse_temp, self.refuse_w = refuse_model, refuse_temp, refuse_w
         # shape：legacy = combine（旧）；count = 去底噪计数（count_reward）。底噪 b、σ 每组算一次，存进每条样本给句子层优势用
         self.shape, self.count_k, self.lam_any, self.lam_cnt, self.sigma_floor = shape, count_k, lam_any, lam_cnt, sigma_floor
-        # count_ratio > 0：K = max(count_min, count_ratio × 参考回答句数)（用户：扣满的错句数换成比例；分母用参考回答而不是自己的句数，多写稀释不了）
+        # count_ratio > 0：K = max(count_min, count_ratio × 参考回答句数)（扣满的错句数换成比例；分母用参考回答而不是自己的句数，多写稀释不了）
         self.count_ratio, self.count_min = count_ratio, count_min
 
     def count_k_for(self, row: dict) -> float:
@@ -220,7 +220,7 @@ class AnswerRewarder:
                 h = count_reward(o["ps"], b, k, self.lam_any, self.lam_cnt) if self.shape == "count" else combine(o["ps"])
                 o.update(reward=guarded(h, o["sat"], self.sat_w), sent_base=round(b, 4), sent_sigma=round(sd, 4))
         refused = [o for o in out if o["why"] == "refusal"]
-        if refused and self.refuse_model:   # 用户：MiniCPM 偏向拒答，要降拒答率。拒答的奖励 = refuse_w × P(可以拒答)，最高 refuse_w，比一般的好回答低
+        if refused and self.refuse_model:   # MiniCPM 偏向拒答，要降拒答率。拒答的奖励 = refuse_w × P(可以拒答)，最高 refuse_w，比一般的好回答低
             pr = self.p_refuse(row)
             for o in refused:
                 o.update(reward=self.refuse_w * pr if pr is not None else 0.0, p_refuse=pr)

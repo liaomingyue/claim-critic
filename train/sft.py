@@ -73,7 +73,7 @@ def build_dataset(samples: list[dict], thinks: dict[str, str] | None, task: str 
         if task == "option":  # 单字符选项 RM（ragtruth.rm_data）：prompt 是 system + user 消息，completion 是一个选项字母
             rows.append({"prompt": s["prompt"], "completion": [{"role": "assistant", "content": s["completion"]}]})
             continue
-        if task == "policy_text":  # 回答策略 SFT（2026-11-05，S1 / S2）：prompt 是 GRPO 采样时同一段聊天模板文本（ans_data.policy_prompt，关思考），completion 是回答 + <|im_end|>
+        if task == "policy_text":  # 回答策略 SFT（S1 / S2）：prompt 是 GRPO 采样时同一段聊天模板文本（ans_data.policy_prompt，关思考），completion 是回答 + <|im_end|>
             rows.append({"prompt": s["prompt"], "completion": s["completion"]})
             continue
         if task == "gen":  # 错误生成器：prompt / completion 已由 ragtruth.realgen build 拼好（生成器 prompt + 输出 JSON）
@@ -147,7 +147,7 @@ def main() -> None:
                               "train": {"steps": trainer.state.global_step,
                                         "runtime_s": next((x["train_runtime"] for x in log if "train_runtime" in x), None),
                                         "final_loss": next((x["loss"] for x in reversed(log) if "loss" in x), None)}})
-    # 2026-11-05：大数据量的 critic（z6000 / z3000）存完模型后进程非零退出或卡住（原因未查明，疑在收尾的清单 / 共享盘写入），
+    # 踩过：大数据量的 critic（z6000 / z3000）存完模型后进程非零退出或卡住（原因未查明，疑在收尾的清单 / 共享盘写入），
     # 卡住时 GPU 空闲被看门狗关机。模型存完先写 SAVED；清单放后台线程最多等 120 秒、出错只打印；最后直接退出进程
     import threading
     err = []

@@ -1,8 +1,8 @@
 #!/bin/bash
-# 奖励对照领完后的收尾（2026-11-05）。两台都跑，按共享盘占位分工：
-#   ① acceptc（用户：Claude 显然错误扩到约 200 句）：2B 回答 GRPO 第 300 步策略在 132 篇没用过的测试原文上各生成 3 条（温度 0.7、种子 0/1/2，同 grpo300b），
+# 奖励对照领完后的收尾。两台都跑，按共享盘占位分工：
+#   ① acceptc（Claude 显然错误扩到约 200 句）：2B 回答 GRPO 第 300 步策略在 132 篇没用过的测试原文上各生成 3 条（温度 0.7、种子 0/1/2，同 grpo300b），
 #      再用全部 critic 给这批回答逐句打分（不依赖标签；标签由本地 accept_more label_batch 调 Claude 补）→ outputs/rt/minicpm/grpo300c/
-#   ② gbl（用户：先做 A）：ref 数据 + group_by_length 重训，比耗时和指标
+#   ② gbl：ref 数据 + group_by_length 重训，比耗时和指标
 set -u
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; LOG=$A/post.log; Q=$FS/runs/scale_queue; MC=$A/models/MiniCPM5-2B; D=outputs/rt/minicpm/grpo300c

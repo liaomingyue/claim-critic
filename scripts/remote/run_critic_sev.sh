@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：sev 训好后在 critic 上实际验证。基线 rm1__core + 9B 错误改写模型样本（按规则挑错句，配同位置原句）→ 重训 critic → 评测。
+# sev 训好后在 critic 上实际验证。基线 rm1__core + 9B 错误改写模型样本（按规则挑错句，配同位置原句）→ 重训 critic → 评测。
 #   组（ARMS，按顺序训，单卡）：
 #     s2  新 sev__gen  P(A–D) ≥ THR2（s2 / s1 / rnd 候选池都去掉有 Claude 结论的 9B 样本，防 sev__gen 记住答案）
 #     s1  旧 sev__core 按 P(A–D) 从高到低取，数量对齐 s2

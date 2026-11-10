@@ -1,6 +1,6 @@
 """错误合成模型（生成器）的 DPO：让它更多地写出「有效且难」的错误句（技术报告 Q4）。
 
-迭代实验（2026-10-27）表明，固定的 35B + 13 种改法在 2 轮后就挖不出新的难样本（难样本率 20% → 7–10% → 5.5%），
+迭代实验表明，固定的 35B + 13 种改法在 2 轮后就挖不出新的难样本（难样本率 20% → 7–10% → 5.5%），
 瓶颈在生成器。这里用偏好优化直接训练生成器。
 
 流程（每步可续跑，产出都在 --dir 下）：
@@ -124,7 +124,7 @@ def cmd_sample(args) -> None:
     def run(seed: dict) -> dict:
         if seed.get("free"):
             return run_free(seed)
-        # 示例每组都换（用户建议，2026-10-27）：k 条采样分成 variants 组，每组重新抽 3 个真实幻觉示例 + 难样本示例；
+        # 示例每组都换：k 条采样分成 variants 组，每组重新抽 3 个真实幻觉示例 + 难样本示例；
         # 偏好对只在同一组（同一个 prompt）内配，DPO 要求 chosen / rejected 的 prompt 相同
         rng = random.Random(seed["id"])
         cands = ex_pool.get((seed["resp"]["task_type"], seed["type"])) or []
@@ -234,7 +234,7 @@ def cmd_hard(args) -> None:
         if not args.logprob:
             outs = critic.chat(messages(bad), n=args.n, **NO_THINK)
             return {"detect_rate": sum(parse_output(o).verdict == "hallucination" for o in outs) / len(outs)}
-        # 连续难度（2026-10-28）：识破率只有 n+1 档，72% 的有效样本是 1，DPO 配不出「更难」的对
+        # 连续难度：识破率只有 n+1 档，72% 的有效样本是 1，DPO 配不出「更难」的对
         resp = critic.client.chat.completions.create(
             model=args.model, messages=messages(bad), n=args.n, max_tokens=512, temperature=0.7, logprobs=True,
             top_logprobs=20, **NO_THINK)
@@ -329,7 +329,7 @@ def prompt_of(sample: dict, v: int) -> str:
 
 
 def canonical_prompt(sample: dict) -> str:
-    """统一训练 prompt：第 0 组 prompt 去掉难样本示例段，只留真实幻觉示例（用户同意，2026-10-27）。
+    """统一训练 prompt：第 0 组 prompt 去掉难样本示例段，只留真实幻觉示例。
     跨示例组配偏好对时 chosen / rejected 都放在它下面，满足 DPO「同一 prompt」的要求；
     相当于把难样本示例的引导效果蒸馏进参数，DPO 后的生成器评测时也不带难样本示例。"""
     p = prompt_of(sample, 0)
@@ -416,7 +416,7 @@ def cmd_pairs(args) -> None:
     rng = random.Random(0)
     pairs = []
     if args.mode == "score":
-        # 用户提出（2026-10-28）：有效、难、真加权成一个分数再配对；chosen 必须同时满足有效、难度和真实性门槛
+        # 有效、难、真加权成一个分数再配对；chosen 必须同时满足有效、难度和真实性门槛
         sc = composite(d, args)
         by = collections.defaultdict(list)
         for k, x in sc.items():
@@ -528,7 +528,7 @@ def cmd_select(args) -> None:
         return
     rate = {r["id"]: r["detect_rate"] for r in kept(d / f"hard_{args.tag}.jsonl")}
     real = {r["id"]: r["p_natural"] for r in kept(d / f"realism_{args.rtag}.jsonl")}
-    if args.pct:   # 和 DPO v2 同口径：连续难度 / 真实性先换成百分位，各占一半（用户：难度和真实性同样重要）
+    if args.pct:   # 和 DPO v2 同口径：连续难度 / 真实性先换成百分位，各占一半（难度和真实性同样重要）
         hp = pct_rank({r["id"]: 1 - r.get("p_halluc", r["detect_rate"]) for r in kept(d / f"hard_{args.tag}.jsonl")})
         rp = pct_rank({r["id"]: r.get("score", r["p_natural"]) for r in kept(d / f"realism_{args.rtag}.jsonl")})
         rate = {k: 1 - v for k, v in hp.items() if k in rp}
@@ -612,7 +612,7 @@ def main() -> None:
             p.add_argument("--mode", choices=["hard", "hard_real", "score"], default="hard",
                            help="hard：只按 critic 难度分档；hard_real：难度 + 真实性两维帕累托；score：综合分（推荐）")
             p.add_argument("--w_base", type=float, default=0.2, help="score：有效的基础分")
-            p.add_argument("--w_hard", type=float, default=0.4, help="score：难度权重（用户：和真实性同样重要）")
+            p.add_argument("--w_hard", type=float, default=0.4, help="score：难度权重（和真实性同样重要）")
             p.add_argument("--w_real", type=float, default=0.4, help="score：真实性权重")
             p.add_argument("--min_hard", type=float, default=0.5, help="score：chosen 的难度百分位下限")
             p.add_argument("--min_real", type=float, default=0.5, help="score：chosen 的真实性百分位下限")

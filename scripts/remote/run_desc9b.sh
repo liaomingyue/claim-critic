@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：生成器训练数据里的改动描述用 9B 写意思层面的自然描述（大段改写结合错误类型概括），再让 Claude 抽查。
+# 生成器训练数据里的改动描述用 9B 写意思层面的自然描述（大段改写结合错误类型概括），再让 Claude 抽查。
 # Qwen3.5-9B 基座（服务名 base；不是评测用的 9B critic）给种子集错误对写描述 → outputs/rt/core/seed_v2_desc9b.jsonl。只写描述、不筛选数据。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/desc9b.log

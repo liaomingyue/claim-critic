@@ -1,5 +1,5 @@
 #!/bin/bash
-# 拒答标签修正 + 证据段探针（2026-11-04，用户：核心是确认 2B 为什么识别不出明显错误；可以）：
+# 拒答标签修正 + 证据段探针（核心是确认 2B 为什么识别不出明显错误）：
 #   GPU0：建 rm1__mcgold_ref（rm1__mcgold + 训练集 10 句能回答的拒答 A → B + 513 条拒答样本，按拒答 RM 的 Claude 标注）→ 训练、校准、RAGTruth++ 报告
 #         → 新 critic 打拒答评测（test_refuse）和 200 条 2B GRPO 验收回答（grpo300 / grpo300b）
 #   GPU1：基线 2B critic（rm1__mcgold）打证据段探针（probe_ev：完整原文 / 只给证据段）和 test_refuse；再换 9B 金标 critic 打同样两份

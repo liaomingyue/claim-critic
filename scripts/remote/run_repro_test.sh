@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-10 用户：在有 GPU 的服务器上从头复现（实测 scripts/repro 能不能用）。两台机器各一组：
+# 在有 GPU 的服务器上从头复现（实测 scripts/repro 能不能用）。两台机器各一组：
 #   repro_bf：打发布包（只打一次，放共享盘）→ 全新克隆代码 → setup → R1 重新打分 → R2 新 critic 组（rp_bf）
 #   repro_r1：等发布包 → 全新克隆 → setup → R2 对照组（rp_r1）
 #   后完成的那台把另一组的生成和 9B 打分拷过来，跑 R2 比较。结果和日志放 $FS/repro/results/。

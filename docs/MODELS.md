@@ -22,7 +22,7 @@
 | rm1__core_r2_bfcl | critic | 选项 SFT | `outputs/rt/rm/rm1__core_r2_bfcl/` 6324 行 | 表 7、表 8（RAG-S3-bf 的奖励） |
 | rm1__core_r2_bfnc | critic | 选项 SFT | `outputs/rt/rm/rm1__core_r2_bfnc/` 6324 行 | 表 7（核实 vs 不核实） |
 | rm1__core_rd2 | critic | 选项 SFT | `outputs/rt/rm/rm1__core_rd2/` 7123 行 | 表 9（静态评测；RAG-S4-rd2 的奖励） |
-| rm1__core_sevs1 | critic | 选项 SFT | `outputs/rt/rm/rm1__core_sevs1/` 6070 行 | experiment_log「sev 当筛子」 |
+| rm1__core_sevs1 | critic | 选项 SFT | `outputs/rt/rm/rm1__core_sevs1/` 6070 行 | experiments.md 4.9「sev 筛过的真错 vs critic 拿不准的真错」 |
 | rm1__core_sevs2 | critic | 选项 SFT | `outputs/rt/rm/rm1__core_sevs2/` 6070 行 | 同上 |
 | rm1__core_sevrnd | critic | 选项 SFT | `outputs/rt/rm/rm1__core_sevrnd/` 6070 行 | 表 3（随机 733） |
 | rm1__core_sevcl | critic | 选项 SFT | `outputs/rt/rm/rm1__core_sevcl/` 6226 行 | 表 3（Claude 确认真错 811） |
@@ -104,7 +104,7 @@ RM=rm1__core_r1 GPU=0 PORT=8100 bash scripts/remote/run_mcrm.sh
 - **基座**：openbmb/MiniCPM5-2B@f974000
 - **对应结论**：表 3 最后一行（critic 拿不准的真错 581）；表 4、表 7 的底座；表 2（RAG-S3-r2 的奖励）
 - **训练数据**：`outputs/rt/rm/rm1__core_r2/train.jsonl`、`outputs/rt/rm/rm1__core_r2/calib.jsonl（只用来拟合温度）`
-- **数据怎么来的**：rm1__core + harvest_r1 中 critic P 在 [0.1, 0.7) 的 581 条错句 + 原句（id 列表 outputs/rt/core/r2_ids.tsv）
+- **数据怎么来的**：rm1__core + harvest_r1 中经 Claude 核实为真错、且 critic 拿不准（盲区 P < 0.3 加边界 0.3–0.7）的 581 条错句 + 原句（id 列表 outputs/rt/core/r2_ids.tsv）
 - **训练集**：5766 行（A 有依据 3775，B 轻微 1423，C 明显 568）；最长 3072 token
 - **构建参数（meta.json）**：base=rm1__core，added_errors=581，added_originals=581，harvest=outputs/rt/core/harvest_r1.jsonl，band=[0.1, 0.7]
 - **校准温度**：1.35（校准集原始 AUC 0.856）
@@ -270,7 +270,7 @@ sev 筛选对照：旧 sev 按分数取 733 条
 
 - **发布位置**：`adapters/rm1__core_sevs1`
 - **基座**：openbmb/MiniCPM5-2B@f974000
-- **对应结论**：experiment_log「sev 当筛子」
+- **对应结论**：experiments.md 4.9「sev 筛过的真错 vs critic 拿不准的真错」
 - **训练数据**：`outputs/rt/rm/rm1__core_sevs1/train.jsonl`、`outputs/rt/rm/rm1__core_sevs1/calib.jsonl（只用来拟合温度）`
 - **数据怎么来的**：rm1__core + 候选池 1370 条中 sev1 打分最高的 733 条
 - **训练集**：6070 行（A 有依据 3927，B 轻微 1346，C 明显 797）；最长 3072 token

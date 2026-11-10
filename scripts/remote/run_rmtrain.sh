@@ -1,5 +1,5 @@
 #!/bin/bash
-# 单字符选项 RM 训练 + 校准评测（2026-10-30，用户：三个 RM 都是 9B LoRA，三台 5090 并行）。
+# 单字符选项 RM 训练 + 校准评测（三个 RM 都是 9B LoRA，三台 5090 并行）。
 #   RM=rm1|rm2|rm3：数据 outputs/rt/rm/$RM/{train,calib,test}.jsonl（ragtruth.rm_data，本地建好后上传到文件存储）；
 #   超参同 9B v2（configs/rt/rm_9b.yaml），从基座训；合并后用 vLLM 起服务，ragtruth.rm_eval 打分、拟合全局温度、出报告。
 # 用法：RM=rm1 bash run_rmtrain.sh（工作目录 = 共享代码目录）。结束写 RMTRAIN_DONE。

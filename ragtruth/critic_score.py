@@ -1,4 +1,4 @@
-"""给验收回答逐句打 critic 分（2026-11-03，用户：看 critic 自己能不能判出 Claude 标的各类错误）。
+"""给验收回答逐句打 critic 分（看 critic 自己能不能判出 Claude 标的各类错误）。
 和 outputs/rt/minicpm/sys/critic_scores.json 同格式：[{"id": "<回答 id>-S<句号>", "p": P(有错)}]，只打停止正常、有句子的回答。
 另存 p_conflict / p_baseless（选项 B / C），重造 RM2 时给「自然」错误定类型用。
 

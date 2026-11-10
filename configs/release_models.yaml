@@ -1,4 +1,4 @@
-# 发布的每个模型：训练数据、训练配置、起点、重训命令、用在哪个结论（2026-11-10，用户：每个模型给出具体的训练数据和训练配置）。
+# 发布的每个模型：训练数据、训练配置、起点、重训命令、用在哪个结论。
 # scripts/model_cards.py 读这个文件 + 数据目录里的 meta.json / eval/report.json，生成 docs/MODELS.md 和每个模型的 README。
 #
 # 训练方式（method）：
@@ -38,7 +38,7 @@ models:
     group: critic
     method: option_rm
     purpose: 只加 critic 0.1–0.7 区间（边界）的错句
-    data_from: rm1__core + harvest_r1 中 critic P 在 [0.1, 0.7) 的 581 条错句 + 原句（id 列表 outputs/rt/core/r2_ids.tsv）
+    data_from: rm1__core + harvest_r1 中经 Claude 核实为真错、且 critic 拿不准（盲区 P < 0.3 加边界 0.3–0.7）的 581 条错句 + 原句（id 列表 outputs/rt/core/r2_ids.tsv）
     used_in: 表 3 最后一行（critic 拿不准的真错 581）；表 4、表 7 的底座；表 2（RAG-S3-r2 的奖励）
   - name: rm1__core_r3
     group: critic
@@ -87,7 +87,7 @@ models:
     method: option_rm
     purpose: sev 筛选对照：旧 sev 按分数取 733 条
     data_from: rm1__core + 候选池 1370 条中 sev1 打分最高的 733 条
-    used_in: experiment_log「sev 当筛子」
+    used_in: experiments.md 4.9「sev 筛过的真错 vs critic 拿不准的真错」
   - name: rm1__core_sevs2
     group: critic
     method: option_rm

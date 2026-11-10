@@ -1,4 +1,4 @@
-"""用严重程度 RM（sev__mc）给 harvest 造数据打分，挑下一版 critic 的候选（2026-11-04，用户：推理机空着别浪费）。
+"""用严重程度 RM（sev__mc）给 harvest 造数据打分，挑下一版 critic 的候选（推理机空着别浪费）。
 只打过了 RM3 门槛（p_correct ≥ 0.7）、原句干净、有 2B critic 分（p_halluc）的样本；prompt 和 sev RM 训练时同格式（sev_rm.prompt：改后回答）。
 输出每条的 6 个选项概率 + harvest 关键字段；summary 给 P(显然) 门槛 × critic 区间的条数。
 

@@ -1,4 +1,4 @@
-"""R1 报告：重新打分 vs 发布的打分（2026-11-10）。
+"""R1 报告：重新打分 vs 发布的打分。
   python -m scripts.repro.compare_r1 --cap3 <critic_cap3 输出，基线 rm1__core_r2_bfcl_re> --critics <名字...>
 三部分：① 逐句分数差（同一句话两次打分的 |ΔP|）；② 每个 critic 的 AUC，原分数 vs 重打；③ 两条关键结论在重打分数上是否成立：
   表 7  补盲时用 Claude 核实（bfcl）比不核实（bfnc）好：显然错 / 任意错 AUC 差 > 0 且 90% 区间不含 0

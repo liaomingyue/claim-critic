@@ -1,5 +1,5 @@
 #!/bin/bash
-# 2026-11-08 用户：改动描述只用规则（逐词 diff 列出），不用模型写。sev__v3r = sev__v3 去掉 9B 描述、只给规则改动清单；训完和 v3 同批打分比较。
+# 改动描述只用规则（逐词 diff 列出），不用模型写。sev__v3r = sev__v3 去掉 9B 描述、只给规则改动清单；训完和 v3 同批打分比较。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; LOG=$A/sev3r.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }

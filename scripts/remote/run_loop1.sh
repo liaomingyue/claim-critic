@@ -1,5 +1,5 @@
 #!/bin/bash
-# 循环一（错误合成，2026-11-06，用户：训练完成后开始循环；一台单卡顺序跑）。全部只用核心集派生的数据和 2B 模型，9B 不进奖励、不筛样本。
+# 循环一（错误合成，训练完成后开始循环；一台单卡顺序跑）。全部只用核心集派生的数据和 2B 模型，9B 不进奖励、不筛样本。
 #   ① sev__core：等本地 Claude 单独标注（outputs/rt/core/sevpool_labels.jsonl，随代码上传）→ core sev → run_mcrm.sh
 #   ② 错误改写模型 GRPO（单卡：vLLM 0.35 显存挂 rm1 / rm2 / sev / policy_v0 + 训练同卡），起点 gen-core-mc，D4 训练池，n 16 × 16 prompt，lr 5e-6：
 #        前 50 步 shape sev（门槛 P(显然) ≥ 0.5，保底 0.1）；续 50 步区间模式（保底 0.02，critic 0.3–0.7 加 0.5，难度项 = 离 0.5 的接近度）
