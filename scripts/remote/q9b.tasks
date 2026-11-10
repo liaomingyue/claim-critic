@@ -10,3 +10,7 @@ pair_infer|ref9,rm_rm1__core,rm_sat_pair__core,rm_refuse__core|bash scripts/remo
 pair_train|ref9,rm_rm1__core,rm_sat_pair__core,rm_refuse__core|bash scripts/remote/q9b_task.sh pair_train
 cap3|rm_rm1__core|bash scripts/remote/q9b_task.sh cap3
 cmp|pair_train|bash scripts/remote/q9b_task.sh cmp
+# 垫底任务：等第二台机器时不让第一台空着（单卡就能做的 9B 对比），排在最后，不抢 GRPO 的先
+rm_sev__v3c0|prep|bash scripts/remote/q9b_extra.sh sev__v3c0
+rm_rm2__v3b|prep|bash scripts/remote/q9b_extra.sh rm2__v3b
+gen|prep|bash scripts/remote/q9b_task.sh gen
