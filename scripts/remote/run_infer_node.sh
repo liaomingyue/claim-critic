@@ -18,7 +18,9 @@ LORAS="critic=$FS/adapters/$CRITIC-mc/adapter sat=$FS/adapters/$SATRM-mc/adapter
 # 换实验（如生成器 GRPO）时在共享盘 runs/pair/<配对>/loras 写「名字=路径」每行一个（路径可用 $FS），优先用它
 [ -f $P/loras ] && LORAS=$(sed "s|\$FS|$FS|g" $P/loras | paste -sd' ')
 pkill -f '[v]llm serve'
-A=$A bash $S/serve_loras.sh --gpu 0 --port 6006 --base $MC --log $A/vllm-infer.log --priority $LORAS >> $LOG 2>&1 || { log "vllm FAILED"; touch $P/infer_failed; exit 1; }
+# 9B 对照：INFER_MODEL=qwen3.5-9b 时用 9B 底座（先拷到本地盘，从共享盘直接加载太慢）
+if [ "${INFER_MODEL:-}" = qwen3.5-9b ]; then source $S/models9b.sh; ensure_9b || { log "9b copy FAILED"; touch $P/infer_failed; exit 1; }; MC=$M9; fi
+A=$A bash $S/serve_loras.sh --gpu 0 --port 6006 --mem ${INFER_MEM:-0.9} --base $MC --log $A/vllm-infer.log --priority $LORAS >> $LOG 2>&1 || { log "vllm FAILED"; touch $P/infer_failed; exit 1; }
 setsid nohup python -u scripts/lora_sync.py --port 6008 --vllm http://127.0.0.1:6006/v1 > $A/lora_sync.log 2>&1 < /dev/null &
 for i in $(seq 1 20); do curl -s -m 2 http://127.0.0.1:6008/health | grep -q ok && break; sleep 1; done
 curl -s -m 2 http://127.0.0.1:6008/health | grep -q ok || { log "lora_sync FAILED"; touch $P/infer_failed; exit 1; }

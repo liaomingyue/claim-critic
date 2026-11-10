@@ -10,7 +10,7 @@ cd ${CODE:-${FS_ROOT:-/root/autodl-fs}/code/critic_model}
 A=${TMP_ROOT:-/root/autodl-tmp}; FS=${FS_ROOT:-/root/autodl-fs}; S=scripts/remote; C=outputs/rt/core; ARM=${ARM:?}; LOG=$A/loop2_$ARM.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x TOKENIZERS_PARALLELISM=false
-unset VLLM_API_KEY LORA_SYNC_URL
+[ -n "${RM_URL:-}" ] || unset VLLM_API_KEY LORA_SYNC_URL   # 双机模式（RM_URL 已设）要留着，传给 run_r3full.sh
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 source $S/model_env.sh ${POLICY_MODEL:-minicpm5-2b} || { log "model_env FAILED"; exit 1; }   # 9B 对照时 POLICY_MODEL=qwen3.5-9b：参考回答由 9B 起点重采
 MC=$MODEL_LOCAL; INIT=${INIT:-$FS/adapters/rag-sft-core/adapter}; P=$C/loop2_prompts_$(basename $(dirname $INIT))
@@ -32,6 +32,7 @@ EOF
   free_gpu
   grep -a "REF_DONE\|REF2" $LOG | tail -3 | cut -c1-300
 fi
+[ "${REF_ONLY:-0}" = 1 ] && { [ -s $P/train_ref.jsonl ] && log "REF_ONLY done ($P)" || { log "REF_ONLY FAILED"; exit 1; }; exit 0; }   # 只生成参考回答（双机模式要提前做）
 log "R3 GRPO arm $ARM: init $INIT critic ${CRITIC:?} steps ${STEPS:-200}"
 SRC=$P INIT=$INIT CRITIC=$CRITIC SAT=${SAT:-sat_pair__core} REFUSE=${REFUSE:-refuse__core} STEPS=${STEPS:-200} EVAL_STEPS="${EVAL_STEPS:-50 100 200}" EVAL_V0=${EVAL_V0:-1} \
   TAG=_core_$ARM O=${O_LOCAL:-$C/loop2_$ARM} bash $S/run_r3full.sh >> $LOG 2>&1
