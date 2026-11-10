@@ -1,7 +1,7 @@
 """下载并解压开源发布的数据和模型，核对 SHA-256。
 
   pip install huggingface_hub
-  python -m scripts.fetch_release --data_repo <用户>/claim-critic-data --model_repo <用户>/claim-critic-models [--only data|models] [--parts eval core]
+  python -m scripts.fetch_release --data_repo liao11/claim-critic-data --model_repo liao11/claim-critic-models [--only data|models] [--parts eval core]
   python -m scripts.fetch_release --local /path/to/release        # 已经有本地副本（目录里有 MANIFEST.json 和两个子目录）时直接从本地解压
 
 解压位置：数据解压到仓库根目录（outputs/...、external_data/...），模型解压到仓库根目录的 adapters/。
@@ -29,8 +29,8 @@ def sha(p: Path) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data_repo", default="")
-    ap.add_argument("--model_repo", default="")
+    ap.add_argument("--data_repo", default="liao11/claim-critic-data")
+    ap.add_argument("--model_repo", default="liao11/claim-critic-models")
     ap.add_argument("--local", default="", help="本地发布目录（含 MANIFEST.json、claim-critic-data/、claim-critic-models/）")
     ap.add_argument("--only", choices=["data", "models"], default=None)
     ap.add_argument("--parts", nargs="*", default=None, help="只要这些部分，如 eval core critic rag")

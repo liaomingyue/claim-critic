@@ -74,7 +74,7 @@ python -m scripts.demo_tables
 
 ```bash
 pip install -r requirements.txt
-python -m scripts.fetch_release --data_repo <HF 用户名>/claim-critic-data --only data --parts eval
+python -m scripts.fetch_release --data_repo liao11/claim-critic-data --only data --parts eval
 C="rm1__core rm1__core_r2 rm1__core_r2_bfcl rm1__core_r2_bfnc rm1__core_rd2"
 E=outputs/rt/core
 # critic：多类型补盲核实 vs 不核实（表 7），以不核实组为基线
@@ -109,7 +109,7 @@ python -m scripts.check_repro r_s4.json results/loop2_cont6_cmp.json
 
 ```bash
 git clone https://github.com/liaomingyue/claim-critic && cd claim-critic
-bash scripts/repro/setup.sh --data_repo <HF 用户名>/claim-critic-data --model_repo <HF 用户名>/claim-critic-models
+bash scripts/repro/setup.sh --data_repo liao11/claim-critic-data --model_repo liao11/claim-critic-models
 bash scripts/repro/r1_rescore.sh        # R1：约 10 分钟
 bash scripts/repro/r2_rag.sh            # R2：每组约 55 分钟（训练 100 步约 35 分钟，加生成和 9B 打分）；两台机器可以各跑一组：r2_rag.sh rp_bf / rp_r1，最后 r2_rag.sh cmp
 ```
@@ -152,7 +152,7 @@ GRPO 的采样和生成用 vLLM，有非确定性，所以 R2 的数字不会和
 ### L2：从核心集开始，跑完整闭环
 
 ```bash
-python -m scripts.fetch_release --data_repo … --model_repo …     # 全部数据 + 模型
+python -m scripts.fetch_release --data_repo liao11/claim-critic-data --model_repo liao11/claim-critic-models     # 全部数据 + 模型
 ```
 
 然后按 README 的"闭环"一节分步跑：

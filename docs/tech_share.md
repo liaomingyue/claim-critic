@@ -65,7 +65,7 @@ RAG 回答里含错误的比例（9B 金标 critic 打分，三套验收原文�
 R1、R2 是我们开源前在两台全新的 GPU 服务器上，只用发布的数据、模型和脚本，从头跑出来的：
 
 ```bash
-bash scripts/repro/setup.sh --data_repo <HF 用户名>/claim-critic-data --model_repo <HF 用户名>/claim-critic-models
+bash scripts/repro/setup.sh --data_repo liao11/claim-critic-data --model_repo liao11/claim-critic-models
 bash scripts/repro/r1_rescore.sh
 bash scripts/repro/r2_rag.sh
 ```
