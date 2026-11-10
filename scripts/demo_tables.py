@@ -1,4 +1,4 @@
-"""L0 演示：不需要 GPU，从 results/ 里发布的评测结果重出技术分享（docs/tech_share.md）里的主要表格。
+"""L0 演示：不需要 GPU，从 results/ 里发布的评测结果重出技术分享详细版（docs/tech_share_details.md）里的表 1–9。
 
   pip install -r requirements.txt
   python -m scripts.demo_tables            # 打印全部表（Markdown）

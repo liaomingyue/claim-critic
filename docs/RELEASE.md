@@ -12,7 +12,7 @@
 
 | 包 | 内容 | 对应什么 |
 |---|---|---|
-| `eval.tar.gz` | 三套验收回答（`outputs/rt/minicpm/grpo300{,b,c}/answers.jsonl`）+ Claude 逐句金标（`final.jsonl`）；各代 critic 在这三套上的逐句打分（`critic_<名字>.json`）；各版 RAG 在三套验收原文上的生成 + 9B 金标打分（`outputs/rt/core/loop2_*/eval/`）；奖励粒度 R0–R3 的生成和打分（`outputs/rt/minicpm/rwexp/eval/`） | 技术分享表 1–4、7–9 的全部数字（L1 复现） |
+| `eval.tar.gz` | 三套验收回答（`outputs/rt/minicpm/grpo300{,b,c}/answers.jsonl`）+ Claude 逐句金标（`final.jsonl`）；各代 critic 在这三套上的逐句打分（`critic_<名字>.json`）；各版 RAG 在三套验收原文上的生成 + 9B 金标打分（`outputs/rt/core/loop2_*/eval/`）；奖励粒度 R0–R3 的生成和打分（`outputs/rt/minicpm/rwexp/eval/`） | 技术分享详细版表 1–4、7–9 的全部数字（L1 复现） |
 | `core.tar.gz` | 核心集：2B 写的原回答、Claude 逐句改对（`fix_*_raw.jsonl`）和错误类型 / 满意度标注（`label_raw.jsonl`），以及由它派生的数据（`core.jsonl`、`pairs.jsonl`、种子集、改写提示池等） | 第一到三步，所有模型的数据起点 |
 | `synth.tar.gz` | 错误合成相关：<br>- 生成器 v2 输出的 Claude 标注（`gen_v2_label*`）；<br>- 改动描述；<br>- 难样本核实（`hard_check`、`blind_check`）；<br>- 两轮盲区补样本的提示池（`rag_pool*`）、采样、选样和 Claude 核实（`blind_fill`、`blind_fill_r2`）；<br>- 生成器 GRPO 的提示、试采和难样本 | 表 5–7、两轮闭环的 critic 数据 |
 | `rm.tar.gz` | 各打分模型的训练 / 校准集和评测报告（`outputs/rt/rm/<名字>/`，`eval/report.json` 里有校准温度）。由 core 和 synth 派生，打包是为了方便直接训 | 直接重训任一 critic / sev / RM2 |
@@ -60,7 +60,7 @@ RAG 版本的命名对照：
 
 ## 复现
 
-### L0：不需要 GPU，重算技术分享的表 1–9
+### L0：不需要 GPU，重算技术分享详细版的表 1–9
 
 ```bash
 git clone https://github.com/liaomingyue/claim-critic && cd claim-critic
@@ -110,8 +110,8 @@ python -m scripts.check_repro r_s4.json results/loop2_cont6_cmp.json
 ```bash
 git clone https://github.com/liaomingyue/claim-critic && cd claim-critic
 bash scripts/repro/setup.sh --data_repo <HF 用户名>/claim-critic-data --model_repo <HF 用户名>/claim-critic-models
-bash scripts/repro/r1_rescore.sh        # R1：约半小时
-bash scripts/repro/r2_rag.sh            # R2：两组各约 6–8 小时；两台机器可以各跑一组：r2_rag.sh rp_bf / rp_r1，最后 r2_rag.sh cmp
+bash scripts/repro/r1_rescore.sh        # R1：约 10 分钟
+bash scripts/repro/r2_rag.sh            # R2：每组约 55 分钟（训练 100 步约 35 分钟，加生成和 9B 打分）；两台机器可以各跑一组：r2_rag.sh rp_bf / rp_r1，最后 r2_rag.sh cmp
 ```
 
 `setup.sh` 做四件事：
@@ -139,6 +139,16 @@ bash scripts/repro/r2_rag.sh            # R2：两组各约 6–8 小时；两�
 
 GRPO 的采样和生成用 vLLM，有非确定性，所以 R2 的数字不会和原表逐位一致。举个例子：同一个起点模型重新生成一次，含显然错的比例就会在 6.5% 和 7.5% 之间变动。所以 R2 看的是结论方向和显著性，不看小数点。
 
+### 实测：在新服务器上从头跑了一遍
+
+开源前，我们开了两台全新的 RTX 5090，在全新克隆的代码目录里，只用发布包、基座模型和上面的脚本跑完了 setup、R1、R2：
+
+- **setup**：9 个发布包解压后 SHA-256 全部一致。
+- **R1 重新打分：复现。** 6 代 critic 重新打分，同一句话两次打分平均差 0.005（相关 0.999），AUC 变化都在 0.002 以内；表 7、表 9 的两条结论都成立（`results/repro_r1_report.txt`）。
+- **R2 重训 RAG：部分复现。** 新 critic 组复现得很好（含显然错 3.9%，原 4.7%），但对照组这次自己也降了约 2 个点（5.9%，原 7.9%）。新 critic − 对照：含显然错 −2.0 [−3.6, −0.5]，**仍显著**；含任意错 −2.4 [−4.7, +0.0]，**临界**，没有达到判据，脚本打印 `R2_CONCLUSION_DIFFERS`（`results/repro_r2_report.txt`）。
+
+我们据此把核心结论改成了更谨慎的说法：提升主要来自新 critic，在含显然错上两次独立运行都显著，在含任意错上一次显著、一次临界。同一设置独立重跑一次，最终模型能差约 2 个点，所以跑 R2 时看到和原表不同的数字是正常的；看方向和区间。
+
 ### L2：从核心集开始，跑完整闭环
 
 ```bash
@@ -156,4 +166,4 @@ python -m scripts.fetch_release --data_repo … --model_repo …     # 全部数
 
 所以不调用 Claude 也能完整重放两轮闭环：直接用发布的标签。
 
-所有运行都固定了种子（`PYTHONHASHSEED=0` 加固定字符串种子）。GRPO 的生成用 vLLM，有少量非确定性：同一个检查点两次独立生成，含显然错的比例差约 1 个点。
+所有运行都固定了种子（`PYTHONHASHSEED=0` 加固定字符串种子）。GRPO 的生成用 vLLM，有少量非确定性：同一个检查点两次独立生成，含显然错的比例差约 1 个点；整个 GRPO 训练独立重跑一遍，最终模型的含显然错比例能差约 2 个点（见下面的复现实测）。
