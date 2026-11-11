@@ -13,7 +13,10 @@ log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
 # 双机模式（两台单卡：run_train_node.sh 设好 RM_URL / LORA_SYNC_URL / VLLM_API_KEY）：打分和采样都走推理机，本机只训练；否则清掉这些变量
 [ -n "${RM_URL:-}" ] || unset VLLM_API_KEY LORA_SYNC_URL LORA_SYNC_MODE LORA_SYNC_FS_DIR
-[ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
+# 2B 底座只在本机要用时才拷：策略是 2B，或打分模型是 2B 且不在推理机上（多机 9B 策略 × 2B 打分时训练机用不到 2B）
+if [ ${POLICY_MODEL:-minicpm5-2b} = minicpm5-2b ] || { [ ${RM_MODEL:-minicpm5-2b} = minicpm5-2b ] && [ -z "${RM_URL:-}" ]; }; then
+  [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
+fi
 source scripts/remote/models9b.sh; start_9b_bg   # 先拷马上要用的 2B，9B 后台拷，把时间岔开
 # 9B 对照（2×2：策略大小 × 打分模型大小）：POLICY_MODEL / RM_MODEL = minicpm5-2b（默认）| qwen3.5-9b。
 #   打分模型（critic / 满意度 / 拒答）一起换大小；9B 版的名字带 _9b 后缀（数据目录 outputs/rt/rm/<名字>，adapter <名字>-9b）。
