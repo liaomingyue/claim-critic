@@ -150,3 +150,19 @@ def test_async_pusher_raises_and_keeps_old_version(tmp_path):
     with pytest.raises(RuntimeError, match="async LoRA push failed"):
         p.wait()
     assert prod.version == 1      # 失败的版本不会被采样端用上
+
+
+def test_sync_url_matches_policy_url_when_scorer_separate(monkeypatch):
+    """打分在单独的打分机上（RM_URL 是打分机）：策略服务按 POLICY_URL 找自己的同步服务。"""
+    monkeypatch.setenv("RM_URL", "https://rm/v1")
+    monkeypatch.setenv("POLICY_URL", "https://pol/v1")
+    monkeypatch.setenv("LORA_SYNC_URL", "https://pol-sync")
+    assert gen_grpo.lora_sync_url("https://pol/v1") == "https://pol-sync"
+    monkeypatch.setenv("POLICY_URL", "https://pol1/v1,https://pol2/v1")
+    monkeypatch.setenv("LORA_SYNC_URL", "https://s1,https://s2")
+    assert gen_grpo.lora_sync_url("https://pol2/v1") == "https://s2"
+    monkeypatch.delenv("POLICY_URL")
+    monkeypatch.setenv("RM_URL", "https://a/v1")
+    monkeypatch.setenv("LORA_SYNC_URL", "https://a-sync")
+    assert gen_grpo.lora_sync_url("https://a/v1") == "https://a-sync"
+    assert gen_grpo.lora_sync_url("http://127.0.0.1:8000/v1") == ""

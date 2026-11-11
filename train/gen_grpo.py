@@ -44,10 +44,11 @@ def vllm_headers() -> dict:
 def lora_sync_url(server_url: str = "") -> str:
     """双机模式：推理机上的 LoRA 同步服务（scripts/lora_sync.py）。设了就不直接让 vLLM 读训练机路径，
     而是让同步服务把共享盘上的 LoRA 拷到推理机内存盘再热加载（每步存共享盘，再加载到内存）。
-    多台推理机：RM_URL 和 LORA_SYNC_URL 都是逗号分隔、顺序一一对应，按这个 vLLM 服务的地址找它自己的同步服务。"""
+    多台推理机：RM_URL（或 POLICY_URL）和 LORA_SYNC_URL 都是逗号分隔、顺序一一对应，按这个 vLLM 服务的地址找它自己的同步服务。"""
     import os
     syncs = [s.strip().rstrip("/") for s in os.environ.get("LORA_SYNC_URL", "").split(",") if s.strip()]
-    urls = [u.strip().rstrip("/") for u in os.environ.get("RM_URL", "").split(",") if u.strip()]
+    # 策略服务的地址：设了 POLICY_URL（打分在单独的打分机上）就按它对，否则策略和打分同一组服务，按 RM_URL 对
+    urls = [u.strip().rstrip("/") for u in (os.environ.get("POLICY_URL") or os.environ.get("RM_URL", "")).split(",") if u.strip()]
     if server_url and urls and server_url.rstrip("/") not in urls:
         return ""   # 本机的策略服务（2B 策略 × 9B 打分：策略在训练机上采样，打分在推理机上）：直接热加载，不走同步服务
     if len(syncs) <= 1:
