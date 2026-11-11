@@ -126,9 +126,10 @@ def main() -> None:
         return model(input_ids=x).logits[0, -1, lids].float()
 
     tr = data["train"] if not a.eval_only else []
-    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0)
     steps = max(1, a.epochs * math.ceil(len(tr) / a.batch))
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / max(1, int(0.03 * steps))) * 0.5 * (1 + math.cos(math.pi * s / steps)))
+    if not a.eval_only:   # 只评测时加载的 adapter 参数不可训练，建优化器会报空参数表
+        opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0)
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / max(1, int(0.03 * steps))) * 0.5 * (1 + math.cos(math.pi * s / steps)))
     bce = torch.nn.BCEWithLogitsLoss()
     rng = random.Random(a.seed)
     log = open(out / ("train_log.jsonl" if not a.eval_only else "eval_only.log"), "w", encoding="utf-8")
