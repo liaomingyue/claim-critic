@@ -37,3 +37,15 @@ def test_topn_lift_uses_soft_labels():
     ev = sd.evaluate(pred, rows)
     m0 = ev["by_mech"][sd.MECHS[0]]
     assert m0["top10"] == 0.9 and m0["base"] == 0.3 and m0["lift10"] == 3.0 and ev["mean_lift10"] == 3.0
+
+
+def test_auc_and_spearman_match_reference():
+    from scipy.stats import spearmanr
+    from sklearn.metrics import roc_auc_score
+    import random
+    rng = random.Random(1)
+    y = [int(rng.random() < 0.3) for _ in range(200)]
+    p = [round(rng.random() + 0.5 * yi, 2) for yi in y]   # 有并列
+    assert abs(sd.roc_auc_score(y, p) - roc_auc_score(y, p)) < 1e-9
+    b = [rng.random() for _ in range(200)]
+    assert abs(sd.spearman(p, b) - spearmanr(p, b).statistic) < 1e-9

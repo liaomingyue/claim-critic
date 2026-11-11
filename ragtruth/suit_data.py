@@ -110,10 +110,40 @@ def features(r: dict) -> list[float]:
             len(QUOTE.findall(s)) / words * 10, len(PASSAGE.findall(s)) / 3, caps / words]
 
 
+def _ranks(xs: list[float]) -> list[float]:
+    """平均秩（并列取平均），给 AUC 和 Spearman 用；不依赖 scipy / sklearn（远端环境没有 scipy）。"""
+    order = sorted(range(len(xs)), key=lambda i: xs[i])
+    r = [0.0] * len(xs)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and xs[order[j + 1]] == xs[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            r[order[k]] = (i + j) / 2 + 1
+        i = j + 1
+    return r
+
+
+def roc_auc_score(y: list[int], p: list[float]) -> float:
+    """Mann-Whitney 形式的 AUC（并列算一半）。"""
+    r = _ranks(p)
+    npos = sum(y)
+    nneg = len(y) - npos
+    return (sum(ri for ri, yi in zip(r, y) if yi) - npos * (npos + 1) / 2) / (npos * nneg)
+
+
+def spearman(a: list[float], b: list[float]) -> float:
+    ra, rb = _ranks(a), _ranks(b)
+    ma, mb = sum(ra) / len(ra), sum(rb) / len(rb)
+    cov = sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
+    va = sum((x - ma) ** 2 for x in ra) ** 0.5
+    vb = sum((y - mb) ** 2 for y in rb) ** 0.5
+    return cov / (va * vb)
+
+
 def evaluate(pred: dict[str, list[float]], rows: list[dict]) -> dict:
     """逐机制 AUC（对 labels）、Brier；test 另算软标签的 Spearman 和 AUC 宏平均。"""
-    from scipy.stats import spearmanr
-    from sklearn.metrics import roc_auc_score
     res = {}
     for m in MECHS:
         y = [r["labels"][m] for r in rows]
@@ -122,7 +152,7 @@ def evaluate(pred: dict[str, list[float]], rows: list[dict]) -> dict:
         d["auc"] = round(roc_auc_score(y, p), 3) if 0 < sum(y) < len(y) and len(set(p)) > 1 else None
         if "soft" in rows[0]:
             sv = [r["soft"][m] for r in rows]
-            d["spearman_soft"] = round(spearmanr(p, sv).statistic, 3) if len(set(p)) > 1 and len(set(sv)) > 1 else None
+            d["spearman_soft"] = round(spearman(p, sv), 3) if len(set(p)) > 1 and len(set(sv)) > 1 else None
         # 按这个类型排序取前 N 个原文（实际用法）：前 N 个里该类错的出现率 / 全体平均（lift）；有软标签用软标签，否则用 0/1
         tgt = [r["soft"][m] for r in rows] if "soft" in rows[0] else y
         base = sum(tgt) / len(tgt)

@@ -92,6 +92,7 @@ def main() -> None:
     ap.add_argument("--max_len", type=int, default=3072)
     ap.add_argument("--eval_perms", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--eval_only", action="store_true", help="不训练，加载 <out>/adapter 只做评测")
     a = ap.parse_args()
     import torch
     from peft import LoraConfig, get_peft_model
@@ -104,9 +105,13 @@ def main() -> None:
     tok = AutoTokenizer.from_pretrained(a.base)
     lids = letter_ids(tok)
     model = AutoModelForCausalLM.from_pretrained(a.base, dtype=torch.bfloat16, device_map="cuda")
-    model.gradient_checkpointing_enable()
-    model.enable_input_require_grads()
-    model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", task_type="CAUSAL_LM"))
+    if a.eval_only:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, str(out / "adapter"))
+    else:
+        model.gradient_checkpointing_enable()
+        model.enable_input_require_grads()
+        model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", task_type="CAUSAL_LM"))
     data = {n: list(read_jsonl(OUT / f"{n}.jsonl")) for n in ("train", "holdout", "test", "policy")}
 
     def encode(src: str, perm: list[str]) -> list[int]:
@@ -120,16 +125,16 @@ def main() -> None:
         x = torch.tensor([ids], device="cuda")
         return model(input_ids=x).logits[0, -1, lids].float()
 
-    tr = data["train"]
+    tr = data["train"] if not a.eval_only else []
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0)
-    steps = a.epochs * math.ceil(len(tr) / a.batch)
+    steps = max(1, a.epochs * math.ceil(len(tr) / a.batch))
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / max(1, int(0.03 * steps))) * 0.5 * (1 + math.cos(math.pi * s / steps)))
     bce = torch.nn.BCEWithLogitsLoss()
     rng = random.Random(a.seed)
-    log = open(out / "train_log.jsonl", "w", encoding="utf-8")
+    log = open(out / ("train_log.jsonl" if not a.eval_only else "eval_only.log"), "w", encoding="utf-8")
     step, t0 = 0, time.time()
     model.train()
-    for ep in range(a.epochs):
+    for ep in range(a.epochs if not a.eval_only else 0):
         order = list(range(len(tr)))
         rng.shuffle(order)
         for b in range(0, len(order), a.batch):
@@ -149,7 +154,8 @@ def main() -> None:
             log.flush()
             if step % 10 == 0:
                 print(json.dumps({"step": step, "of": steps, "loss": round(tot, 4)}), flush=True)
-    model.save_pretrained(str(out / "adapter"))
+    if not a.eval_only:
+        model.save_pretrained(str(out / "adapter"))
 
     model.eval()
     raw = {}
