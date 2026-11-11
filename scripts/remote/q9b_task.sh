@@ -120,6 +120,21 @@ pair_rm_p9r2)   # 9B 策略 × 2B 打分的打分机：MiniCPM5-2B + critic / �
   PAIR=p9r2rm bash $S/run_infer_node.sh || exit 1
   [ -f $P/train_done ] || exit 1
   log "PAIR_RM_DONE p9r2" ;;
+pair_infer_p9r2b)   # 9B 策略 × 2B 打分，两张卡版：一张 48 GB 卡同时挂 9B 策略（:8000）和 2B 打分（:8001），6006 转发层分流（配对 runs/pair/p9r2b）
+  # 实测 9B 权重 17.6 GB、起服务峰值 23.3 GB，2B 约 8 GB；32 GB 的 5090 放不下，48 GB 够。domains.json 由本地 autodl_extra（角色 p9r2i48）写
+  P=$FS/runs/pair/p9r2b; mkdir -p $P
+  rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed
+  hostname > $P/infer_host
+  echo "policy_v0=$FS/adapters/rag-sft-core_9b/adapter" > $P/loras
+  printf '%s\n' "critic=$FS/adapters/rm1__core-mc/adapter" "sat=$FS/adapters/sat_pair__core-mc/adapter" "refuse=$FS/adapters/refuse__core-mc/adapter" > $P/rm_loras
+  for f in $(sed "s|.*=||" $P/loras $P/rm_loras); do [ -f $f/adapter_model.safetensors ] || { log "missing adapter $f"; touch $P/infer_failed; exit 1; }; done
+  PAIR=p9r2b INFER_MODEL=qwen3.5-9b RM_MEM=${RM_MEM:-0.2} INFER_MEM=${INFER_MEM:-0.72} bash $S/run_infer_node.sh || exit 1
+  [ -f $P/train_done ] || exit 1
+  log "PAIR_INFER_DONE p9r2b" ;;
+pair_train_p9r2b)   # 两张卡版的训练机（从已有的续训状态接着训）
+  PAIR=p9r2b JOB=run_p9r2_pair.sh bash $S/run_train_node.sh || exit 1
+  bash $S/q9b_task.sh cmp_p9r2 || exit 1
+  log "PAIR_TRAIN_DONE p9r2b" ;;
 pair_train_p9r2)   # 9B 策略 × 2B 打分的训练机：训完在本机评测（9B 金标 critic），再和另外三格配对比较
   PAIR=p9r2 RM_PAIR=p9r2rm JOB=run_p9r2_pair.sh bash $S/run_train_node.sh || exit 1
   bash $S/q9b_task.sh cmp_p9r2 || exit 1

@@ -59,13 +59,14 @@ else   # 9B 策略 × 2B 打分：两个服务都在 GPU1（9B 策略 0.55 + 2B 
   A=$A/s0 bash $S/serve_loras.sh --gpu 1 --port 8001 --mem 0.3 --base $RB --log $A/vllm-r3rm.log --priority $RMS >> $LOG 2>&1 || { log "serve rm FAILED"; exit 1; }
   RMURL=http://127.0.0.1:8001/v1
 fi
+# 存续训状态的间隔：默认 50；本机 $A/STATE_EVERY 写数字可改（中途要换推理机时先设小，早点有状态可接）
 LAST=$(ls -d $O/run/state/step* 2>/dev/null | sort -V | tail -n 1)
 log "start r3full: critic $CRITIC, $RW, steps $STEPS ${LAST:+(resume $LAST)}"
 CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal $CAUSAL --sys_qa 1 --base $MC --init $INIT --vllm_url $RMURL --policy_url $POLURL $ASYNC \
   --n 16 --share 1 --share_impl $SHARE_IMPL --share_ckpt 1 --share_mb ${SHARE_MB:-32} --prompts $SRC/train_ref.jsonl --dev $SRC/dev_ref.jsonl \
   --critic_report outputs/rt/rm/$CRITIC/eval/report.json --shadow= \
   --sat_model sat --sat_kind pair --sat_report outputs/rt/rm/$SAT/eval/report.json --refuse_model refuse --refuse_report outputs/rt/rm/$REFUSE/eval/report.json --refuse_w 0.4 \
-  $RW --proc_producer 1 --pipeline 1 --lr 5e-6 --steps $STEPS --save_every 50 --state_every 50 --keep_states 2 --eval_k 2 --trip 1 \
+  $RW --proc_producer 1 --pipeline 1 --lr 5e-6 --steps $STEPS --save_every 50 --state_every $(cat $A/STATE_EVERY 2>/dev/null || echo 50) --keep_states 2 --eval_k 2 --trip 1 \
   --version_prefix r3f${TAG}_ --push_dir /dev/shm/r3full$TAG --out $O/run ${LAST:+--resume $LAST} >> $A/r3full${TAG}_train.log 2>&1 && log "train done" || log "train FAILED or stopped (see r3full_train.log)"
 grep -ah "QUICK_EVAL\|TRIP" $A/r3full${TAG}_train.log | cut -c1-500 | tee -a $LOG
 mkdir -p $FS/adapters/$PSFX-grpo-r3$TAG && rsync -a $O/run/ckpt/ $FS/adapters/$PSFX-grpo-r3$TAG/ && log "ckpts saved to adapters/$PSFX-grpo-r3$TAG: $(ls $O/run/ckpt | tr '\n' ' ')"
