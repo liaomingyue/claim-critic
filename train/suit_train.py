@@ -40,10 +40,19 @@ Options:
 
 Answer with the letters of all likely error kinds."""
 
+# 对照组：再给一条忠实于原文的回答，问「写这样一条回答时」可能出现哪些错误
+SYSTEM_ANS = SYSTEM.replace(
+    "Before any answer is written, predict which kinds of faithfulness errors an assistant answering this input is likely to make.",
+    "You also see one faithful answer to this input. Predict which kinds of faithfulness errors an assistant writing an answer like this one is likely to make.")
+assert SYSTEM_ANS != SYSTEM
 
-def render(source: str, perm: list[str]) -> list[dict]:
+
+def render(source: str, perm: list[str], answer: str | None = None) -> list[dict]:
     opts = "\n".join(f"{LETTERS[i]}. {DEFS[m]}" for i, m in enumerate(perm))
-    return [{"role": "system", "content": SYSTEM.format(options=opts)}, {"role": "user", "content": source}]
+    if answer is None:
+        return [{"role": "system", "content": SYSTEM.format(options=opts)}, {"role": "user", "content": source}]
+    return [{"role": "system", "content": SYSTEM_ANS.format(options=opts)},
+            {"role": "user", "content": f"[Input]\n{source}\n\n[A faithful answer]\n{answer}"}]
 
 
 def perms_for(rid: str, k: int) -> list[list[str]]:
@@ -93,6 +102,7 @@ def main() -> None:
     ap.add_argument("--eval_perms", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--eval_only", action="store_true", help="不训练，加载 <out>/adapter 只做评测")
+    ap.add_argument("--with_answer", action="store_true", help="对照组：输入再加一条正确回答（数据用 *_ans.jsonl）")
     a = ap.parse_args()
     import torch
     from peft import LoraConfig, get_peft_model
@@ -112,10 +122,11 @@ def main() -> None:
         model.gradient_checkpointing_enable()
         model.enable_input_require_grads()
         model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", task_type="CAUSAL_LM"))
-    data = {n: list(read_jsonl(OUT / f"{n}.jsonl")) for n in ("train", "holdout", "test", "policy")}
+    sfx = "_ans" if a.with_answer else ""
+    data = {n: list(read_jsonl(OUT / f"{n}{sfx}.jsonl")) for n in ("train", "holdout", "test", "policy")}
 
-    def encode(src: str, perm: list[str]) -> list[int]:
-        ids = tok.apply_chat_template(render(src, perm), tokenize=True, add_generation_prompt=True)
+    def encode(src: str, perm: list[str], ans: str | None = None) -> list[int]:
+        ids = tok.apply_chat_template(render(src, perm, ans if a.with_answer else None), tokenize=True, add_generation_prompt=True)
         ids = list(ids["input_ids"] if hasattr(ids, "keys") else ids)   # transformers 5：返回 BatchEncoding（不是 dict 子类）
         if len(ids) > a.max_len:   # 原文太长：从原文中间截掉（保留指令开头和选项结尾），实际训练集最长约 2000 token，基本不触发
             ids = ids[: a.max_len // 2] + ids[-(a.max_len - a.max_len // 2):]
@@ -145,7 +156,7 @@ def main() -> None:
                 perm = list(MECHS)
                 rng.shuffle(perm)
                 y = torch.tensor([float(r["labels"][m]) for m in perm], device="cuda")
-                loss = bce(letter_logits(encode(r["source"], perm)), y) / len(order[b:b + a.batch])
+                loss = bce(letter_logits(encode(r["source"], perm, r.get("answer"))), y) / len(order[b:b + a.batch])
                 loss.backward()
                 tot += loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -167,13 +178,13 @@ def main() -> None:
                 acc = {m: 0.0 for m in MECHS}
                 ps = perms_for(r["id"], a.eval_perms)
                 for perm in ps:
-                    z = letter_logits(encode(r["source"], perm)).tolist()
+                    z = letter_logits(encode(r["source"], perm, r.get("answer"))).tolist()
                     for m, v in zip(perm, z):
                         acc[m] += v / len(ps)
                 rows.append({"id": r["id"], "logits": [round(acc[m], 4) for m in MECHS]})
             raw[n] = rows
     T = fit_temperature([x["logits"] for x in raw["holdout"]], [[r["labels"][m] for m in MECHS] for r in data["holdout"]])
-    rep = {"temperature": T, "mechs": MECHS, "epochs": a.epochs, "lr": a.lr, "eval_perms": a.eval_perms}
+    rep = {"temperature": T, "mechs": MECHS, "epochs": a.epochs, "lr": a.lr, "eval_perms": a.eval_perms, "with_answer": a.with_answer}
     for n, rows in raw.items():
         probs = [[1 / (1 + math.exp(-z / T)) for z in x["logits"]] for x in rows]
         with open(out / f"preds_{n}.jsonl", "w", encoding="utf-8") as f:

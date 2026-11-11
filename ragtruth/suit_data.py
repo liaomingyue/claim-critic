@@ -8,6 +8,13 @@
 
   python -m ragtruth.suit_data build       # → outputs/rt/suit/{train,holdout,test,policy}.jsonl
   python -m ragtruth.suit_data baselines   # 常数 / 任务类型 / 原文表面特征三个基线 → results/suit_baselines.json
+  python -m ragtruth.suit_data build_ans   # 对照：输入再加一条「正确回答」→ outputs/rt/suit/{train,holdout,test,policy}_ans.jsonl
+
+带回答的对照（看给了正确回答后预测会不会变好）：
+  - train / holdout：核心集里 Claude 修正后的回答（corrected，没有错的回答就是原回答），标签不变；
+  - test / policy：同一原文的几条回答里，挑一条没有任何错的当「正确回答」（按 resp_id 取第一条），标签只用其余回答算
+    （至少还剩 1 条；test 的软标签 = 其余回答里出现该机制的比例）。没有无错回答的原文去掉。
+  不带回答的模型要在同样的子集、同样的标签上重评，才能比较（ragtruth.suit_cmp）。
 """
 from __future__ import annotations
 
@@ -193,11 +200,62 @@ def cmd_baselines(_a) -> None:
         print(b, {n: (out[b][n]["macro_auc"], out[b][n]["macro_spearman_soft"], out[b][n].get("mean_lift10"), out[b][n].get("mean_lift20")) for n in out[b]})
 
 
+def with_answer_split(rows: list[dict], prompts: dict[str, str], tag: str) -> list[dict]:
+    """逐句金标 → 每个原文：挑一条无错回答当输入，其余回答算标签。"""
+    sents = collections.defaultdict(dict)
+    err = collections.defaultdict(set)
+    meta = {}
+    for r in rows:
+        sents[(r["source_id"], r["resp_id"])][r["idx"]] = r["sentence"]
+        meta[r["source_id"]] = r["task_type"]
+        if r.get("is_error"):
+            err[(r["source_id"], r["resp_id"])].add(mech(r.get("mechanism", "")))
+    by = collections.defaultdict(list)
+    for (sid, rid) in sents:
+        by[sid].append(rid)
+    out = []
+    for sid in sorted(by):
+        if sid not in prompts:
+            continue
+        rids = sorted(by[sid])
+        clean = [rid for rid in rids if not err[(sid, rid)]]
+        if not clean:
+            continue
+        ans = clean[0]
+        rest = [err[(sid, rid)] & set(MECHS) for rid in rids if rid != ans]
+        if not rest:
+            continue
+        text = " ".join(sents[(sid, ans)][i] for i in sorted(sents[(sid, ans)]))
+        out.append({"id": f"{tag}-{sid}", "source_id": sid, "task_type": meta[sid], "source": prompts[sid], "answer": text, "answer_resp": ans,
+                    "n_resp": len(rest), "soft": {m: round(sum(m in x for x in rest) / len(rest), 4) for m in MECHS},
+                    "labels": {m: int(any(m in x for x in rest)) for m in MECHS}})
+    return out
+
+
+def cmd_build_ans(_a) -> None:
+    prompts = {str(s["source_id"]): s["prompt"] for s in read_jsonl(RT / "source_info.jsonl")}
+    core = {c["source_id"]: c for c in read_jsonl(Path("outputs/rt/core/core.jsonl"))}
+    rep = {}
+    for n in ("train", "holdout"):
+        rows = [{**r, "answer": core[r["source_id"]]["corrected"]} for r in read_jsonl(OUT / f"{n}.jsonl")]
+        write(OUT / f"{n}_ans.jsonl", rows)
+        rep[n] = len(rows)
+    te = with_answer_split(list(read_jsonl(Path("outputs/rt/gold/test_final.jsonl"))), prompts, "test")
+    pol = []
+    for p in sorted(Path("results/q9b_claude_check").glob("final_*.jsonl")):
+        pol += list(read_jsonl(p))
+    po = with_answer_split(pol, prompts, "policy")
+    for n, rows in (("test", te), ("policy", po)):
+        write(OUT / f"{n}_ans.jsonl", rows)
+        rep[n] = len(rows)
+    print(json.dumps(rep))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["build", "baselines"])
+    ap.add_argument("cmd", choices=["build", "baselines", "build_ans"])
     a = ap.parse_args()
-    {"build": cmd_build, "baselines": cmd_baselines}[a.cmd](a)
+    {"build": cmd_build, "baselines": cmd_baselines, "build_ans": cmd_build_ans}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -29,3 +29,9 @@ def test_fit_temperature_recovers_scale():
         y = [int(rng.random() < 1 / (1 + math.exp(-v / 2.0))) for v in z]   # 真实温度 2
         logits.append(z); labels.append(y)
     assert 1.6 < st.fit_temperature(logits, labels) < 2.5
+
+
+def test_render_with_answer():
+    msgs = st.render("SRC", list(MECHS), "ANS")
+    assert "faithful answer" in msgs[0]["content"] and "[Input]\nSRC" in msgs[1]["content"] and "ANS" in msgs[1]["content"]
+    assert st.render("SRC", list(MECHS))[1]["content"] == "SRC"

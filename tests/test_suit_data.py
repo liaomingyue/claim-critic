@@ -49,3 +49,16 @@ def test_auc_and_spearman_match_reference():
     assert abs(sd.roc_auc_score(y, p) - roc_auc_score(y, p)) < 1e-9
     b = [rng.random() for _ in range(200)]
     assert abs(sd.spearman(p, b) - spearmanr(p, b).statistic) < 1e-9
+
+
+def test_with_answer_split_uses_clean_answer_and_rest_for_labels():
+    rows = [{"source_id": "9", "resp_id": "a", "idx": 1, "sentence": "A1.", "task_type": "QA", "is_error": True, "mechanism": "number_or_date"},
+            {"source_id": "9", "resp_id": "b", "idx": 2, "sentence": "B2.", "task_type": "QA", "is_error": False, "mechanism": "none"},
+            {"source_id": "9", "resp_id": "b", "idx": 1, "sentence": "B1.", "task_type": "QA", "is_error": False, "mechanism": "none"},
+            {"source_id": "9", "resp_id": "c", "idx": 1, "sentence": "C1.", "task_type": "QA", "is_error": False, "mechanism": "none"},
+            {"source_id": "7", "resp_id": "d", "idx": 1, "sentence": "D1.", "task_type": "QA", "is_error": True, "mechanism": "number_or_date"}]
+    out = sd.with_answer_split(rows, {"9": "s9", "7": "s7"}, "t")
+    assert len(out) == 1   # 原文 7 没有无错回答
+    r = out[0]
+    assert r["answer_resp"] == "b" and r["answer"] == "B1. B2." and r["n_resp"] == 2
+    assert r["soft"]["number_or_date"] == 0.5 and r["labels"]["number_or_date"] == 1
