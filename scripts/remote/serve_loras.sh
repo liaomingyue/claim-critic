@@ -5,12 +5,12 @@
 #   前缀匹配细化到 16 token（重发同样的请求命中 82% → 99%；改不了线性注意力层状态的存储密度：块固定 528，--mamba-block-size 无效，换回答第一句只命中 34%）；
 #   服务一退出就报错并打印日志尾，不等到超时（踩过：崩了还空等 20 分钟）。
 #
-#   bash scripts/remote/serve_loras.sh --gpu 1 --log $A/vllm.log [--port 8000] [--base <基座>] [--priority] [--mem 0.9] [--rank 32] critic=<目录> policy_v0=<目录> ...
+#   bash scripts/remote/serve_loras.sh --gpu 1 --log $A/vllm.log [--port 8000] [--base <基座>] [--priority] [--mem 0.9] [--rank 32] [--batch 16384] [--max-len 16384] critic=<目录> policy_v0=<目录> ...
 #
 # 就绪返回 0，服务留在后台；失败返回 1。工作目录要是代码根目录。
 set -u
 A=${A:-${TMP_ROOT:-/root/autodl-tmp}}
-GPU=1; PORT=8000; BASE=$A/models/Qwen3.5-9B; LOG=$A/vllm.log; MEM=0.9; RANK=32; BATCH=16384; RETAIN=(); SCHED=(); LORAS=()
+GPU=1; PORT=8000; BASE=$A/models/Qwen3.5-9B; LOG=$A/vllm.log; MEM=0.9; RANK=32; BATCH=16384; MAXLEN=${MAX_LEN:-16384}; RETAIN=(); SCHED=(); LORAS=()
 while [ $# -gt 0 ]; do
   case $1 in
     --gpu) GPU=$2; shift 2 ;;
@@ -20,6 +20,7 @@ while [ $# -gt 0 ]; do
     --mem) MEM=$2; shift 2 ;;
     --rank) RANK=$2; shift 2 ;;
     --batch) BATCH=$2; shift 2 ;;
+    --max-len) MAXLEN=$2; shift 2 ;;   # 最大长度（默认 16384；同卡挂两个服务时调小，激活峰值和最少 KV 都跟着降）
     --vllm-args) read -r -a RETAIN <<< "$2"; shift 2 ;;   # 原样传给 vllm serve 的额外参数
     --priority) SCHED=(--scheduling-policy priority); shift ;;
     *=*) LORAS+=("$1"); shift ;;
@@ -40,7 +41,7 @@ for kv in "${LORAS[@]}"; do
   python scripts/strip_visual_lora.py "$src" "$dst" || { echo "serve_loras: strip $name FAILED"; exit 1; }
   MODS+=("$name=$dst"); LAST=$name
 done
-CUDA_VISIBLE_DEVICES=$GPU VLLM_ALLOW_RUNTIME_LORA_UPDATING=True nohup vllm serve "$BASE" --served-model-name base --max-model-len 16384 \
+CUDA_VISIBLE_DEVICES=$GPU VLLM_ALLOW_RUNTIME_LORA_UPDATING=True nohup vllm serve "$BASE" --served-model-name base --max-model-len "$MAXLEN" \
   --gpu-memory-utilization "$MEM" --port "$PORT" --limit-mm-per-prompt '{"image":0,"video":0}' --max-logprobs 20 --enable-lora --max-lora-rank "$RANK" \
   --max-num-batched-tokens "$BATCH" --prefix-match-unit 16 --max-loras ${MAX_LORAS:-8} --max-cpu-loras ${MAX_CPU_LORAS:-24} "${RETAIN[@]}" "${SCHED[@]}" "${KEYARG[@]}" --lora-modules "${MODS[@]}" > "$LOG" 2>&1 &
 VP=$!

@@ -22,11 +22,12 @@ pkill -f '[v]llm serve'
 if [ "${INFER_MODEL:-}" = qwen3.5-9b ]; then source $S/models9b.sh; ensure_9b || { log "9b copy FAILED"; touch $P/infer_failed; exit 1; }; MC=$M9; fi
 if [ -f $P/rm_loras ]; then
   # 9B 策略 × 2B 打分：同卡两个服务（2B 打分 :8001 + 9B 策略 :8000），6006 放转发层按 model 名分流（scripts/vllm_router.py）。
-  # 打分模型在 runs/pair/<配对>/rm_loras（底座 MiniCPM5-2B），loras 里只留策略。9B 权重约 18 GB，0.70 留几 GB 给 KV（只挂策略，LoRA 槽 4 个够用）；2B 0.22。
+  # 打分模型在 runs/pair/<配对>/rm_loras（底座 MiniCPM5-2B），loras 里只留策略。9B 权重约 18 GB，0.70 留几 GB 给 KV（只挂策略，LoRA 槽 4 个够用）；2B 0.25（0.22 实测 KV 不够）。
+  # 最大长度 4096：原文最长约 1800 token + 模板指令 + 回答上限 1024，够用；每批 8192 token，激活峰值和最少 KV 都比 16384 小
   RMLORAS=$(sed "s|\$FS|$FS|g" $P/rm_loras | paste -sd' ')
   [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B $A/models/; }
-  A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8001 --mem ${RM_MEM:-0.22} --base $A/models/MiniCPM5-2B --log $A/vllm-infer-rm.log --priority $RMLORAS >> $LOG 2>&1 || { log "vllm rm FAILED"; touch $P/infer_failed; exit 1; }
-  A=$A/s1 MAX_LORAS=4 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${INFER_MEM:-0.70} --base $MC --log $A/vllm-infer.log --priority $LORAS >> $LOG 2>&1 || { log "vllm policy FAILED"; touch $P/infer_failed; exit 1; }
+  A=$A/s0 MAX_LORAS=3 bash $S/serve_loras.sh --gpu 0 --port 8001 --mem ${RM_MEM:-0.25} --batch 8192 --max-len ${MAX_LEN:-4096} --base $A/models/MiniCPM5-2B --log $A/vllm-infer-rm.log --priority $RMLORAS >> $LOG 2>&1 || { log "vllm rm FAILED"; touch $P/infer_failed; exit 1; }
+  A=$A/s1 MAX_LORAS=4 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${INFER_MEM:-0.70} --batch 8192 --max-len ${MAX_LEN:-4096} --base $MC --log $A/vllm-infer.log --priority $LORAS >> $LOG 2>&1 || { log "vllm policy FAILED"; touch $P/infer_failed; exit 1; }
   setsid nohup python -u scripts/vllm_router.py --port 6006 --policy http://127.0.0.1:8000 --rm http://127.0.0.1:8001 > $A/vllm_router.log 2>&1 < /dev/null &
   for i in $(seq 1 20); do curl -s -m 2 http://127.0.0.1:6006/health | grep -q true && break; sleep 1; done
   curl -s -m 2 http://127.0.0.1:6006/health | grep -q true || { log "router FAILED"; touch $P/infer_failed; exit 1; }
