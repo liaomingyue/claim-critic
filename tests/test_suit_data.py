@@ -29,3 +29,11 @@ def test_merged_mechanisms():
              "labels": {"errors": [{"mechanism": "added_specific_fact"}, {"mechanism": "unsupported_inference"}]}}]
     lab = sd.from_core(core, "train")[0]["labels"]
     assert lab["unsupported_addition"] == 1 and sum(lab.values()) == 1 and len(sd.MECHS) == 8
+
+
+def test_topn_lift_uses_soft_labels():
+    rows = [{"id": f"r{i}", "labels": {m: int(i < 10) for m in sd.MECHS}, "soft": {m: (0.9 if i < 10 else 0.1) for m in sd.MECHS}} for i in range(40)]
+    pred = {m: [1.0 - i / 40 for i in range(40)] for m in sd.MECHS}   # 完美排序
+    ev = sd.evaluate(pred, rows)
+    m0 = ev["by_mech"][sd.MECHS[0]]
+    assert m0["top10"] == 0.9 and m0["base"] == 0.3 and m0["lift10"] == 3.0 and ev["mean_lift10"] == 3.0

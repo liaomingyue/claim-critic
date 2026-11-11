@@ -97,6 +97,7 @@ def cmd_build(_a) -> None:
 NUM = re.compile(r"\d")
 DATE = re.compile(r"\b(1[89]\d\d|20\d\d)\b|\b(January|February|March|April|May|June|July|August|September|October|November|December)\b")
 QUOTE = re.compile(r"[\"“”]")
+TOPN = (10, 20)   # 按类型排序取前 N（holdout 81、test 68、policy 91 个原文）
 PASSAGE = re.compile(r"(?m)^passage \d+:", re.I)
 
 
@@ -122,11 +123,23 @@ def evaluate(pred: dict[str, list[float]], rows: list[dict]) -> dict:
         if "soft" in rows[0]:
             sv = [r["soft"][m] for r in rows]
             d["spearman_soft"] = round(spearmanr(p, sv).statistic, 3) if len(set(p)) > 1 and len(set(sv)) > 1 else None
+        # 按这个类型排序取前 N 个原文（实际用法）：前 N 个里该类错的出现率 / 全体平均（lift）；有软标签用软标签，否则用 0/1
+        tgt = [r["soft"][m] for r in rows] if "soft" in rows[0] else y
+        base = sum(tgt) / len(tgt)
+        order = sorted(range(len(rows)), key=lambda i: (-p[i], rows[i]["id"]))
+        for n in TOPN:
+            if n < len(rows) and len(set(p)) > 1:
+                top = sum(tgt[i] for i in order[:n]) / n
+                d[f"top{n}"] = round(top, 3)
+                d[f"lift{n}"] = round(top / base, 2) if base > 0 else None
+        d["base"] = round(base, 3)
         res[m] = d
     aucs = [v["auc"] for v in res.values() if v["auc"] is not None]
     sps = [v.get("spearman_soft") for v in res.values() if v.get("spearman_soft") is not None]
+    lifts = {n: [v[f"lift{n}"] for v in res.values() if v.get(f"lift{n}") is not None] for n in TOPN}
     return {"macro_auc": round(sum(aucs) / len(aucs), 3) if aucs else None, "macro_spearman_soft": round(sum(sps) / len(sps), 3) if sps else None,
-            "mean_brier": round(sum(v["brier"] for v in res.values()) / len(res), 4), "by_mech": res}
+            "mean_brier": round(sum(v["brier"] for v in res.values()) / len(res), 4),
+            **{f"mean_lift{n}": round(sum(v) / len(v), 2) for n, v in lifts.items() if v}, "by_mech": res}
 
 
 def cmd_baselines(_a) -> None:
@@ -147,7 +160,7 @@ def cmd_baselines(_a) -> None:
     Path("results").mkdir(exist_ok=True)
     Path("results/suit_baselines.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     for b in preds:
-        print(b, {n: (out[b][n]["macro_auc"], out[b][n]["macro_spearman_soft"], out[b][n]["mean_brier"]) for n in out[b]})
+        print(b, {n: (out[b][n]["macro_auc"], out[b][n]["macro_spearman_soft"], out[b][n].get("mean_lift10"), out[b][n].get("mean_lift20")) for n in out[b]})
 
 
 def main() -> None:

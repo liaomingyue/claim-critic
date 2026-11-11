@@ -8,42 +8,50 @@
     "certainty_or_scope_shift": {
      "pos": 23,
      "brier": 0.2045,
-     "auc": null
+     "auc": null,
+     "base": 0.284
     },
     "near_synonym_shift": {
      "pos": 16,
      "brier": 0.1623,
-     "auc": null
+     "auc": null,
+     "base": 0.198
     },
     "contradicts_source": {
      "pos": 21,
      "brier": 0.192,
-     "auc": null
+     "auc": null,
+     "base": 0.259
     },
     "unsupported_addition": {
      "pos": 16,
      "brier": 0.1621,
-     "auc": null
+     "auc": null,
+     "base": 0.198
     },
     "wrong_attribution": {
      "pos": 18,
      "brier": 0.1728,
-     "auc": null
+     "auc": null,
+     "base": 0.222
     },
     "vague_evaluation_or_addon": {
      "pos": 17,
      "brier": 0.1665,
-     "auc": null
+     "auc": null,
+     "base": 0.21
     },
     "number_or_date": {
      "pos": 8,
      "brier": 0.0891,
-     "auc": null
+     "auc": null,
+     "base": 0.099
     },
     "merged_across_passages": {
      "pos": 13,
      "brier": 0.141,
-     "auc": null
+     "auc": null,
+     "base": 0.16
     }
    }
   },
@@ -56,49 +64,57 @@
      "pos": 46,
      "brier": 0.3472,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.255
     },
     "near_synonym_shift": {
      "pos": 34,
      "brier": 0.3081,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.151
     },
     "contradicts_source": {
      "pos": 37,
      "brier": 0.3294,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.134
     },
     "unsupported_addition": {
      "pos": 61,
      "brier": 0.5013,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.387
     },
     "wrong_attribution": {
      "pos": 28,
      "brier": 0.2788,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.1
     },
     "vague_evaluation_or_addon": {
      "pos": 24,
      "brier": 0.2567,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.094
     },
     "number_or_date": {
      "pos": 17,
      "brier": 0.2137,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.052
     },
     "merged_across_passages": {
      "pos": 34,
      "brier": 0.4253,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.147
     }
    }
   },
@@ -111,49 +127,57 @@
      "pos": 14,
      "brier": 0.1572,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.088
     },
     "near_synonym_shift": {
      "pos": 4,
      "brier": 0.0882,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.019
     },
     "contradicts_source": {
      "pos": 4,
      "brier": 0.0882,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.027
     },
     "unsupported_addition": {
      "pos": 11,
      "brier": 0.125,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.069
     },
     "wrong_attribution": {
      "pos": 9,
      "brier": 0.1039,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.052
     },
     "vague_evaluation_or_addon": {
      "pos": 0,
      "brier": 0.0341,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.0
     },
     "number_or_date": {
      "pos": 2,
      "brier": 0.0259,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.011
     },
     "merged_across_passages": {
      "pos": 7,
      "brier": 0.071,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "base": 0.033
     }
    }
   }
@@ -163,46 +187,88 @@
    "macro_auc": 0.724,
    "macro_spearman_soft": null,
    "mean_brier": 0.1382,
+   "mean_lift10": 1.41,
+   "mean_lift20": 1.66,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 23,
      "brier": 0.1777,
-     "auc": 0.702
+     "auc": 0.702,
+     "top10": 0.3,
+     "lift10": 1.06,
+     "top20": 0.3,
+     "lift20": 1.06,
+     "base": 0.284
     },
     "near_synonym_shift": {
      "pos": 16,
      "brier": 0.141,
-     "auc": 0.738
+     "auc": 0.738,
+     "top10": 0.1,
+     "lift10": 0.51,
+     "top20": 0.3,
+     "lift20": 1.52,
+     "base": 0.198
     },
     "contradicts_source": {
      "pos": 21,
      "brier": 0.1735,
-     "auc": 0.681
+     "auc": 0.681,
+     "top10": 0.5,
+     "lift10": 1.93,
+     "top20": 0.3,
+     "lift20": 1.16,
+     "base": 0.259
     },
     "unsupported_addition": {
      "pos": 16,
      "brier": 0.1258,
-     "auc": 0.815
+     "auc": 0.815,
+     "top10": 0.4,
+     "lift10": 2.03,
+     "top20": 0.45,
+     "lift20": 2.28,
+     "base": 0.198
     },
     "wrong_attribution": {
      "pos": 18,
      "brier": 0.1248,
-     "auc": 0.825
+     "auc": 0.825,
+     "top10": 0.4,
+     "lift10": 1.8,
+     "top20": 0.6,
+     "lift20": 2.7,
+     "base": 0.222
     },
     "vague_evaluation_or_addon": {
      "pos": 17,
      "brier": 0.1399,
-     "auc": 0.746
+     "auc": 0.746,
+     "top10": 0.4,
+     "lift10": 1.91,
+     "top20": 0.45,
+     "lift20": 2.14,
+     "base": 0.21
     },
     "number_or_date": {
      "pos": 8,
      "brier": 0.0835,
-     "auc": 0.711
+     "auc": 0.711,
+     "top10": 0.2,
+     "lift10": 2.03,
+     "top20": 0.15,
+     "lift20": 1.52,
+     "base": 0.099
     },
     "merged_across_passages": {
      "pos": 13,
      "brier": 0.1396,
-     "auc": 0.572
+     "auc": 0.572,
+     "top10": 0.0,
+     "lift10": 0.0,
+     "top20": 0.15,
+     "lift20": 0.93,
+     "base": 0.16
     }
    }
   },
@@ -210,54 +276,96 @@
    "macro_auc": 0.558,
    "macro_spearman_soft": 0.088,
    "mean_brier": 0.3498,
+   "mean_lift10": 0.84,
+   "mean_lift20": 1.04,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 46,
      "brier": 0.3732,
      "auc": 0.546,
-     "spearman_soft": -0.009
+     "spearman_soft": -0.009,
+     "top10": 0.117,
+     "lift10": 0.46,
+     "top20": 0.192,
+     "lift20": 0.75,
+     "base": 0.255
     },
     "near_synonym_shift": {
      "pos": 34,
      "brier": 0.3057,
      "auc": 0.632,
-     "spearman_soft": 0.311
+     "spearman_soft": 0.311,
+     "top10": 0.25,
+     "lift10": 1.65,
+     "top20": 0.233,
+     "lift20": 1.54,
+     "base": 0.151
     },
     "contradicts_source": {
      "pos": 37,
      "brier": 0.3869,
      "auc": 0.447,
-     "spearman_soft": -0.106
+     "spearman_soft": -0.106,
+     "top10": 0.067,
+     "lift10": 0.5,
+     "top20": 0.133,
+     "lift20": 1.0,
+     "base": 0.134
     },
     "unsupported_addition": {
      "pos": 61,
      "brier": 0.5448,
      "auc": 0.499,
-     "spearman_soft": -0.093
+     "spearman_soft": -0.093,
+     "top10": 0.35,
+     "lift10": 0.9,
+     "top20": 0.317,
+     "lift20": 0.82,
+     "base": 0.387
     },
     "wrong_attribution": {
      "pos": 28,
      "brier": 0.2354,
      "auc": 0.745,
-     "spearman_soft": 0.497
+     "spearman_soft": 0.497,
+     "top10": 0.117,
+     "lift10": 1.16,
+     "top20": 0.167,
+     "lift20": 1.66,
+     "base": 0.1
     },
     "vague_evaluation_or_addon": {
      "pos": 24,
      "brier": 0.3227,
      "auc": 0.396,
-     "spearman_soft": -0.202
+     "spearman_soft": -0.202,
+     "top10": 0.017,
+     "lift10": 0.18,
+     "top20": 0.033,
+     "lift20": 0.35,
+     "base": 0.094
     },
     "number_or_date": {
      "pos": 17,
      "brier": 0.2011,
      "auc": 0.686,
-     "spearman_soft": 0.33
+     "spearman_soft": 0.33,
+     "top10": 0.033,
+     "lift10": 0.64,
+     "top20": 0.067,
+     "lift20": 1.28,
+     "base": 0.052
     },
     "merged_across_passages": {
      "pos": 34,
      "brier": 0.4287,
      "auc": 0.515,
-     "spearman_soft": -0.027
+     "spearman_soft": -0.027,
+     "top10": 0.183,
+     "lift10": 1.25,
+     "top20": 0.142,
+     "lift20": 0.96,
+     "base": 0.147
     }
    }
   },
@@ -265,54 +373,96 @@
    "macro_auc": 0.618,
    "macro_spearman_soft": 0.104,
    "mean_brier": 0.0994,
+   "mean_lift10": 1.19,
+   "mean_lift20": 1.21,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 14,
      "brier": 0.156,
      "auc": 0.643,
-     "spearman_soft": 0.219
+     "spearman_soft": 0.219,
+     "top10": 0.2,
+     "lift10": 2.27,
+     "top20": 0.125,
+     "lift20": 1.42,
+     "base": 0.088
     },
     "near_synonym_shift": {
      "pos": 4,
      "brier": 0.1028,
      "auc": 0.776,
-     "spearman_soft": 0.227
+     "spearman_soft": 0.227,
+     "top10": 0.05,
+     "lift10": 2.6,
+     "top20": 0.025,
+     "lift20": 1.3,
+     "base": 0.019
     },
     "contradicts_source": {
      "pos": 4,
      "brier": 0.1121,
      "auc": 0.514,
-     "spearman_soft": 0.014
+     "spearman_soft": 0.014,
+     "top10": 0.0,
+     "lift10": 0.0,
+     "top20": 0.0,
+     "lift20": 0.0,
+     "base": 0.027
     },
     "unsupported_addition": {
      "pos": 11,
      "brier": 0.1626,
      "auc": 0.335,
-     "spearman_soft": -0.224
+     "spearman_soft": -0.224,
+     "top10": 0.0,
+     "lift10": 0.0,
+     "top20": 0.025,
+     "lift20": 0.36,
+     "base": 0.069
     },
     "wrong_attribution": {
      "pos": 9,
      "brier": 0.1037,
      "auc": 0.731,
-     "spearman_soft": 0.276
+     "spearman_soft": 0.276,
+     "top10": 0.1,
+     "lift10": 1.92,
+     "top20": 0.125,
+     "lift20": 2.39,
+     "base": 0.052
     },
     "vague_evaluation_or_addon": {
      "pos": 0,
      "brier": 0.0588,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "top10": 0.0,
+     "lift10": null,
+     "top20": 0.0,
+     "lift20": null,
+     "base": 0.0
     },
     "number_or_date": {
      "pos": 2,
      "brier": 0.0282,
      "auc": 0.77,
-     "spearman_soft": 0.158
+     "spearman_soft": 0.158,
+     "top10": 0.0,
+     "lift10": 0.0,
+     "top20": 0.025,
+     "lift20": 2.27,
+     "base": 0.011
     },
     "merged_across_passages": {
      "pos": 7,
      "brier": 0.071,
      "auc": 0.554,
-     "spearman_soft": 0.058
+     "spearman_soft": 0.058,
+     "top10": 0.05,
+     "lift10": 1.52,
+     "top20": 0.025,
+     "lift20": 0.76,
+     "base": 0.033
     }
    }
   }
@@ -322,46 +472,88 @@
    "macro_auc": 0.759,
    "macro_spearman_soft": null,
    "mean_brier": 0.1352,
+   "mean_lift10": 1.99,
+   "mean_lift20": 1.94,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 23,
      "brier": 0.1814,
-     "auc": 0.725
+     "auc": 0.725,
+     "top10": 0.2,
+     "lift10": 0.7,
+     "top20": 0.45,
+     "lift20": 1.58,
+     "base": 0.284
     },
     "near_synonym_shift": {
      "pos": 16,
      "brier": 0.1347,
-     "auc": 0.781
+     "auc": 0.781,
+     "top10": 0.5,
+     "lift10": 2.53,
+     "top20": 0.35,
+     "lift20": 1.77,
+     "base": 0.198
     },
     "contradicts_source": {
      "pos": 21,
      "brier": 0.1717,
-     "auc": 0.704
+     "auc": 0.704,
+     "top10": 0.5,
+     "lift10": 1.93,
+     "top20": 0.55,
+     "lift20": 2.12,
+     "base": 0.259
     },
     "unsupported_addition": {
      "pos": 16,
      "brier": 0.1151,
-     "auc": 0.876
+     "auc": 0.876,
+     "top10": 0.6,
+     "lift10": 3.04,
+     "top20": 0.45,
+     "lift20": 2.28,
+     "base": 0.198
     },
     "wrong_attribution": {
      "pos": 18,
      "brier": 0.1235,
-     "auc": 0.859
+     "auc": 0.859,
+     "top10": 0.3,
+     "lift10": 1.35,
+     "top20": 0.55,
+     "lift20": 2.48,
+     "base": 0.222
     },
     "vague_evaluation_or_addon": {
      "pos": 17,
      "brier": 0.1318,
-     "auc": 0.824
+     "auc": 0.824,
+     "top10": 0.6,
+     "lift10": 2.86,
+     "top20": 0.5,
+     "lift20": 2.38,
+     "base": 0.21
     },
     "number_or_date": {
      "pos": 8,
      "brier": 0.0847,
-     "auc": 0.704
+     "auc": 0.704,
+     "top10": 0.1,
+     "lift10": 1.01,
+     "top20": 0.1,
+     "lift20": 1.01,
+     "base": 0.099
     },
     "merged_across_passages": {
      "pos": 13,
      "brier": 0.1386,
-     "auc": 0.597
+     "auc": 0.597,
+     "top10": 0.4,
+     "lift10": 2.49,
+     "top20": 0.3,
+     "lift20": 1.87,
+     "base": 0.16
     }
    }
   },
@@ -369,54 +561,96 @@
    "macro_auc": 0.583,
    "macro_spearman_soft": 0.128,
    "mean_brier": 0.3525,
+   "mean_lift10": 1.51,
+   "mean_lift20": 1.23,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 46,
      "brier": 0.3715,
      "auc": 0.581,
-     "spearman_soft": 0.04
+     "spearman_soft": 0.04,
+     "top10": 0.383,
+     "lift10": 1.5,
+     "top20": 0.292,
+     "lift20": 1.14,
+     "base": 0.255
     },
     "near_synonym_shift": {
      "pos": 34,
      "brier": 0.3064,
      "auc": 0.667,
-     "spearman_soft": 0.3
+     "spearman_soft": 0.3,
+     "top10": 0.217,
+     "lift10": 1.43,
+     "top20": 0.175,
+     "lift20": 1.16,
+     "base": 0.151
     },
     "contradicts_source": {
      "pos": 37,
      "brier": 0.3951,
      "auc": 0.422,
-     "spearman_soft": -0.126
+     "spearman_soft": -0.126,
+     "top10": 0.067,
+     "lift10": 0.5,
+     "top20": 0.117,
+     "lift20": 0.87,
+     "base": 0.134
     },
     "unsupported_addition": {
      "pos": 61,
      "brier": 0.559,
      "auc": 0.529,
-     "spearman_soft": 0.089
+     "spearman_soft": 0.089,
+     "top10": 0.45,
+     "lift10": 1.16,
+     "top20": 0.367,
+     "lift20": 0.95,
+     "base": 0.387
     },
     "wrong_attribution": {
      "pos": 28,
      "brier": 0.236,
      "auc": 0.789,
-     "spearman_soft": 0.519
+     "spearman_soft": 0.519,
+     "top10": 0.25,
+     "lift10": 2.49,
+     "top20": 0.183,
+     "lift20": 1.82,
+     "base": 0.1
     },
     "vague_evaluation_or_addon": {
      "pos": 24,
      "brier": 0.3199,
      "auc": 0.407,
-     "spearman_soft": -0.17
+     "spearman_soft": -0.17,
+     "top10": 0.167,
+     "lift10": 1.77,
+     "top20": 0.1,
+     "lift20": 1.06,
+     "base": 0.094
     },
     "number_or_date": {
      "pos": 17,
      "brier": 0.2013,
      "auc": 0.714,
-     "spearman_soft": 0.321
+     "spearman_soft": 0.321,
+     "top10": 0.117,
+     "lift10": 2.25,
+     "top20": 0.108,
+     "lift20": 2.08,
+     "base": 0.052
     },
     "merged_across_passages": {
      "pos": 34,
      "brier": 0.431,
      "auc": 0.553,
-     "spearman_soft": 0.054
+     "spearman_soft": 0.054,
+     "top10": 0.15,
+     "lift10": 1.02,
+     "top20": 0.117,
+     "lift20": 0.79,
+     "base": 0.147
     }
    }
   },
@@ -424,54 +658,96 @@
    "macro_auc": 0.701,
    "macro_spearman_soft": 0.162,
    "mean_brier": 0.0919,
+   "mean_lift10": 2.81,
+   "mean_lift20": 2.37,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 14,
      "brier": 0.1448,
      "auc": 0.698,
-     "spearman_soft": 0.26
+     "spearman_soft": 0.26,
+     "top10": 0.225,
+     "lift10": 2.56,
+     "top20": 0.188,
+     "lift20": 2.13,
+     "base": 0.088
     },
     "near_synonym_shift": {
      "pos": 4,
      "brier": 0.0892,
      "auc": 0.891,
-     "spearman_soft": 0.277
+     "spearman_soft": 0.277,
+     "top10": 0.125,
+     "lift10": 6.5,
+     "top20": 0.062,
+     "lift20": 3.25,
+     "base": 0.019
     },
     "contradicts_source": {
      "pos": 4,
      "brier": 0.1034,
      "auc": 0.638,
-     "spearman_soft": 0.1
+     "spearman_soft": 0.1,
+     "top10": 0.1,
+     "lift10": 3.64,
+     "top20": 0.075,
+     "lift20": 2.73,
+     "base": 0.027
     },
     "unsupported_addition": {
      "pos": 11,
      "brier": 0.1515,
      "auc": 0.368,
-     "spearman_soft": -0.16
+     "spearman_soft": -0.16,
+     "top10": 0.025,
+     "lift10": 0.36,
+     "top20": 0.013,
+     "lift20": 0.18,
+     "base": 0.069
     },
     "wrong_attribution": {
      "pos": 9,
      "brier": 0.0949,
      "auc": 0.873,
-     "spearman_soft": 0.383
+     "spearman_soft": 0.383,
+     "top10": 0.225,
+     "lift10": 4.31,
+     "top20": 0.138,
+     "lift20": 2.63,
+     "base": 0.052
     },
     "vague_evaluation_or_addon": {
      "pos": 0,
      "brier": 0.0547,
      "auc": null,
-     "spearman_soft": null
+     "spearman_soft": null,
+     "top10": 0.0,
+     "lift10": null,
+     "top20": 0.0,
+     "lift20": null,
+     "base": 0.0
     },
     "number_or_date": {
      "pos": 2,
      "brier": 0.028,
      "auc": 0.815,
-     "spearman_soft": 0.16
+     "spearman_soft": 0.16,
+     "top10": 0.0,
+     "lift10": 0.0,
+     "top20": 0.05,
+     "lift20": 4.55,
+     "base": 0.011
     },
     "merged_across_passages": {
      "pos": 7,
      "brier": 0.0687,
      "auc": 0.624,
-     "spearman_soft": 0.112
+     "spearman_soft": 0.112,
+     "top10": 0.075,
+     "lift10": 2.27,
+     "top20": 0.037,
+     "lift20": 1.14,
+     "base": 0.033
     }
    }
   }
