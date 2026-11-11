@@ -239,6 +239,7 @@ def main() -> None:
     ap.add_argument("--dir", default="outputs/rt/core/claude_check", help="标注和报告所在目录（发布的结果在 results/q9b_claude_check）")
     a = ap.parse_args()
     D = Path(a.dir)
+    D.mkdir(parents=True, exist_ok=True)
     {"label": cmd_label, "label_batch": cmd_label_batch, "report": cmd_report}[a.cmd](a)
 
 
