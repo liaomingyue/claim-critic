@@ -7,6 +7,11 @@ cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; LOG=$A/train_node.log; S=$(dirname $(readlink -f $0))
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 PAIR=${PAIR:?}; P=$FS/runs/pair/$PAIR; JOB=${JOB:-run_grpo_h2.sh}
+# 一开机就在后台把底座拷到本地盘，和等推理机的时间重叠（踩过：训练机空等推理机十几分钟，之后才开始拷 9B）。
+# 先拷到临时目录再改名，别的脚本只看正式目录的 config.json；9B 用 models9b.sh 的同一把锁，后面 ensure_9b 不会重复拷
+( source $S/models9b.sh
+  [ -f $A/models/MiniCPM5-2B/config.json ] || { mkdir -p $A/models && rsync -a $FS/models/MiniCPM5-2B/ $A/models/.MiniCPM5-2B.partial/ && mv $A/models/.MiniCPM5-2B.partial $A/models/MiniCPM5-2B; }
+  [ "${PRECOPY_9B:-1}" = 1 ] && _copy_9b ) > /dev/null 2>&1 &
 log "waiting for infer node ($P)"
 until [ -f $P/infer_ready ] && [ -f $P/domains.json ]; do [ -f $P/infer_failed ] && { log "infer node FAILED"; exit 1; }; sleep 20; done
 export VLLM_API_KEY=$(cat $P/key)
