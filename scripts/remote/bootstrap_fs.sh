@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2tr) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -117,6 +117,8 @@ case $ROLE in
     P1=$FS/runs/pair/q9b; P2=$FS/runs/pair/q9b2; mkdir -p $P2; rm -f $P2/infer_ready $P2/infer_failed $P2/train_done $P2/domains.json
     cp $P1/key $P2/key && chmod 600 $P2/key && cp $P1/loras $P2/loras && hostname > $P2/infer_host
     PAIR=q9b2 INFER_MODEL=qwen3.5-9b CODE=$R bash $S/run_infer_node.sh; rc=$? ;;
+  p9r2inf) CODE=$R bash $S/q9b_task.sh pair_infer_p9r2; rc=$? ;;   # 9B 策略 × 2B 打分的推理机（同卡两个服务 + 转发层）
+  p9r2tr) CODE=$R bash $S/q9b_task.sh pair_train_p9r2; rc=$? ;;   # 9B 策略 × 2B 打分的训练机：训练 + 评测 + 2×2 配对比较
   repro_bf|repro_r1) bash $S/run_repro_test.sh rp_${ROLE#repro_}; rc=$? ;;   # 从头复现实测（scripts/repro），见 run_repro_test.sh
   sevrm2) CODE=$R bash $S/run_sevrm2_r1.sh; rc=$? ;;   # sev / RM2 加第一轮盲区 Claude 标注（sev__v3d / rm2__v3d）
   gengrpoh) CODE=$R bash $S/run_gengrpo_hard.sh; rc=$? ;;   # 生成器 GRPO，critic 难度主奖励（ge / ge2）
