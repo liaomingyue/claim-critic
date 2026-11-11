@@ -49,7 +49,7 @@ def ssh(info: dict) -> paramiko.SSHClient:
 
 def sh(info: dict, cmd: str, timeout: int = 120) -> str:
     c = ssh(info)
-    _, o, e = c.exec_command(f"bash -lc {json.dumps(cmd)}", timeout=timeout)
+    _, o, e = c.exec_command(f"bash -lc {shlex.quote(cmd)}", timeout=timeout)
     out = o.read().decode(errors="replace") + e.read().decode(errors="replace")
     c.close()
     return out
