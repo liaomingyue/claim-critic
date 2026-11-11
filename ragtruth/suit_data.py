@@ -1,4 +1,4 @@
-"""合适度（错误类型先验）数据：只看原文和问题，预测回答里可能出现哪些错误机制（多标签，每个机制一个独立分数）。
+"""合适度（错误类型先验）数据：只看原文和问题，预测回答里可能出现哪些错误机制（多标签，8 个机制各一个独立分数）。
 
 输入不含任何回答；标签来自已有 Claude 金标里回答出现过的机制：
   - train / holdout：核心集（726 / 81 个原文，每个原文 1 条回答），机制出现记 1、没出现记 0；
@@ -19,8 +19,15 @@ from pathlib import Path
 
 from common.schema import read_jsonl
 
-MECHS = ["certainty_or_scope_shift", "near_synonym_shift", "contradicts_source", "unsupported_inference", "wrong_attribution",
-         "vague_evaluation_or_addon", "number_or_date", "merged_across_passages", "added_specific_fact"]   # 「other」太少，不当选项
+# 「添加具体事实」和「无依据推论」合并成「无依据的添加」：核心集（训练）和金标 v1（测试）在这两类之间划分口径不同
+# （添加具体事实：核心集每条回答 4.7%，测试集 19.4%），分开训会系统性低估；「other」太少、「self_description」核心集里没有，都不当选项
+MERGE = {"added_specific_fact": "unsupported_addition", "unsupported_inference": "unsupported_addition"}
+MECHS = ["certainty_or_scope_shift", "near_synonym_shift", "contradicts_source", "unsupported_addition", "wrong_attribution",
+         "vague_evaluation_or_addon", "number_or_date", "merged_across_passages"]
+
+
+def mech(m: str) -> str:
+    return MERGE.get(m, m)
 RT = Path("external_data/ragtruth/dataset")
 OUT = Path("outputs/rt/suit")
 
@@ -37,7 +44,7 @@ def from_core(core: list[dict], split: str) -> list[dict]:
     for c in core:
         if c["split"] != split:
             continue
-        ms = {e["mechanism"] for e in c["labels"]["errors"]}
+        ms = {mech(e["mechanism"]) for e in c["labels"]["errors"]}
         out.append({"id": f"core-{c['source_id']}", "source_id": c["source_id"], "task_type": c["task_type"], "source": c["source"],
                     "labels": {m: int(m in ms) for m in MECHS}, "n_resp": 1})
     return sorted(out, key=lambda r: r["id"])
@@ -50,8 +57,8 @@ def from_sentence_labels(rows: list[dict], prompts: dict[str, str], tag: str) ->
     for r in rows:
         resp[(r["source_id"], r["resp_id"])]   # 没有错的回答也要算进分母
         meta[r["source_id"]] = r["task_type"]
-        if r.get("is_error") and r.get("mechanism") in MECHS:
-            resp[(r["source_id"], r["resp_id"])].add(r["mechanism"])
+        if r.get("is_error") and mech(r.get("mechanism", "")) in MECHS:
+            resp[(r["source_id"], r["resp_id"])].add(mech(r["mechanism"]))
     by_src = collections.defaultdict(list)
     for (sid, _), ms in resp.items():
         by_src[sid].append(ms)

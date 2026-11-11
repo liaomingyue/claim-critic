@@ -3,7 +3,7 @@
   "holdout": {
    "macro_auc": null,
    "macro_spearman_soft": null,
-   "mean_brier": 0.1449,
+   "mean_brier": 0.1613,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 23,
@@ -20,9 +20,9 @@
      "brier": 0.192,
      "auc": null
     },
-    "unsupported_inference": {
-     "pos": 13,
-     "brier": 0.1398,
+    "unsupported_addition": {
+     "pos": 16,
+     "brier": 0.1621,
      "auc": null
     },
     "wrong_attribution": {
@@ -44,18 +44,13 @@
      "pos": 13,
      "brier": 0.141,
      "auc": null
-    },
-    "added_specific_fact": {
-     "pos": 3,
-     "brier": 0.0358,
-     "auc": null
     }
    }
   },
   "test": {
    "macro_auc": null,
    "macro_spearman_soft": null,
-   "mean_brier": 0.3543,
+   "mean_brier": 0.3326,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 46,
@@ -75,9 +70,9 @@
      "auc": null,
      "spearman_soft": null
     },
-    "unsupported_inference": {
-     "pos": 44,
-     "brier": 0.4011,
+    "unsupported_addition": {
+     "pos": 61,
+     "brier": 0.5013,
      "auc": null,
      "spearman_soft": null
     },
@@ -104,19 +99,13 @@
      "brier": 0.4253,
      "auc": null,
      "spearman_soft": null
-    },
-    "added_specific_fact": {
-     "pos": 47,
-     "brier": 0.6286,
-     "auc": null,
-     "spearman_soft": null
     }
    }
   },
   "policy": {
    "macro_auc": null,
    "macro_spearman_soft": null,
-   "mean_brier": 0.0766,
+   "mean_brier": 0.0867,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 14,
@@ -136,9 +125,9 @@
      "auc": null,
      "spearman_soft": null
     },
-    "unsupported_inference": {
+    "unsupported_addition": {
      "pos": 11,
-     "brier": 0.1185,
+     "brier": 0.125,
      "auc": null,
      "spearman_soft": null
     },
@@ -165,21 +154,15 @@
      "brier": 0.071,
      "auc": null,
      "spearman_soft": null
-    },
-    "added_specific_fact": {
-     "pos": 0,
-     "brier": 0.0022,
-     "auc": null,
-     "spearman_soft": null
     }
    }
   }
  },
  "task": {
   "holdout": {
-   "macro_auc": 0.727,
+   "macro_auc": 0.724,
    "macro_spearman_soft": null,
-   "mean_brier": 0.1255,
+   "mean_brier": 0.1382,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 23,
@@ -196,10 +179,10 @@
      "brier": 0.1735,
      "auc": 0.681
     },
-    "unsupported_inference": {
-     "pos": 13,
-     "brier": 0.1151,
-     "auc": 0.801
+    "unsupported_addition": {
+     "pos": 16,
+     "brier": 0.1258,
+     "auc": 0.815
     },
     "wrong_attribution": {
      "pos": 18,
@@ -220,18 +203,13 @@
      "pos": 13,
      "brier": 0.1396,
      "auc": 0.572
-    },
-    "added_specific_fact": {
-     "pos": 3,
-     "brier": 0.0344,
-     "auc": 0.763
     }
    }
   },
   "test": {
-   "macro_auc": 0.553,
-   "macro_spearman_soft": 0.073,
-   "mean_brier": 0.3697,
+   "macro_auc": 0.558,
+   "macro_spearman_soft": 0.088,
+   "mean_brier": 0.3498,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 46,
@@ -251,11 +229,11 @@
      "auc": 0.447,
      "spearman_soft": -0.106
     },
-    "unsupported_inference": {
-     "pos": 44,
-     "brier": 0.442,
-     "auc": 0.443,
-     "spearman_soft": -0.142
+    "unsupported_addition": {
+     "pos": 61,
+     "brier": 0.5448,
+     "auc": 0.499,
+     "spearman_soft": -0.093
     },
     "wrong_attribution": {
      "pos": 28,
@@ -280,19 +258,13 @@
      "brier": 0.4287,
      "auc": 0.515,
      "spearman_soft": -0.027
-    },
-    "added_specific_fact": {
-     "pos": 47,
-     "brier": 0.6317,
-     "auc": 0.567,
-     "spearman_soft": 0.003
     }
    }
   },
   "policy": {
    "macro_auc": 0.618,
    "macro_spearman_soft": 0.104,
-   "mean_brier": 0.0872,
+   "mean_brier": 0.0994,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 14,
@@ -312,9 +284,9 @@
      "auc": 0.514,
      "spearman_soft": 0.014
     },
-    "unsupported_inference": {
+    "unsupported_addition": {
      "pos": 11,
-     "brier": 0.1493,
+     "brier": 0.1626,
      "auc": 0.335,
      "spearman_soft": -0.224
     },
@@ -341,21 +313,15 @@
      "brier": 0.071,
      "auc": 0.554,
      "spearman_soft": 0.058
-    },
-    "added_specific_fact": {
-     "pos": 0,
-     "brier": 0.0032,
-     "auc": null,
-     "spearman_soft": null
     }
    }
   }
  },
  "features": {
   "holdout": {
-   "macro_auc": 0.764,
+   "macro_auc": 0.759,
    "macro_spearman_soft": null,
-   "mean_brier": 0.1229,
+   "mean_brier": 0.1352,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 23,
@@ -372,10 +338,10 @@
      "brier": 0.1717,
      "auc": 0.704
     },
-    "unsupported_inference": {
-     "pos": 13,
-     "brier": 0.1055,
-     "auc": 0.854
+    "unsupported_addition": {
+     "pos": 16,
+     "brier": 0.1151,
+     "auc": 0.876
     },
     "wrong_attribution": {
      "pos": 18,
@@ -396,18 +362,13 @@
      "pos": 13,
      "brier": 0.1386,
      "auc": 0.597
-    },
-    "added_specific_fact": {
-     "pos": 3,
-     "brier": 0.0343,
-     "auc": 0.829
     }
    }
   },
   "test": {
-   "macro_auc": 0.58,
-   "macro_spearman_soft": 0.119,
-   "mean_brier": 0.3715,
+   "macro_auc": 0.583,
+   "macro_spearman_soft": 0.128,
+   "mean_brier": 0.3525,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 46,
@@ -427,11 +388,11 @@
      "auc": 0.422,
      "spearman_soft": -0.126
     },
-    "unsupported_inference": {
-     "pos": 44,
-     "brier": 0.4499,
-     "auc": 0.451,
-     "spearman_soft": -0.035
+    "unsupported_addition": {
+     "pos": 61,
+     "brier": 0.559,
+     "auc": 0.529,
+     "spearman_soft": 0.089
     },
     "wrong_attribution": {
      "pos": 28,
@@ -456,19 +417,13 @@
      "brier": 0.431,
      "auc": 0.553,
      "spearman_soft": 0.054
-    },
-    "added_specific_fact": {
-     "pos": 47,
-     "brier": 0.6321,
-     "auc": 0.64,
-     "spearman_soft": 0.164
     }
    }
   },
   "policy": {
    "macro_auc": 0.701,
    "macro_spearman_soft": 0.162,
-   "mean_brier": 0.0806,
+   "mean_brier": 0.0919,
    "by_mech": {
     "certainty_or_scope_shift": {
      "pos": 14,
@@ -488,11 +443,11 @@
      "auc": 0.638,
      "spearman_soft": 0.1
     },
-    "unsupported_inference": {
+    "unsupported_addition": {
      "pos": 11,
-     "brier": 0.1387,
-     "auc": 0.367,
-     "spearman_soft": -0.161
+     "brier": 0.1515,
+     "auc": 0.368,
+     "spearman_soft": -0.16
     },
     "wrong_attribution": {
      "pos": 9,
@@ -517,12 +472,6 @@
      "brier": 0.0687,
      "auc": 0.624,
      "spearman_soft": 0.112
-    },
-    "added_specific_fact": {
-     "pos": 0,
-     "brier": 0.0031,
-     "auc": null,
-     "spearman_soft": null
     }
    }
   }

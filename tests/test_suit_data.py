@@ -22,3 +22,10 @@ def test_sentence_labels_soft_rate_counts_clean_responses():
     assert len(out) == 1 and out[0]["n_resp"] == 3
     assert out[0]["soft"]["number_or_date"] == round(1 / 3, 4) and out[0]["soft"]["contradicts_source"] == round(1 / 3, 4)
     assert out[0]["labels"]["number_or_date"] == 1 and out[0]["labels"]["wrong_attribution"] == 0
+
+
+def test_merged_mechanisms():
+    core = [{"split": "train", "source_id": "1", "task_type": "QA", "source": "q",
+             "labels": {"errors": [{"mechanism": "added_specific_fact"}, {"mechanism": "unsupported_inference"}]}}]
+    lab = sd.from_core(core, "train")[0]["labels"]
+    assert lab["unsupported_addition"] == 1 and sum(lab.values()) == 1 and len(sd.MECHS) == 8
