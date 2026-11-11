@@ -54,9 +54,13 @@ elif [ $PM = minicpm5-2b ]; then   # 2B 策略 × 9B 打分：策略服务和训
   A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $PB --log $A/vllm-r3full.log --priority policy_v0=$INIT >> $LOG 2>&1 || { log "serve policy FAILED"; exit 1; }
   A=$A/s1 bash $S/serve_loras.sh --gpu 1 --port 8001 --mem 0.85 --base $RB --log $A/vllm-r3rm.log --priority $RMS >> $LOG 2>&1 || { log "serve rm FAILED"; exit 1; }
   RMURL=http://127.0.0.1:8001/v1
-else   # 9B 策略 × 2B 打分：两个服务都在 GPU1（9B 策略 0.55 + 2B 打分 0.3），训练独占 GPU0
-  A=$A/s1 bash $S/serve_loras.sh --gpu 1 --port 8000 --mem 0.55 --base $PB --log $A/vllm-r3full.log --priority policy_v0=$INIT >> $LOG 2>&1 || { log "serve policy FAILED"; exit 1; }
-  A=$A/s0 bash $S/serve_loras.sh --gpu 1 --port 8001 --mem 0.3 --base $RB --log $A/vllm-r3rm.log --priority $RMS >> $LOG 2>&1 || { log "serve rm FAILED"; exit 1; }
+else   # 9B 策略 × 2B 打分：两个服务同卡（9B 权重 17.6 GB、起服务峰值 23.3 GB，加 2B 约 8 GB，32 GB 的卡放不下，要 48 GB 以上）
+  # SINGLE_CARD=1：一张大显存卡（如 96 GB）上训练 + 9B 策略 + 2B 打分全放 GPU0（显存比例按 96 GB 算：9B 0.32 ≈ 31 GB，2B 0.10 ≈ 10 GB，训练峰值约 27 GB）；
+  # 否则训练独占 GPU0，两个服务放 GPU1（GPU1 要 48 GB 以上）
+  if [ "${SINGLE_CARD:-0}" = 1 ]; then G=0; M9=${POL_MEM:-0.32}; M2=${RM_MEM:-0.10}; else G=1; M9=${POL_MEM:-0.70}; M2=${RM_MEM:-0.20}; fi
+  A=$A/s0 MAX_LORAS=3 bash $S/serve_loras.sh --gpu $G --port 8001 --mem $M2 --batch 8192 --max-len 4096 --base $RB --log $A/vllm-r3rm.log --priority $RMS >> $LOG 2>&1 || { log "serve rm FAILED"; exit 1; }
+  A=$A/s1 MAX_LORAS=4 bash $S/serve_loras.sh --gpu $G --port 8000 --mem $M9 --batch 8192 --max-len 4096 --base $PB --log $A/vllm-r3full.log --priority policy_v0=$INIT >> $LOG 2>&1 || { log "serve policy FAILED"; exit 1; }
+  log "9B policy x 2B scorers on GPU$G (mem $M9 / $M2)"
   RMURL=http://127.0.0.1:8001/v1
 fi
 # 存续训状态的间隔：默认 50；本机 $A/STATE_EVERY 写数字可改（中途要换推理机时先设小，早点有状态可接）

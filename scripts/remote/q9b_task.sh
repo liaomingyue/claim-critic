@@ -135,6 +135,10 @@ pair_train_p9r2b)   # 两张卡版的训练机（从已有的续训状态接着�
   PAIR=p9r2b JOB=run_p9r2_pair.sh bash $S/run_train_node.sh || exit 1
   bash $S/q9b_task.sh cmp_p9r2 || exit 1
   log "PAIR_TRAIN_DONE p9r2b" ;;
+one_p9r2)   # 9B 策略 × 2B 打分，单卡版：一张大显存卡（RTX PRO 6000 96 GB）上训练 + 采样 + 打分；有续训状态就接着训，训完评测 + 配对比较
+  SINGLE_CARD=1 bash $S/q9b_task.sh grpo p9r2 || exit 1
+  bash $S/q9b_task.sh cmp_p9r2 || exit 1
+  log "ONE_P9R2_DONE" ;;
 pair_train_p9r2)   # 9B 策略 × 2B 打分的训练机：训完在本机评测（9B 金标 critic），再和另外三格配对比较
   PAIR=p9r2 RM_PAIR=p9r2rm JOB=run_p9r2_pair.sh bash $S/run_train_node.sh || exit 1
   bash $S/q9b_task.sh cmp_p9r2 || exit 1
