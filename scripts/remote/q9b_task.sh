@@ -99,19 +99,29 @@ pair_infer)   # 两台单卡跑 9B GRPO 的推理机：9B 底座 + 9B critic / �
   PAIR=q9b INFER_MODEL=qwen3.5-9b bash $S/run_infer_node.sh || exit 1
   [ -f $P/train_done ] || exit 1
   log "PAIR_INFER_DONE" ;;
-pair_infer_p9r2)   # 9B 策略 × 2B 打分的推理机：同卡 9B 策略（:8000）+ 2B critic / 满意度 / 拒答（:8001），6006 转发层分流
+pair_infer_p9r2)   # 9B 策略 × 2B 打分的采样机：只挂 9B 策略（同卡再放 2B 打分实测放不下：9B 权重 17.6 GB，预跑一批就显存不足），打分在打分机（pair_rm_p9r2）
   # 配对 runs/pair/p9r2；domains.json 由本地 autodl_extra（角色 p9r2inf）建好实例时写入，这里不删
   P=$FS/runs/pair/p9r2; mkdir -p $P
-  rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed
+  rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed $P/rm_loras
   hostname > $P/infer_host
   echo "policy_v0=$FS/adapters/rag-sft-core_9b/adapter" > $P/loras
-  printf '%s\n' "critic=$FS/adapters/rm1__core-mc/adapter" "sat=$FS/adapters/sat_pair__core-mc/adapter" "refuse=$FS/adapters/refuse__core-mc/adapter" > $P/rm_loras
-  for f in $(sed "s|.*=||" $P/loras $P/rm_loras); do [ -f $f/adapter_model.safetensors ] || { log "missing adapter $f"; touch $P/infer_failed; exit 1; }; done
+  [ -f $FS/adapters/rag-sft-core_9b/adapter/adapter_model.safetensors ] || { log "missing policy adapter"; touch $P/infer_failed; exit 1; }
   PAIR=p9r2 INFER_MODEL=qwen3.5-9b bash $S/run_infer_node.sh || exit 1
   [ -f $P/train_done ] || exit 1
   log "PAIR_INFER_DONE p9r2" ;;
+pair_rm_p9r2)   # 9B 策略 × 2B 打分的打分机：MiniCPM5-2B + critic / 满意度 / 拒答（2B 版），和采样机同一把密钥（配对 runs/pair/p9r2rm）
+  P=$FS/runs/pair/p9r2rm; Q=$FS/runs/pair/p9r2; mkdir -p $P
+  rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed
+  for i in $(seq 1 60); do [ -f $Q/key ] && break; sleep 10; done
+  [ -f $Q/key ] || { python -c "import secrets;print(secrets.token_urlsafe(32))" > $Q/key; chmod 600 $Q/key; }
+  cp $Q/key $P/key && chmod 600 $P/key && hostname > $P/infer_host
+  printf '%s\n' "critic=$FS/adapters/rm1__core-mc/adapter" "sat=$FS/adapters/sat_pair__core-mc/adapter" "refuse=$FS/adapters/refuse__core-mc/adapter" > $P/loras
+  for f in $(sed "s|.*=||" $P/loras); do [ -f $f/adapter_model.safetensors ] || { log "missing adapter $f"; touch $P/infer_failed; exit 1; }; done
+  PAIR=p9r2rm bash $S/run_infer_node.sh || exit 1
+  [ -f $P/train_done ] || exit 1
+  log "PAIR_RM_DONE p9r2" ;;
 pair_train_p9r2)   # 9B 策略 × 2B 打分的训练机：训完在本机评测（9B 金标 critic），再和另外三格配对比较
-  PAIR=p9r2 JOB=run_p9r2_pair.sh bash $S/run_train_node.sh || exit 1
+  PAIR=p9r2 RM_PAIR=p9r2rm JOB=run_p9r2_pair.sh bash $S/run_train_node.sh || exit 1
   bash $S/q9b_task.sh cmp_p9r2 || exit 1
   log "PAIR_TRAIN_DONE p9r2" ;;
 cmp_p9r2)   # 2×2 补齐：9B 策略 × 2B 打分 vs 9B × 9B / 2B × 2B（RAG-S1）/ 2B × 9B（p2r9）/ 2B 整套方案

@@ -42,7 +42,7 @@ if [ -n "${RM_URL:-}" ] && [ $PM = minicpm5-2b ]; then   # 多机，2B 策略 ×
   RMURL=$RM_URL; POLURL=http://127.0.0.1:8000/v1; ASYNC=""
   log "remote scoring $RM_URL, local 2B policy"
 elif [ -n "${RM_URL:-}" ]; then   # 双机：推理机上已经挂好策略 + 打分模型（run_infer_node.sh），LoRA 每步后台上传给它热加载
-  RMURL=$RM_URL; POLURL=$RM_URL; ASYNC="--async_push 1"
+  RMURL=$RM_URL; POLURL=${POLICY_URL:-$RM_URL}; ASYNC="--async_push 1"   # POLICY_URL：策略采样在另一组推理机上（单独的打分机，run_train_node.sh RM_PAIR）
   log "remote inference $RM_URL"
 elif [ $PM = minicpm5-2b ] && [ $RMM = minicpm5-2b ]; then   # 原布局：一个服务，GPU0
   A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem ${MC_MEM:-0.35} --base $MC --log $A/vllm-r3full.log --priority $RMS policy_v0=$INIT >> $LOG 2>&1 || { log "serve FAILED"; exit 1; }

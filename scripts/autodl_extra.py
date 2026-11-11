@@ -211,11 +211,11 @@ def main() -> None:
         Path(f"outputs/autodl/extra_{role}.json").write_text(json.dumps(new, ensure_ascii=False, indent=2), encoding="utf-8")
         time.sleep(30)   # sshd 刚起来
         if args.fs:
-            if role in ("pairinfer", "p9r2inf"):   # 双机：推理机的对外域名只有平台接口查得到，建好就写进共享盘（不依赖本地会话，踩过：会话断了训练机空等 1 小时）
+            if role in ("pairinfer", "p9r2inf", "p9r2rm"):   # 双机：推理机的对外域名只有平台接口查得到，建好就写进共享盘（不依赖本地会话，踩过：会话断了训练机空等 1 小时）
                 dom = {"svc6006": inst.get("service_6006_domain"), "svc6008": inst.get("service_6008_domain"), "infer_uuid": inst["uuid"]}
                 # 先等共享盘挂上再写（踩过：容器刚起时还没挂，写进了被挂载盖住的本地目录，训练机读到旧推理机的域名，404），写完读回核对
                 got = sh(new, "for i in $(seq 60); do [ -d /root/autodl-fs/models ] && break; sleep 5; done; "
-                              + ("P=/root/autodl-fs/runs/pair/p9r2;" if role == "p9r2inf" else "P=/root/autodl-fs/runs/pair/$(cat /root/autodl-fs/runs/pair/CURRENT 2>/dev/null || echo default);") + " mkdir -p $P && rm -f $P/infer_ready $P/train_done $P/infer_failed"
+                              + ({"p9r2inf": "P=/root/autodl-fs/runs/pair/p9r2;", "p9r2rm": "P=/root/autodl-fs/runs/pair/p9r2rm;"}[role] if role != "pairinfer" else "P=/root/autodl-fs/runs/pair/$(cat /root/autodl-fs/runs/pair/CURRENT 2>/dev/null || echo default);") + " mkdir -p $P && rm -f $P/infer_ready $P/train_done $P/infer_failed"
                               f" && echo {shlex.quote(json.dumps(dom))} > $P/domains.json && cat $P/domains.json")
                 if inst["uuid"] not in got:
                     raise SystemExit(f"pairinfer: domains.json 写入核对失败：{got[:200]}")

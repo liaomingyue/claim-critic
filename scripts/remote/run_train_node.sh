@@ -28,8 +28,22 @@ for p in $PS; do
   [ "$code" = 200 ] || { log "remote vllm not reachable ($p: $code)"; exit 1; }
   RMS="${RMS:+$RMS,}https://$D6/v1"; SYNCS="${SYNCS:+$SYNCS,}https://$D8"
 done
+# 单独的打分机（RM_PAIR=<配对名>，策略和打分模型底座不同、一张卡放不下两个服务时用，如 9B 策略 × 2B 打分）：
+# 上面的推理机只做策略采样（POLICY_URL），打分请求全发给打分机（RM_URL）；打分机不收 LoRA
+POLS=
+if [ -n "${RM_PAIR:-}" ]; then
+  Q=$FS/runs/pair/$RM_PAIR
+  until [ -f $Q/infer_ready ] && [ -f $Q/domains.json ]; do [ -f $Q/infer_failed ] && { log "rm node FAILED ($Q)"; exit 1; }; sleep 20; done
+  cmp -s $P/key $Q/key || { log "key mismatch: $Q"; exit 1; }
+  D6=$(python -c "import json;print(json.load(open('$Q/domains.json'))['svc6006'])")
+  code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VLLM_API_KEY" https://$D6/v1/models)
+  [ "$code" = 200 ] || { log "remote rm not reachable ($Q: $code)"; exit 1; }
+  POLS=$RMS; RMS=https://$D6/v1; PS="$PS $Q"
+  log "rm node: $Q"
+fi
 # LoRA 直接上传给推理机（LORA_SYNC_MODE 默认 upload），存本机内存盘；要走共享盘就设 LORA_SYNC_MODE=fs PUSH_DIR=$FS/xfer/$PAIR
 export RM_URL=$RMS LORA_SYNC_URL=$SYNCS SINGLE_GPU=1
+[ -n "$POLS" ] && export POLICY_URL=$POLS
 log "inference nodes: $(echo $PS | wc -w)"
 log "remote inference reachable; running $JOB"
 bash $S/$JOB; rc=$?
