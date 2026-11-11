@@ -111,7 +111,7 @@ def main() -> None:
 
     def encode(src: str, perm: list[str]) -> list[int]:
         ids = tok.apply_chat_template(render(src, perm), tokenize=True, add_generation_prompt=True)
-        ids = list(ids["input_ids"] if isinstance(ids, dict) else ids)
+        ids = list(ids["input_ids"] if hasattr(ids, "keys") else ids)   # transformers 5：返回 BatchEncoding（不是 dict 子类）
         if len(ids) > a.max_len:   # 原文太长：从原文中间截掉（保留指令开头和选项结尾），实际训练集最长约 2000 token，基本不触发
             ids = ids[: a.max_len // 2] + ids[-(a.max_len - a.max_len // 2):]
         return ids

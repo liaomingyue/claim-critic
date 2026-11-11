@@ -60,7 +60,7 @@ def main() -> None:
             ps = perms_for(str(r["id"]), a.perms)
             for perm in ps:
                 ids = tok.apply_chat_template(render(r["source"], perm), tokenize=True, add_generation_prompt=True)
-                ids = list(ids["input_ids"] if isinstance(ids, dict) else ids)
+                ids = list(ids["input_ids"] if hasattr(ids, "keys") else ids)   # transformers 5：返回 BatchEncoding（不是 dict 子类）
                 if len(ids) > a.max_len:
                     ids = ids[: a.max_len // 2] + ids[-(a.max_len - a.max_len // 2):]
                 z = model(input_ids=torch.tensor([ids], device="cuda")).logits[0, -1, lids].float().tolist()
