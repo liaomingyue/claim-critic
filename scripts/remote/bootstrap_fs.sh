@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|mech) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|mech|s2r9rm|s2r9tr) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -133,7 +133,14 @@ case $ROLE in
   worker6|worker7) CODE=$R bash $S/run_worker3.sh; rc=$? ;;   # SFT 上限 / 被钻空子 / nat1500 200 步（q4 队列）
   worker8|worker9) CODE=$R bash $S/run_worker4.sh; rc=$? ;;   # 纯人工 vs 纯合成 critic（q5 队列）
   worker1|worker2|worker3) CODE=$R bash $S/run_worker.sh; rc=$? ;;   # 抢新卡跑队列（h3ctl 评测 / ref / z1500 / S2）   # 训练中途评一版（9B 补打 dev 快评 + 新旧两版同步数验收对比）
-  mech) CODE=$R bash $S/run_mech.sh; rc=$? ;;   # critic 当奖励的机制分析（各起点采样 + 历次 critic 打分 + 9B 金标）
+  mech) CODE=$R bash $S/run_mech.sh; rc=$? ;;
+  s2r9rm)   # RAG-S2 + 9B 奖励的打分机：9B 底座 + 9B critic / 满意度 / 拒答（配对 runs/pair/s2r9；domains.json 由本地 autodl_extra 建实例时写，这里不删）
+    P=$FS/runs/pair/s2r9; mkdir -p $P; rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed $P/extra_pairs $P/rm_loras
+    hostname > $P/infer_host
+    printf '%s\n' "critic=$FS/adapters/rm1__core_9b-9b/adapter" "sat=$FS/adapters/sat_pair__core_9b-9b/adapter" "refuse=$FS/adapters/refuse__core_9b-9b/adapter" > $P/loras
+    rc=0; for f in $(sed "s|.*=||" $P/loras); do [ -f $f/adapter_model.safetensors ] || { log "missing adapter $f"; touch $P/infer_failed; rc=1; }; done
+    [ $rc = 0 ] && { PAIR=s2r9 INFER_MODEL=qwen3.5-9b CODE=$R bash $S/run_infer_node.sh; rc=$?; } ;;
+  s2r9tr) PRECOPY_2B=1 PAIR=s2r9 JOB=run_s2r9_pair.sh CODE=$R bash $S/run_train_node.sh; rc=$? ;;   # 训练机：2B 策略采样 + 训练，训完本机评测   # critic 当奖励的机制分析（各起点采样 + 历次 critic 打分 + 9B 金标）
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"
