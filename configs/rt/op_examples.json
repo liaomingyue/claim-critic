@@ -1,0 +1,282 @@
+{
+ "swap_term": [
+  {
+   "id": "core-11416-S1",
+   "faithful": "Tristan da Cunha, a remote archipelago in the South Atlantic with just under 270 residents, is holding an international design competition to modernize its aging infrastructure and ensure its sustainability as it approaches the 200th anniversary of its settlement.",
+   "error": "Tristan da Cunha, a remote archipelago in the South Atlantic with just under 270 residents, is seeking an international design competition to modernize its aging infrastructure and ensure its sustainability as it approaches the 200th anniversary of its settlement.",
+   "sim": 0.97
+  },
+  {
+   "id": "core-11852-S1",
+   "faithful": "As fit golfers like Tiger Woods, Adam Scott, and Jordan Spieth win the Masters, there is a growing emphasis on functional movement to improve swing power and reduce injury risk.",
+   "error": "As fit golfers like Tiger Woods, Adam Scott, and Jordan Spieth dominate the Masters, there is a growing emphasis on functional movement to improve swing power and reduce injury risk.",
+   "sim": 0.97
+  }
+ ],
+ "change_number": [
+  {
+   "id": "core-15813-S5",
+   "faithful": "Obesity is a widespread issue, with 70% of adults overweight or obese and rising rates among children.",
+   "error": "Obesity is a widespread issue, with over 70% of adults overweight or obese and rising rates among children.",
+   "sim": 0.97
+  },
+  {
+   "id": "core-11971-S3",
+   "faithful": "The Italian Coast Guard reported nearly 10,000 migrants have arrived on Italian shores since the weekend, with spring and calmer seas not stopping the flow.",
+   "error": "The Italian Coast Guard reported over 10,000 migrants have arrived on Italian shores since the weekend, with spring and calmer seas not stopping the flow.",
+   "sim": 0.96
+  }
+ ],
+ "add_detail": [
+  {
+   "id": "core-15804-S1",
+   "faithful": "A 24-year-old man, Sid Ahmed Ghlam, was taken into custody after calling for an ambulance, only to be found with weapons, ammunition, and evidence of plots to target churches.",
+   "error": "A 24-year-old French man, Sid Ahmed Ghlam, was taken into custody after calling for an ambulance, only to be found with weapons, ammunition, and evidence of plots to target churches.",
+   "sim": 0.98
+  },
+  {
+   "id": "core-15763-S1",
+   "faithful": "Muhammadu Buhari, a former military leader, won Nigeria's presidency, defeating incumbent Goodluck Jonathan by about 2 million votes in a democratic election.",
+   "error": "Muhammadu Buhari, a former military leader, won Nigeria's presidency, defeating incumbent Goodluck Jonathan by about 2 million votes in a peaceful democratic election.",
+   "sim": 0.98
+  }
+ ],
+ "flip_outcome": [
+  {
+   "id": "core-11336-S1",
+   "faithful": "American Etihad Airways passenger Jennifer Stewart lost her 2-year-old cat, Felix, after it went missing at New York's JFK Airport following a flight from Abu Dhabi.",
+   "error": "American Etihad Airways passenger Jennifer Stewart lost her 2-year-old cat, Felix, after it was found loose at New York's JFK Airport following a flight from Abu Dhabi.",
+   "sim": 0.91
+  },
+  {
+   "id": "core-15580-S1",
+   "faithful": "Not exactly; degenerative disc disease (ddd) and arthritis are very similar and often considered the same.",
+   "error": "Yes, degenerative disc disease (ddd) and arthritis are very similar and often considered the same.",
+   "sim": 0.9
+  }
+ ],
+ "change_speaker": [
+  {
+   "id": "core-15624-S3",
+   "faithful": "Key points for the jury include evidence suggesting Hernandez lied to Patriots owner Robert Kraft about his innocence, as Kraft testified Hernandez said he was in a club when Lloyd was killed.",
+   "error": "Key points for the jury include evidence suggesting Hernandez lied to Patriots owner Robert Kraft about his innocence, as Kraft claimed Hernandez was in a club when Lloyd was killed.",
+   "sim": 0.94
+  },
+  {
+   "id": "core-15831-S4",
+   "faithful": "Viewed as a \"safe haven\" by foreign investors, London ranks as the second most important hub for ultra-high-net-worth homes globally, behind only New York.",
+   "error": "Viewed as a \"safe haven\" by high-end buyers, London ranks as the second most important hub for ultra-high-net-worth homes globally, behind only New York.",
+   "sim": 0.92
+  }
+ ],
+ "move_modifier": [
+  {
+   "id": "core-12022-S3",
+   "faithful": "Greenpeace is furious over the U.S. government's decision to lift lease suspensions on drilling in the Chukchi Sea, warning that Shell could begin drilling in 100 days.",
+   "error": "Greenpeace called the U.S. government's decision to lift lease suspensions on drilling in the Chukchi Sea \"furious,\" warning that Shell could begin drilling in 100 days.",
+   "sim": 0.87
+  },
+  {
+   "id": "core-11863-S2",
+   "faithful": "Tanka Maya Sitoula, a 40-year-old mother of four, survived a 36-hour ordeal after the 5-story building containing her apartment collapsed.",
+   "error": "Tanka Maya Sitoula, a 40-year-old mother of four, survived a 36-hour ordeal after her 5-story apartment collapsed.",
+   "sim": 0.86
+  }
+ ],
+ "reverse_direction": [
+  {
+   "id": "core-13813-S1",
+   "faithful": "The Justice Department has obtained a preliminary injunction to stop a debt collection scheme targeting veterans and older citizens.",
+   "error": "The Justice Department has granted a preliminary injunction to stop a debt collection scheme targeting veterans and older citizens.",
+   "sim": 0.95
+  },
+  {
+   "id": "core-11901-S1",
+   "faithful": "An Alaska Airlines flight made an emergency landing in Seattle after the pilot reported unusual banging, and a ramp agent was then found inside the cargo hold.",
+   "error": "An Alaska Airlines flight experienced an emergency landing in Seattle after a ramp agent was found inside the cargo hold.",
+   "sim": 0.81
+  }
+ ],
+ "swap_referent": [
+  {
+   "id": "core-13900-S1",
+   "faithful": "Despite encountering large groups of migrants at razor-wire barriers in Texas, including a hypothermia victim, Texas and Florida troopers have provided life-saving aid.",
+   "error": "Despite encountering large groups of migrants at razor-wire barriers in Texas, including a hypothermia victim, U.S. and Florida troopers have provided life-saving aid.",
+   "sim": 0.96
+  },
+  {
+   "id": "core-11819-S5",
+   "faithful": "Her project, which explores identity through photography, faced initial resistance as people didn't trust her motives.",
+   "error": "Her project, which explores identity through photography, faced initial resistance as locals didn't trust her motives.",
+   "sim": 0.94
+  }
+ ],
+ "change_owner": [
+  {
+   "id": "core-15656-S1",
+   "faithful": "On February morning, 36-year-old Mario Valencia stole a .30-30 rifle and ammunition from a Walmart in Marana, Arizona.",
+   "error": "On February morning, 36-year-old Mario Valencia stole a .30-30 rifle and ammunition from a Walmart employee in Marana, Arizona.",
+   "sim": 0.97
+  },
+  {
+   "id": "core-11854-S5",
+   "faithful": "Meanwhile, Ferrari's Sebastian Vettel claimed his third consecutive podium, expressing hope to close the gap on the championship lead.",
+   "error": "Meanwhile, Red Bull's Sebastian Vettel claimed his third consecutive podium, expressing hope to close the gap on the championship lead.",
+   "sim": 0.92
+  }
+ ],
+ "move_number": [
+  {
+   "id": "core-15183-S3",
+   "faithful": "- Prepare the grill with two zones: high and medium-low heat (for charcoal, this is 2 to 3 coals thick for the high zone and 1 layer for medium).",
+   "error": "- Prepare the grill with two zones: high and medium-low heat (for charcoal, this is 2 to 3 coals for the high zone and 1 layer for medium).",
+   "sim": 0.98
+  },
+  {
+   "id": "core-15603-S1",
+   "faithful": "An explosion at a paraxylene plant in Fujian injured six and caused a fire.",
+   "error": "An explosion at a paraxylene plant in Fujian injured five and caused a fire.",
+   "sim": 0.93
+  }
+ ],
+ "move_time_place": [
+  {
+   "id": "core-15403-S1",
+   "faithful": "Based on the passages, you can transfer a GPX file to your Garmin device by connecting it to your computer with a USB cable, then copying or dragging the file into the NewFiles folder.",
+   "error": "Based on the passages, you can transfer a GPX file to your Garmin device by connecting it to your computer with a USB cable, then copying or dragging the file into the NewFiles folder on your computer.",
+   "sim": 0.93
+  },
+  {
+   "id": "core-15822-S1",
+   "faithful": "Kenyan police arrested five suspects following Thursday's attack by al-Shabaab militants at Garissa University College, which killed 147 people—including 142 students, three security officers, and two university security personnel—and injured 104, including 19 in critical condition.",
+   "error": "On Thursday, Kenyan police arrested five suspects following an attack by al-Shabaab militants at Garissa University College, killing 147 people—including 142 students, three security officers, and two security personnel—and injuring 104, including 19 in critical condition.",
+   "sim": 0.86
+  }
+ ],
+ "merge_events": [
+  {
+   "id": "core-12401-S4",
+   "faithful": "3. Press the Connect button at the back of the Xbox 360 controller.",
+   "error": "3. Press and hold the Connect button at the back of the Xbox 360 controller.",
+   "sim": 0.93
+  },
+  {
+   "id": "core-15545-S11",
+   "faithful": "- Cook for 1 hour and 40 minutes.",
+   "error": "- Cook for an additional 1 hour and 40 minutes.",
+   "sim": 0.89
+  }
+ ],
+ "drop_hedge": [
+  {
+   "id": "core-15705-S1",
+   "faithful": "A one-year-old white-and-black mix named Theia survived a near-death experience after being struck by a car, apparently hit on the head with a hammer, and buried in a field.",
+   "error": "A one-year-old white-and-black mix named Theia survived a near-death experience after being struck by a car, hit on the head with a hammer, and buried in a field.",
+   "sim": 0.98
+  },
+  {
+   "id": "core-15562-S5",
+   "faithful": "Early indications may include high fever, weakness, headache, sore throat, stomach pain, and diarrhea or constipation, with a rash on the trunk that typically resolves within 5 days.",
+   "error": "Early indications may include high fever, weakness, headache, sore throat, stomach pain, and diarrhea or constipation, with a rash on the trunk that resolves within 5 days.",
+   "sim": 0.98
+  }
+ ],
+ "add_hedge": [
+  {
+   "id": "core-12338-S3",
+   "faithful": "It is described as an avascular necrosis of the bone.",
+   "error": "It is often described as an avascular necrosis of the bone.",
+   "sim": 0.95
+  },
+  {
+   "id": "core-13575-S3",
+   "faithful": "Meanwhile, Finn and Hope bond over Sheila and Deacon's relationship and will plot to break them up.",
+   "error": "Meanwhile, Finn and Hope bond over Sheila and Deacon's relationship but may plot to separate them.",
+   "sim": 0.73
+  }
+ ],
+ "drop_reported": [
+  {
+   "id": "core-15163-S2",
+   "faithful": "It is also noted as a symbol of wisdom in Buddhist iconography and is believed to stand guard at the entrance to the Gates of Paradise.",
+   "error": "It is also noted as a symbol of wisdom in Buddhist iconography and stands at the entrance to the Gates of Paradise.",
+   "sim": 0.88
+  },
+  {
+   "id": "core-15703-S2",
+   "faithful": "This event was part of China's \"Strike Hard\" campaign, which the government claims targets terrorism and separatism, and Amnesty International's annual review highlights a global trend of governments using the death penalty to combat crime and terrorism.",
+   "error": "This event reflects China's \"Strike Hard\" campaign against terrorism and separatism, though Amnesty International's annual review highlights a global trend of governments using the death penalty to combat crime and terrorism.",
+   "sim": 0.79
+  }
+ ],
+ "plan_as_done": [
+  {
+   "id": "core-13530-S5",
+   "faithful": "Denials from her boyfriend and friend, along with resistance to polygraph tests, deepened the mystery.",
+   "error": "Denials from her ex-boyfriend and friend, along with resistance to polygraph tests, deepened the mystery.",
+   "sim": 0.93
+  },
+  {
+   "id": "core-15736-S2",
+   "faithful": "The Department of Justice (DOJ) will soon begin negotiating to restructure the police department after a report revealed systemic racial discrimination, including illegal stops, excessive force, and a police department acting as a \"collection agency\" targeting African-American residents.",
+   "error": "The Department of Justice (DOJ) is now negotiating to restructure the police department after a report revealed systemic racial discrimination, including illegal stops, excessive force, and a police department acting as a \"collection agency\" targeting African-American residents.",
+   "sim": 0.93
+  }
+ ],
+ "generalize": [
+  {
+   "id": "core-13913-S4",
+   "faithful": "She has also been accused of considering running for office, prompting royal pundit PDina to urge her to focus on her duties as a duchess rather than politics.",
+   "error": "She has also been accused of considering running for office, prompting royal pundits to urge her to focus on her duties as a duchess rather than politics.",
+   "sim": 0.95
+  },
+  {
+   "id": "core-15723-S2",
+   "faithful": "Key evidence, including the flight data recorder, cockpit voice recorder, and DNA samples, has been collected.",
+   "error": "All evidence, including the flight data recorder, cockpit voice recorder, and DNA samples, has been collected.",
+   "sim": 0.94
+  }
+ ],
+ "drop_restriction": [
+  {
+   "id": "core-11927-S1",
+   "faithful": "A first draft of \"The Breakfast Club\" screenplay was recently found in a suburban Chicago school district filing cabinet.",
+   "error": "A first draft of \"The Breakfast Club\" screenplay was recently found in a Chicago school district filing cabinet.",
+   "sim": 0.97
+  },
+  {
+   "id": "core-15353-S2",
+   "faithful": "The levels of carbon monoxide and nicotine decline rapidly, and the heart and lungs begin to repair the damage caused by cigarette smoke.",
+   "error": "The levels of carbon monoxide and nicotine decline rapidly, and the heart and lungs repair the damage caused by cigarette smoke.",
+   "sim": 0.95
+  }
+ ],
+ "add_link": [
+  {
+   "id": "core-13855-S3",
+   "faithful": "The event features free food, T-shirts, music, and prizes, with fans encouraged to arrive early and to create signs supporting the Buckeyes.",
+   "error": "The event features free food, T-shirts, music, and prizes, with fans encouraged to arrive early to create signs supporting the Buckeyes.",
+   "sim": 0.98
+  },
+  {
+   "id": "core-11842-S3",
+   "faithful": "Shreeves started her journey two years ago before moving to Ecuador, inspired by the No Trash Project.",
+   "error": "Shreeves started her journey two years ago after moving to Ecuador, inspired by the No Trash Project.",
+   "sim": 0.94
+  }
+ ],
+ "add_conclusion": [
+  {
+   "id": "core-11781-S1",
+   "faithful": "Dr. Mark Goodacre, a professor of New Testament studies at Duke University, discusses the Gospel of Mary Magdalene in response to viewer questions from CNN's \"Finding Jesus.\"",
+   "error": "Dr. Mark Goodacre, a professor of New Testament studies at Duke University, discusses the often-overlooked Gospel of Mary Magdalene in response to viewer questions from CNN's \"Finding Jesus.\"",
+   "sim": 0.98
+  },
+  {
+   "id": "core-11916-S1",
+   "faithful": "Child actress Suzanne Crough, who played Tracy on the 1970s sitcom \"The Partridge Family,\" died at age 52 in Nevada.",
+   "error": "Child actress Suzanne Crough, who played Tracy on the classic 1970s sitcom \"The Partridge Family,\" died at age 52 in Nevada.",
+   "sim": 0.98
+  }
+ ]
+}

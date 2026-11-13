@@ -1,6 +1,7 @@
 """错误操作清单：把「模型会犯、critic 会漏」的忠实性错误整理成一条条能照着做的改写操作。
 
 每条操作有：所属的层、给生成器看的改写说明、核实时要对照原文的什么、能不能做的前提规则、真实错误里的例子。
+card() 把一条操作渲染成给生成器看的卡片（做法、在什么句子上能做、为什么算错、例句），直接放进提示词。
 前提规则只给数字和「限定」层里的三种删改用：这些操作要求句子里先有可改的原料（数字、推测词、「据称」、打算），没有就不该派这个任务。
 「挂接」层的操作在语法上大多数句子都能做，规则筛不掉什么，不设前提，靠改写说明和后面的核实把关。
 
@@ -166,6 +167,60 @@ OPS = {
         "examples": ["Turn 'issued a statement that did not reference pressurization issues' into 'stated no such problem existed'.", "Replace the unclear-direction correlation with a claim that marriage improves well-being."],
     },
 }
+
+
+# 卡片里给生成器看的另外两栏：need = 在什么样的句子上能做这个操作；wrong = 改完为什么算错（也就是核实时看什么）
+CARD = {
+    "swap_term": ("the sentence has a specific noun, verb or adjective that has a close neighbour with a different meaning",
+                  "the new term refers to something the source does not say, although it sounds like the same thing"),
+    "change_number": ("the sentence states a number, date, duration or count",
+                      "the source gives a different value for the same thing"),
+    "add_detail": ("the sentence states a fact that could be made more specific",
+                   "the added detail is nowhere in the source"),
+    "flip_outcome": ("the sentence states an outcome, a stance, or whether something happened",
+                     "the source says the opposite"),
+    "change_speaker": ("the sentence reports what someone said, thought or announced, and the source mentions another person or body",
+                       "in the source the statement comes from someone else"),
+    "move_modifier": ("the sentence gives a description, property, role or criticism of one thing, and the source mentions another thing it could be attached to",
+                      "in the source the description belongs to the other thing"),
+    "reverse_direction": ("the sentence states a relation with two sides: who did something to whom, a cause and its effect, a giver and a receiver",
+                          "in the source the relation runs the other way"),
+    "swap_referent": ("the sentence refers to a person or thing that the source keeps apart from another similar one",
+                      "the source means the other person or thing"),
+    "change_owner": ("the sentence says whose something is: a relative, a possession, an employee, a work",
+                     "in the source it belongs to someone else"),
+    "move_number": ("the sentence states a number that counts or measures one particular thing",
+                    "the number is in the source, but there it counts or measures something else"),
+    "move_time_place": ("the sentence gives the time or place of an event, and the source describes another event",
+                        "the time or place is in the source, but there it belongs to the other event"),
+    "merge_events": ("the source describes two different events, rules or objects, and the sentence is about one of them",
+                     "every detail is in the source, but the source gives it about the other event, rule or object"),
+    "drop_hedge": ("the sentence contains a hedge or an approximation such as 'may', 'likely', 'about', 'suspected'",
+                   "the source only says it is possible, suspected or approximate"),
+    "add_hedge": ("the sentence states something definite",
+                  "the source states it without any doubt"),
+    "drop_reported": ("the sentence marks something as a report, an allegation or one party's claim",
+                      "the source only reports it as someone's claim, not as established fact"),
+    "plan_as_done": ("the sentence describes a plan, aim, proposal, expectation or hypothetical",
+                     "in the source it has not happened: it is only planned, expected or proposed"),
+    "generalize": ("the sentence is about one named case or a part of a group, or has a quantifier such as 'many', 'one of', 'on average'",
+                   "the source says it only of one case or of some, not of all"),
+    "drop_restriction": ("the sentence has a condition or a phrase that restricts what the claim covers",
+                         "the source makes the claim only under that condition or within that range"),
+    "add_link": ("the sentence, alone or with its neighbour, states two facts that the source does not connect as cause, contrast or sequence",
+                 "the source states both facts but not that connection between them"),
+    "add_conclusion": ("any sentence that an interpretation, cause, purpose or evaluation could be attached to",
+                       "the source does not state that interpretation, cause, purpose or evaluation"),
+}
+assert set(CARD) == set(OPS)
+
+
+def card(op: str, pairs: list[dict]) -> str:
+    """给生成器看的整张卡片：做法、在什么句子上能做、改完为什么算错、真实例子（改之前 / 改之后的整句）。"""
+    need, wrong = CARD[op]
+    ex = "\n".join(f"- Faithful: {e['faithful']}\n  With the error: {e['error']}" for e in pairs)
+    return (f"{OPS[op]['desc']}.\nWhere it can be done: {need}.\nWhy the result is an error: {wrong}.\n"
+            f"Real examples from other texts (only the edit differs between the two versions):\n{ex}")
 
 
 def applicable(sentence: str, source: str) -> list[str]:

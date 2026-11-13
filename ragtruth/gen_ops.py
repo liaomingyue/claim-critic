@@ -8,7 +8,8 @@
 一条错误同时做了两种操作时，拿它教「只做这一种」信号是混的。有前提规则的操作，改对的句子不满足规则的也去掉，
 训练时和使用时派任务的条件保持一致。
 
-  python -m ragtruth.gen_ops build     # → outputs/rt/core/seed_ops_{train,holdout}.jsonl
+  python -m ragtruth.gen_ops examples  # 每种操作挑 2 条例句对 → configs/rt/op_examples.json
+  python -m ragtruth.gen_ops build     # → outputs/rt/core/seed_ops_{train,holdout}.jsonl（--card：提示词里放整张操作卡片）
   python -m ragtruth.gen_ops sample --model gen --tokenizer <基座> --out samples_ops_mc.jsonl   # 留出回答 × 每种操作各采 1 条（要先起 vLLM）
 """
 import argparse
@@ -19,11 +20,16 @@ import difflib
 from pathlib import Path
 
 from common.schema import read_jsonl
-from ragtruth.error_ops import OPS, PRE
+from ragtruth.error_ops import OPS, PRE, card
 from ragtruth.gen_v2 import INSTR, describe, edits, norm, parse
 
 D = Path("outputs/rt/core")
 LABELS = Path("outputs/rt/analysis/ops_label/pairs_labels.jsonl")
+EXAMPLES = Path("configs/rt/op_examples.json")   # 每种操作的例句对（cmd_examples 从种子错误对里挑，进仓库；被挑中的不再进训练）
+
+
+def examples() -> dict:
+    return json.loads(EXAMPLES.read_text(encoding="utf-8"))
 
 
 # 指令放在原文和回答之后的版本：提示词中位数四千多字符，指令放在开头时离模型开始写的位置很远
@@ -47,8 +53,11 @@ Output only one JSON object, nothing else:
 {{"idx": <number of the rewritten sentence>, "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}"""
 
 
-def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False) -> str:
-    """examples：说明后面附上这种操作的真实例子；tail：指令放在原文和回答之后。"""
+def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False, cards: dict | None = None) -> str:
+    """examples：说明后面附上这种操作的真实例子；tail：指令放在原文和回答之后；cards：放整张操作卡片（例句对由 examples() 给）。"""
+    if cards is not None:
+        sents = "\n".join(f"[S{k}] {s}" for k, s in enumerate(sentences, 1))
+        return TAIL.format(mech_name=op, mech_desc=card(op, cards[op]), source=source.strip(), sentences=sents)
     sents = "\n".join(f"[S{k}] {s}" for k, s in enumerate(sentences, 1))
     desc = OPS[op]["desc"]
     if examples:
@@ -63,13 +72,33 @@ def op_of(o: dict) -> str | None:
     return o["op"] if o["op2"] == "none" else None
 
 
+def cmd_examples(a) -> None:
+    """每种操作从种子错误对（训练部分、单一操作）里挑 2 条改动最小的当例句：改对句和错句只差那一处，例子本身就示范了「只改一处」。"""
+    lab = {r["id"]: r["o"] for r in read_jsonl(LABELS)}
+    cand = collections.defaultdict(list)
+    for p in read_jsonl(D / "pairs.jsonl"):
+        op = op_of(lab[p["id"]]) if p["id"] in lab else None
+        n = len(p["repaired"].split())
+        if op and p["split"] == "train" and 8 <= n <= 40 and norm(p["repaired"]) != norm(p["real"]):
+            cand[op].append((difflib.SequenceMatcher(None, p["repaired"].split(), p["real"].split()).ratio(), p["id"], p))
+    out = {op: [{"id": i, "faithful": norm(p["repaired"]), "error": norm(p["real"]), "sim": round(v, 2)} for v, i, p in sorted(cand[op], key=lambda t: (-t[0], t[1]))[:2]] for op in OPS}
+    EXAMPLES.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    for op, xs in out.items():
+        print(op, [x["sim"] for x in xs])
+
+
 def cmd_build(a) -> None:
     lab = {r["id"]: r["o"] for r in read_jsonl(LABELS)}
+    cards = examples() if a.card else None
+    used = {e["id"] for xs in (cards or {}).values() for e in xs}
     desc = {r["id"]: r["desc"] for r in read_jsonl(D / a.desc) if r.get("ok")} if a.desc else {}
     out, why = collections.defaultdict(list), collections.Counter()
     for p in read_jsonl(D / "pairs.jsonl"):
         if p["id"] not in lab:
             why["no_label"] += 1
+            continue
+        if p["id"] in used:
+            why["used_as_example"] += 1
             continue
         op = op_of(lab[p["id"]])
         if op is None:
@@ -85,7 +114,7 @@ def cmd_build(a) -> None:
             why["rewritten"] += 1   # 改对句和错句差得太远：这种样本教的是整句换说法，不是做一处指定的改动
             continue
         sents = list(p["sentences"] if isinstance(p["sentences"], list) else json.loads(p["sentences"]))
-        pr = prompt(p["source"], sents, op, a.examples, a.tail)
+        pr = prompt(p["source"], sents, op, a.examples, a.tail, cards)
         comp = json.dumps({"idx": int(p["idx"]), "sentence": p["real"], "edit": desc.get(p["id"]) or describe(p["repaired"], p["real"])}, ensure_ascii=False)
         if len(pr) + len(comp) > a.max_chars:
             why["too_long"] += 1
@@ -110,6 +139,7 @@ def cmd_sample(a) -> None:
     from train.gen_grpo import chat_prompt
     cl = OpenAI(base_url=a.url, api_key="x", timeout=1800, max_retries=3)
     tok = AutoTokenizer.from_pretrained(a.tokenizer)
+    cards = examples() if a.card else None
     seen, resps = set(), []
     for r in read_jsonl(D / a.pool):
         if r["resp_id"] not in seen:
@@ -124,7 +154,7 @@ def cmd_sample(a) -> None:
     def one(job):
         r, op = job
         key = f"{r['resp_id']}|{op}"
-        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op, a.examples, a.tail)))["input_ids"], max_tokens=512,
+        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op, a.examples, a.tail, cards)))["input_ids"], max_tokens=512,
                                     temperature=a.temperature, top_p=1.0, n=a.n, seed=zlib.crc32(key.encode()) % 100000, extra_body={"top_k": -1})
         res = []
         for j, c in enumerate(out.choices):
@@ -148,7 +178,8 @@ def cmd_sample(a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["build", "sample"])
+    ap.add_argument("cmd", choices=["build", "sample", "examples"])
+    ap.add_argument("--card", action="store_true", help="提示词里放整张操作卡片（做法、在什么句子上能做、为什么算错、例句对），指令在原文和回答之后")
     ap.add_argument("--examples", action="store_true", help="指令里附上这种操作的例子")
     ap.add_argument("--tail", action="store_true", help="指令放在原文和回答之后")
     ap.add_argument("--min_sim", type=float, default=0.0, help="build：只留改对句和错句词重合度不低于这个值的样本")
@@ -165,7 +196,7 @@ def main() -> None:
     ap.add_argument("--desc", default="", help="改动描述文件（outputs/rt/core 下，{id, desc, ok}）；没有的用规则模板")
     ap.add_argument("--max_chars", type=int, default=14000)
     a = ap.parse_args()
-    {"build": cmd_build, "sample": cmd_sample}[a.cmd](a)
+    {"build": cmd_build, "sample": cmd_sample, "examples": cmd_examples}[a.cmd](a)
 
 
 if __name__ == "__main__":
