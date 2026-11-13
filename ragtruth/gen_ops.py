@@ -9,6 +9,7 @@
 训练时和使用时派任务的条件保持一致。
 
   python -m ragtruth.gen_ops build     # → outputs/rt/core/seed_ops_{train,holdout}.jsonl
+  python -m ragtruth.gen_ops sample --model gen --tokenizer <基座> --out samples_ops_mc.jsonl   # 留出回答 × 每种操作各采 1 条（要先起 vLLM）
 """
 import argparse
 import collections
@@ -18,7 +19,7 @@ from pathlib import Path
 
 from common.schema import read_jsonl
 from ragtruth.error_ops import OPS, PRE
-from ragtruth.gen_v2 import INSTR, describe, edits, norm
+from ragtruth.gen_v2 import INSTR, describe, edits, norm, parse
 
 D = Path("outputs/rt/core")
 LABELS = Path("outputs/rt/analysis/ops_label/pairs_labels.jsonl")
@@ -71,12 +72,67 @@ def cmd_build(a) -> None:
         print(sp, " ".join(f"{k}:{c[k]}({cl[k]})" for k in OPS))
 
 
+def cmd_sample(a) -> None:
+    """留出原文的回答 × 每种操作采样。有前提规则的操作，只派给至少有一句满足规则的回答；模型挑的那一句满不满足另记在 pre_ok。"""
+    import zlib
+    from concurrent.futures import ThreadPoolExecutor
+    from openai import OpenAI
+    from transformers import AutoTokenizer
+    from train.gen_grpo import chat_prompt
+    cl = OpenAI(base_url=a.url, api_key="x", timeout=1800, max_retries=3)
+    tok = AutoTokenizer.from_pretrained(a.tokenizer)
+    seen, resps = set(), []
+    for r in read_jsonl(D / a.pool):
+        if r["resp_id"] not in seen:
+            seen.add(r["resp_id"])
+            resps.append({**r, "sentences": r["sentences"] if isinstance(r["sentences"], list) else json.loads(r["sentences"])})
+
+    def ok(op, sent, src):
+        return OPS[op]["pre"] is None or PRE[OPS[op]["pre"]](sent, src)
+
+    jobs = [(r, op) for r in resps for op in (a.ops or list(OPS)) if any(ok(op, x, r["source"]) for x in r["sentences"])]
+
+    def one(job):
+        r, op = job
+        key = f"{r['resp_id']}|{op}"
+        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op)))["input_ids"], max_tokens=512,
+                                    temperature=a.temperature, top_p=1.0, n=a.n, seed=zlib.crc32(key.encode()) % 100000, extra_body={"top_k": -1})
+        res = []
+        for j, c in enumerate(out.choices):
+            rec, why = parse(c.text, r["sentences"])
+            x = {"id": f"{r['resp_id']}#{op}#v{j}", "prompt_id": key, "resp_id": r["resp_id"], "source_id": r["source_id"], "task_type": r["task_type"], "op": op, "layer": OPS[op]["layer"], "why": why}
+            if rec:
+                ctx = list(r["sentences"])
+                ctx[rec["idx"] - 1] = rec["sentence"]
+                x.update({"idx": rec["idx"], "sentence": rec["sentence"], "original": rec["original"], "edit": rec["edit"], "edit_gen": rec["edit_gen"],
+                          "pre_ok": ok(op, rec["original"], r["source"]), "source": r["source"], "context": ctx, "sentences_orig": r["sentences"]})
+            res.append(x)
+        return res
+
+    with ThreadPoolExecutor(a.concurrency) as ex:
+        out = [x for xs in ex.map(one, jobs) for x in xs]
+    (D / a.out).write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in out), encoding="utf-8")
+    good = [x for x in out if x["why"] == "ok"]
+    print("GENOPS_SAMPLE", json.dumps({"responses": len(resps), "jobs": len(jobs), "samples": len(out), "why": dict(collections.Counter(x["why"] for x in out)),
+                                       "pre_ok": {op: "%d/%d" % (sum(x["pre_ok"] for x in good if x["op"] == op), sum(x["op"] == op for x in good)) for op in OPS if OPS[op]["pre"]}}), flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["build"])
+    ap.add_argument("cmd", choices=["build", "sample"])
+    ap.add_argument("--pool", default="genpool_eval.jsonl")
+    ap.add_argument("--ops", nargs="*", default=[])
+    ap.add_argument("--n", type=int, default=1)
+    ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--url", default="http://127.0.0.1:8000/v1")
+    ap.add_argument("--model", default="gen")
+    ap.add_argument("--tokenizer", default="")
+    ap.add_argument("--out", default="samples_ops_mc.jsonl")
+    ap.add_argument("--concurrency", type=int, default=64)
     ap.add_argument("--desc", default="", help="改动描述文件（outputs/rt/core 下，{id, desc, ok}）；没有的用规则模板")
     ap.add_argument("--max_chars", type=int, default=14000)
-    cmd_build(ap.parse_args())
+    a = ap.parse_args()
+    {"build": cmd_build, "sample": cmd_sample}[a.cmd](a)
 
 
 if __name__ == "__main__":
