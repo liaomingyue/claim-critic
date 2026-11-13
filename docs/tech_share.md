@@ -321,6 +321,7 @@ r1 在每一列都明显落后，它和补盲区第一轮的差是显著的（AU
 - [tech_share_details.md](tech_share_details.md)：完整的表 1–9、每个发现的论证、关键取舍、踩过的坑
 - [experiments.md](experiments.md)：全部实验，按主题整理
 - [rewards.md](rewards.md)：两套奖励函数的完整设计
+- [synthesis_issues.md](synthesis_issues.md)：错误合成卡在哪（合格率、类型不一致、多样性）和打算怎么办
 - [MODELS.md](MODELS.md) · [RELEASE.md](RELEASE.md)：40 个模型的训练数据和配置；开源数据与复现
 
 不需要 GPU 就能重算表 1–9：`pip install -r requirements.txt && pip install -e . && python -m scripts.demo_tables`。
