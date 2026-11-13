@@ -15,6 +15,7 @@ import argparse
 import collections
 import json
 import random
+import difflib
 from pathlib import Path
 
 from common.schema import read_jsonl
@@ -25,9 +26,34 @@ D = Path("outputs/rt/core")
 LABELS = Path("outputs/rt/analysis/ops_label/pairs_labels.jsonl")
 
 
-def prompt(source: str, sentences: list[str], op: str) -> str:
+# 指令放在原文和回答之后的版本：提示词中位数四千多字符，指令放在开头时离模型开始写的位置很远
+TAIL = """You are creating training data for a model that detects unsupported or contradicted sentences in responses written from a source.
+Below are a source (the exact input an assistant received) and the assistant's response, split into numbered sentences. Every sentence is faithful to the source.
+
+<source>
+{source}
+</source>
+
+<response>
+{sentences}
+</response>
+
+Rewrite exactly ONE sentence of the response so that it contains an error of this kind:
+{mech_name}: {mech_desc}
+
+Choose the sentence where a real assistant could most plausibly make this kind of mistake. The rewritten sentence must still read naturally in the response.
+
+Output only one JSON object, nothing else:
+{{"idx": <number of the rewritten sentence>, "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}"""
+
+
+def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False) -> str:
+    """examples：说明后面附上这种操作的真实例子；tail：指令放在原文和回答之后。"""
     sents = "\n".join(f"[S{k}] {s}" for k, s in enumerate(sentences, 1))
-    return INSTR.format(mech_name=op, mech_desc=OPS[op]["desc"], source=source.strip(), sentences=sents)
+    desc = OPS[op]["desc"]
+    if examples:
+        desc += ".\nExamples of this kind of edit, made in other texts:\n" + "\n".join("- " + e for e in OPS[op]["examples"])
+    return (TAIL if tail else INSTR).format(mech_name=op, mech_desc=desc, source=source.strip(), sentences=sents)
 
 
 def op_of(o: dict) -> str | None:
@@ -55,8 +81,11 @@ def cmd_build(a) -> None:
         if OPS[op]["pre"] and not PRE[OPS[op]["pre"]](p["repaired"], p["source"]):
             why["pre_fail"] += 1
             continue
+        if a.min_sim and difflib.SequenceMatcher(None, p["repaired"].split(), p["real"].split()).ratio() < a.min_sim:
+            why["rewritten"] += 1   # 改对句和错句差得太远：这种样本教的是整句换说法，不是做一处指定的改动
+            continue
         sents = list(p["sentences"] if isinstance(p["sentences"], list) else json.loads(p["sentences"]))
-        pr = prompt(p["source"], sents, op)
+        pr = prompt(p["source"], sents, op, a.examples, a.tail)
         comp = json.dumps({"idx": int(p["idx"]), "sentence": p["real"], "edit": desc.get(p["id"]) or describe(p["repaired"], p["real"])}, ensure_ascii=False)
         if len(pr) + len(comp) > a.max_chars:
             why["too_long"] += 1
@@ -65,8 +94,8 @@ def cmd_build(a) -> None:
                                 "mechanism": p["mechanism"], "idx": int(p["idx"]), "n_edits": len(edits(p["repaired"], p["real"]) or []), "prompt": pr, "completion": comp})
     random.Random("core|seed_ops").shuffle(out["train"])
     for sp in ("train", "holdout"):
-        (D / f"seed_ops_{sp}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out[sp]), encoding="utf-8")
-    print("SEED_OPS", json.dumps({"train": len(out["train"]), "holdout": len(out["holdout"]), "dropped": dict(why)}, ensure_ascii=False))
+        (D / f"seed_ops{a.tag}_{sp}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out[sp]), encoding="utf-8")
+    print("SEED_OPS" + a.tag, json.dumps({"train": len(out["train"]), "holdout": len(out["holdout"]), "dropped": dict(why)}, ensure_ascii=False))
     for sp in ("train", "holdout"):
         c, cl = collections.Counter(r["op"] for r in out[sp]), collections.Counter(r["op"] for r in out[sp] if r["severity"] == "clear")
         print(sp, " ".join(f"{k}:{c[k]}({cl[k]})" for k in OPS))
@@ -95,7 +124,7 @@ def cmd_sample(a) -> None:
     def one(job):
         r, op = job
         key = f"{r['resp_id']}|{op}"
-        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op)))["input_ids"], max_tokens=512,
+        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op, a.examples, a.tail)))["input_ids"], max_tokens=512,
                                     temperature=a.temperature, top_p=1.0, n=a.n, seed=zlib.crc32(key.encode()) % 100000, extra_body={"top_k": -1})
         res = []
         for j, c in enumerate(out.choices):
@@ -120,6 +149,10 @@ def cmd_sample(a) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["build", "sample"])
+    ap.add_argument("--examples", action="store_true", help="指令里附上这种操作的例子")
+    ap.add_argument("--tail", action="store_true", help="指令放在原文和回答之后")
+    ap.add_argument("--min_sim", type=float, default=0.0, help="build：只留改对句和错句词重合度不低于这个值的样本")
+    ap.add_argument("--tag", default="", help="build：输出文件名后缀（seed_ops<tag>_train.jsonl）")
     ap.add_argument("--pool", default="genpool_eval.jsonl")
     ap.add_argument("--ops", nargs="*", default=[])
     ap.add_argument("--n", type=int, default=1)

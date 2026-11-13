@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -144,6 +144,7 @@ case $ROLE in
     [ $rc = 0 ] && { PAIR=s2r9 INFER_MODEL=qwen3.5-9b CODE=$R bash $S/run_infer_node.sh; rc=$?; } ;;
   s2r9tr) PRECOPY_2B=1 PAIR=s2r9 JOB=run_s2r9_pair.sh CODE=$R bash $S/run_train_node.sh; rc=$? ;;   # 训练机：2B 策略采样 + 训练，训完本机评测   # critic 当奖励的机制分析（各起点采样 + 历次 critic 打分 + 9B 金标）
   genops) CODE=$R bash $S/run_genops.sh; rc=$? ;;   # 按错误操作清单下指令的错误合成模型：训练 + 留出回答上采样
+  genopsvar) CODE=$R bash $S/run_genops_var.sh; rc=$? ;;   # 同上，提示词（附例子 / 指令位置）和训练设置对照
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"
