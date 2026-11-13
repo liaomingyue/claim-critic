@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|mech|s2r9rm|s2r9tr) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -120,6 +120,8 @@ case $ROLE in
   p9r2inf) CODE=$R bash $S/q9b_task.sh pair_infer_p9r2; rc=$? ;;   # 9B 策略 × 2B 打分的采样机（只挂 9B 策略）
   suitans)   # 合适度模型对照：输入再加一条正确回答（数据 outputs/rt/suit/*_ans.jsonl 随代码包 --with 上传），训完评测，结果写回共享盘
     ( cd $R && export PYTHONHASHSEED=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True && mkdir -p $A/models       && { [ -f $A/models/MiniCPM5-2B/config.json ] || rsync -a $FS/models/MiniCPM5-2B $A/models/; }       && python -u -m train.suit_train --base $A/models/MiniCPM5-2B --out $A/suit_ans --with_answer       && mkdir -p $FS/adapters/suit_ans-mc outputs/rt/suit/suit_ans && rsync -a $A/suit_ans/adapter $FS/adapters/suit_ans-mc/       && cp $A/suit_ans/*.json* outputs/rt/suit/suit_ans/ && echo SUIT_ANS_SAVED ); rc=$? ;;
+  synthsuit)   # 合成适合度模型（train.synth_suit_train）：数据 outputs/rt/synth_suit 随代码包 --with 上传，训完在留出集上评测，结果写回共享盘
+    ( cd $R && export PYTHONHASHSEED=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True && mkdir -p $A/models       && { [ -f $A/models/MiniCPM5-2B/config.json ] || rsync -a $FS/models/MiniCPM5-2B $A/models/; }       && python -u -m train.synth_suit_train --base $A/models/MiniCPM5-2B --out $A/synth_suit       && mkdir -p $FS/adapters/synth_suit-mc outputs/rt/synth_suit/run && rsync -a $A/synth_suit/adapter $FS/adapters/synth_suit-mc/       && cp $A/synth_suit/*.json* outputs/rt/synth_suit/run/ && echo SYNTH_SUIT_SAVED ); rc=$? ;;
   p9r2one) CODE=$R bash $S/q9b_task.sh one_p9r2; rc=$? ;;   # 单卡版（大显存卡上训练 + 采样 + 打分）
   p9r2trb) CODE=$R bash $S/q9b_task.sh pair_train_p9r2b; rc=$? ;;   # 两张卡版的训练机（对 48 GB 推理卡，配对 p9r2b；有续训状态就接着训）
   p9r2i48) CODE=$R bash $S/q9b_task.sh pair_infer_p9r2b; rc=$? ;;   # 两张卡版：48 GB 卡同时挂 9B 策略和 2B 打分
