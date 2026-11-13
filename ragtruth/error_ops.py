@@ -1,7 +1,7 @@
 """错误操作清单：把「模型会犯、critic 会漏」的忠实性错误整理成一条条能照着做的改写操作。
 
 每条操作有：所属的层、给生成器看的改写说明、核实时要对照原文的什么、能不能做的前提规则、真实错误里的例子。
-前提规则只给「限定」层和数字用：这些操作要求句子里先有可改的原料（推测词、限定词、数字），没有就不该派这个任务。
+前提规则只给数字和「限定」层里的三种删改用：这些操作要求句子里先有可改的原料（数字、推测词、「据称」、打算），没有就不该派这个任务。
 「挂接」层的操作在语法上大多数句子都能做，规则筛不掉什么，不设前提，靠改写说明和后面的核实把关。
 
 用法：
@@ -21,10 +21,10 @@ LAYERS = {
 }
 
 NUM = re.compile(r"\d|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|million|billion|half|dozen|first|second|third)\b", re.I)
-HEDGE = re.compile(r"\b(may|might|could|likely|unlikely|possibly|probably|perhaps|potentially|apparently|appears?|appeared|seems?|seemed|suggests?|suggested|suspected|believed|estimated|thinks?|thought)\b", re.I)
-REPORTED = re.compile(r"\b(reportedly|allegedly|alleged|reports? of|according to|said|says|told|stated|claimed|claims|reported|argued|warned|sources?)\b", re.I)
-PLAN = re.compile(r"\b(aims? to|plans? to|planned to|set to|expected to|hopes? to|intends? to|seeks? to|seeking to|looking to|trying to|attempt(s|ed|ing)? to|scheduled|proposed|will|would|should)\b", re.I)
-QUANT = re.compile(r"\b(some|many|most|several|a few|few|often|sometimes|usually|generally|typically|certain|nearly|almost|about|around|approximately|roughly|at least|up to|on average|partly|mainly|mostly|largely|one of|a number of|in some cases|more than|less than)\b", re.I)
+# 这三条的词表是从种子错误对里「改对的句子」归纳的：先只列典型词时，规则会挡掉一半以上真实发生过的样本
+HEDGE = re.compile(r"\b(may|might|could|can|likely|unlikely|possibly|possible|probably|perhaps|potential|potentially|apparently|presumably|appears?|appeared|seems?|seemed|suggests?|suggested|suspected|believed|estimated|thinks?|thought|unclear|uncertain|unknown|whether|concerns?|concerned|fears?|feared|about|around|approximately|roughly|nearly|almost|generally|somewhat|at least)\b", re.I)
+REPORTED = re.compile(r"\b(reportedly|allegedly|alleged|accused|reports? of|according to|said|says?|saying|told|stated|claimed|claims?|reported|argued|argues?|warned|noted|added|asserted|testified|recalled|predicted|described|called|credited|believed|views?|viewed|cited|citing|speculation|sources?)\b", re.I)
+PLAN = re.compile(r"\b(aims? to|plans?|planned|set to|expected|hopes?|hoped|intends?|wants?|wanted|seeks?|seeking|looking to|trying to|attempt(s|ed|ing)?|scheduled|proposed|proposal|considered|considering|urged|due|upcoming|soon|will|would|should|may|might|could|possibly|once)\b", re.I)
 
 
 def _nums(t: str) -> set[str]:
@@ -37,7 +37,6 @@ PRE = {   # 前提规则：句子（和原文）里有没有这条操作要用�
     "hedge": lambda s, src: bool(HEDGE.search(s)),
     "reported": lambda s, src: bool(REPORTED.search(s)),
     "plan": lambda s, src: bool(PLAN.search(s)),
-    "quantifier": lambda s, src: bool(QUANT.search(s)),
 }
 
 # action：add 添上原文没有的内容；delete 去掉原文有的限定；change 换成原文没有的说法；move 只用原文里的材料，但安错了地方
@@ -119,9 +118,15 @@ OPS = {
     # ---- 限定 ----
     "drop_hedge": {
         "layer": "qualifier", "zh": "删改推测词", "action": "delete", "pre": "hedge",
-        "desc": "remove or strengthen a hedge so that a possibility, suspicion or estimate reads as settled",
-        "check": "在原文里找对应的说法，看有没有 may、likely、疑似这类词",
+        "desc": "remove or strengthen a hedge or an approximation so that a possibility, suspicion or estimate reads as settled or exact",
+        "check": "在原文里找对应的说法，看有没有 may、likely、about、疑似这类词",
         "examples": ["Delete the hedge 'may be' so the claim becomes definite.", "Delete 'suspected to be', stating the tsunami origin as fact.", "Replace 'found no reason to doubt' with the stronger 'confirmed'."],
+    },
+    "add_hedge": {
+        "layer": "qualifier", "zh": "加推测词", "action": "add", "pre": None,
+        "desc": "add a hedge such as 'may', 'likely' or 'potentially' to something the source states as definite",
+        "check": "在原文里找对应的说法，看原文是不是说得肯定",
+        "examples": ["Add the hedge 'likely' to a cause of death the source states definitively.", "Add the hedge 'possible' to a fumigation the source treats as having happened."],
     },
     "drop_reported": {
         "layer": "qualifier", "zh": "删掉「据称」", "action": "delete", "pre": "reported",
@@ -136,7 +141,7 @@ OPS = {
         "examples": ["Delete 'aims to' so touring in 2018 is stated as certain.", "Drop 'looks set to' so Germany is presented as having already joined.", "Change 'will be looking to win its first title since 1941' into 'secured its first title since 1941'."],
     },
     "generalize": {
-        "layer": "qualifier", "zh": "范围放大", "action": "delete", "pre": "quantifier",
+        "layer": "qualifier", "zh": "范围放大", "action": "delete", "pre": None,   # 真实样本里多数是把一个具名的人或一次事件说成一群、一类，没有可查的词
         "desc": "widen the scope of a claim: drop a quantifier such as 'many', 'one of' or 'on average', or turn one named case into a group",
         "check": "在原文里看这句话说的是一个、一部分，还是全部",
         "examples": ["Delete 'on average', so the $50+ increase applies to every retiree.", "Drop 'one of' and pluralize 'garrison' to 'garrisons'.", "Generalize one survivor's lament into survivors as a group."],
