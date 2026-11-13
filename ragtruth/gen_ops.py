@@ -53,11 +53,27 @@ Output only one JSON object, nothing else:
 {{"idx": <number of the rewritten sentence>, "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}"""
 
 
-def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False, cards: dict | None = None) -> str:
+# 只靠提示词（不微调）时用的两版：strict 把「先按卡片挑能做的句子、只改必须改的词、对着原文确认真的错了」写成步骤，输出里先交代换掉的词；
+# plan 再让模型先写一句打算（哪一句、原文怎么说、准备改什么）。
+STEPS = """How to do it:
+1. Go through the numbered sentences and find those where this edit can be done (see "Where it can be done"). If a sentence lacks what the edit needs, do not pick it.
+2. Among them, choose the one where a real assistant could most plausibly make this mistake.
+3. Find the exact words that have to change. Change only those words. Every other word of the sentence must stay exactly as it is: do not paraphrase, reorder, shorten or extend the rest.
+4. Check against the source that the rewritten sentence is now wrong for the reason given above ("Why the result is an error"), and is not just another way of saying the same thing.
+5. The rewritten sentence must still read naturally in the response.
+
+Output only one JSON object, nothing else:
+{{%s"idx": <number of the rewritten sentence>, "from": "<the exact words of the original sentence that you replace>", "to": "<what you put in their place>", "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}"""
+OLD_TAIL = TAIL[TAIL.index("Choose the sentence where"):]
+STYLES = {"strict": TAIL.replace(OLD_TAIL, STEPS % ""),
+          "plan": TAIL.replace(OLD_TAIL, STEPS % '"plan": "<one or two sentences: which sentence fits this edit, what the source says about it, and which words you will change>", ')}
+
+
+def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False, cards: dict | None = None, style: str = "") -> str:
     """examples：说明后面附上这种操作的真实例子；tail：指令放在原文和回答之后；cards：放整张操作卡片（例句对由 examples() 给）。"""
     if cards is not None:
         sents = "\n".join(f"[S{k}] {s}" for k, s in enumerate(sentences, 1))
-        return TAIL.format(mech_name=op, mech_desc=card(op, cards[op]), source=source.strip(), sentences=sents)
+        return (STYLES[style] if style else TAIL).format(mech_name=op, mech_desc=card(op, cards[op]), source=source.strip(), sentences=sents)
     sents = "\n".join(f"[S{k}] {s}" for k, s in enumerate(sentences, 1))
     desc = OPS[op]["desc"]
     if examples:
@@ -154,7 +170,7 @@ def cmd_sample(a) -> None:
     def one(job):
         r, op = job
         key = f"{r['resp_id']}|{op}"
-        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op, a.examples, a.tail, cards)))["input_ids"], max_tokens=512,
+        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op, a.examples, a.tail, cards, a.style)))["input_ids"], max_tokens=512,
                                     temperature=a.temperature, top_p=1.0, n=a.n, seed=zlib.crc32(key.encode()) % 100000, extra_body={"top_k": -1})
         res = []
         for j, c in enumerate(out.choices):
@@ -184,6 +200,7 @@ def main() -> None:
     ap.add_argument("--tail", action="store_true", help="指令放在原文和回答之后")
     ap.add_argument("--min_sim", type=float, default=0.0, help="build：只留改对句和错句词重合度不低于这个值的样本")
     ap.add_argument("--tag", default="", help="build：输出文件名后缀（seed_ops<tag>_train.jsonl）")
+    ap.add_argument("--style", default="", choices=["", "strict", "plan"], help="sample（配 --card）：只靠提示词时的写法，见 STYLES")
     ap.add_argument("--pool", default="genpool_eval.jsonl")
     ap.add_argument("--ops", nargs="*", default=[])
     ap.add_argument("--n", type=int, default=1)
