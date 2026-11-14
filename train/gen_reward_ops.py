@@ -8,8 +8,9 @@
   操作一致  opm（opm__v1）P(改动做的是要求的操作)
   只改一处  改写句和原句的词序列相似度 ≥ min_sim（程序算）
 阶段一：奖励 = 三个概率的几何平均（相似度不够时 × fail_scale）。不看 critic，先把「按指令造出干净的真错」练稳。
-阶段二：四个条件都过门槛的样本，奖励 = base + (1 − base) × h，h 随 critic P(有幻觉) 从 0.9 到 0.1 线性升到 1（低于 0.1 的不再加，
+阶段二：四个条件都过门槛的样本，奖励 = 阶段一的分 × (base + (1 − base) × h)，h 随 critic P(有幻觉) 从 0.9 到 0.1 线性升到 1（低于 0.1 的不再加，
         停在 0.5：不单调奖励「完全骗过 critic」，之前那样做生成器塌成了造非错句）；没过门槛的 = fail_scale × 阶段一的分。
+        阶段一的分一直乘在里面：前一阶段的目标是后一阶段的约束，不能为了难度把真错 / 自然 / 操作一致丢掉。
 阶段三：同阶段二，h 换成只在 critic 拿不准的区间给分（0.1→0.3 升、0.3–0.5 为 1、0.5→0.9 降）。
 """
 from __future__ import annotations
@@ -87,7 +88,9 @@ class OpsRewarder:
             r, h, q = (geo if near else self.fail_scale * geo), 0.0, gate
         else:
             h = (soft_hard if self.stage == 2 else hardness)(s["p_halluc"])
-            r = (self.hard_base + (1 - self.hard_base) * h) if gate else self.fail_scale * geo
+            # 过门槛：阶段一的分 × 难度系数。阶段一的三个条件留在奖励里继续起作用，不是过了门槛就不管：
+            # 否则往 critic 低分推的时候，样本会贴着门槛滑下去（刚好算真错、刚好算自然），下一阶段又采不到达标的样本
+            r = geo * (self.hard_base + (1 - self.hard_base) * h) if gate else self.fail_scale * geo
             q = bool(gate and h > 0)
         return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "hardness": h, "reward": r, "qualified": bool(q),
                 "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 0.0}
