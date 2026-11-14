@@ -66,11 +66,12 @@ STEPS = """How to do it:
 Output only one JSON object, nothing else:
 {{%s"idx": <number of the rewritten sentence>, "from": "<the exact words of the original sentence that you replace>", "to": "<what you put in their place>", "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}"""
 # free：不再要求「其余每个词保持原样」。核实过的样本里，改多改少和「真错、自然、操作对」的比例无关（各重合度段都是两成上下），
-# 而只换词不调句子会改出病句（自然度是最弱的一项）。改成：意思只在这一处变，周围的措辞可以为了通顺而调整；输出里也不再要 from / to。
+# 而只换词不调句子会改出病句（自然度是最弱的一项）。改成：不对改动大小提任何要求，怎么写通顺怎么写；输出里也不再要 from / to。
+# 改得对不对由三个把关模型判（真错、自然、操作一致），不靠限制改动来保证。
 STEPS_FREE = """How to do it:
 1. Go through the numbered sentences and find those where this edit can be done (see "Where it can be done"). If a sentence lacks what the edit needs, do not pick it.
 2. Among them, choose the one where a real assistant could most plausibly make this mistake.
-3. Make the edit this operation needs. The meaning should change at that one point only: do not introduce any other change of meaning. You may adjust the wording around it (word order, verb forms, articles, connecting words) so that the sentence reads the way an assistant would naturally write it.
+3. Rewrite the sentence so that it makes this mistake. Write it the way an assistant would naturally write it: rephrase as much or as little as you need.
 4. Check against the source that the rewritten sentence is now wrong for the reason given above ("Why the result is an error"), and is not just another way of saying the same thing.
 5. Read the rewritten sentence once more: it must be fluent and fit the response. If it sounds odd or contradicts itself, rewrite it.
 

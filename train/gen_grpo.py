@@ -1153,7 +1153,7 @@ def main() -> None:
     ap.add_argument("--ops_stage", type=int, default=1, choices=[1, 2, 3], help="ops：1 = 真错 × 自然 × 操作一致；2 = 过门槛后 critic 越低分越高；3 = 只在 critic 拿不准的区间给分")
     ap.add_argument("--ops_err_gate", type=float, default=0.5, help="ops：sev4 P(有错) 门槛")
     ap.add_argument("--op_gate", type=float, default=0.5, help="ops：opm P(操作一致) 门槛")
-    ap.add_argument("--ops_min_sim", type=float, default=0.3, help="ops：改写句和原句的词序列相似度下限。只挡整句换成另一句话；改多改少本身不是目标（和真错、自然、操作对的比例无关）")
+    ap.add_argument("--ops_min_sim", type=float, default=0.0, help="ops：改写句和原句的词序列相似度下限，默认不设。改多改少不是目标（和真错、自然、操作对的比例无关），相似度只记录下来观察")
     ap.add_argument("--ops_ref", type=float, default=0.0, help="ops 阶段二 / 三：进入本阶段时阶段一的平均分；给了就自动调难度权重，保证前面几项不下降")
     ap.add_argument("--ops_w_hard", type=float, default=0.5, help="ops 阶段二 / 三：难度项权重的上限")
     ap.add_argument("--temps", default="", help="RM 温度来源：vLLM 名=RM 目录，逗号分隔；空 = 9B 版")
