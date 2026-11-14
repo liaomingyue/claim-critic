@@ -17,8 +17,8 @@ from pathlib import Path
 
 from common.llm import LLM, LLMConfig, kept, map_resumable
 
-OPTS = {"rm1": "ABC", "rm2": "AB", "rm3": "ABCD", "rm2v2": "AB", "sat_pair": "AB", "sat_abs": "AB", "refuse": "AB", "sev": "ABCDEF"}
-POS = {"rm1": "BC", "rm2": "A", "rm3": "A", "rm2v2": "A", "sat_pair": "A", "sat_abs": "A", "refuse": "B", "sev": "AB"}   # 二分类目标的正类选项
+OPTS = {"rm1": "ABC", "rm2": "AB", "rm3": "ABCD", "rm2v2": "AB", "sat_pair": "AB", "sat_abs": "AB", "refuse": "AB", "sev": "ABCDEF", "opm": "AB"}
+POS = {"rm1": "BC", "rm2": "A", "rm3": "A", "rm2v2": "A", "sat_pair": "A", "sat_abs": "A", "refuse": "B", "sev": "AB", "opm": "A"}   # 二分类目标的正类选项
 NO_THINK = {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
 
 
