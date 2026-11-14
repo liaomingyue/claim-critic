@@ -12,7 +12,7 @@
         （实测不看 critic 训 50 步，critic ≥ 0.9 的占比 36% → 40%），到阶段二就拉不回来了。
         系数：critic P(有幻觉) ≤ obv_from（0.7）时为 1，往上线性降到 P = 1 时的 1 − obv_pen（0.5）。只压「明显」的那一头，不奖励骗过 critic。
 阶段二、三：主目标换成难度，但阶段一的目标不许下降（前一阶段的目标是后一阶段的约束）。
-        奖励 = 阶段一的分 + w × 阶段一的分 × h（h 只给四个条件都过门槛的样本）。阶段一的分原样留着、权重不变，难度是加在上面的。
+        奖励 = 阶段一的分 + w × h（h 只给几个条件都过门槛的样本）。阶段一的分原样留着、权重不变，难度是加在上面的。
         w 自动调：最近一批样本的阶段一平均分低于进入本阶段时的水平（ref × tol）就把 w 调小，回到水平之上再慢慢调大。
         这样难度只在「不拖累前面几项」的范围内被优化；前面几项一掉，难度项自己让路。
         阶段二的 h：critic P(有幻觉) 从 0.9 到 0.1 线性升到 1，低于 0.1 的停在 0.5（不单调奖励「完全骗过 critic」，之前那样做生成器塌成了造非错句）。
@@ -42,14 +42,14 @@ def soft_hard(p: float) -> float:
 
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
-                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None):
+                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5):
         import collections
         import threading
         self.client, self.t = client, temps
         self.stage, self.err_gate, self.nat_gate, self.op_gate, self.min_sim, self.fail_scale = stage, err_gate, nat_gate, op_gate, min_sim, fail_scale
         # ref = 进入本阶段时阶段一的平均分（同一批提示上量的）；0 = 不自动调，w 固定为 w_hard
         self.ref, self.w_max, self.w_min, self.tol, self.window = ref, w_hard, w_min, tol, window
-        self.obv_pen, self.obv_from, self.disc = obv_pen, obv_from, disc
+        self.obv_pen, self.obv_from, self.disc, self.w_disc = obv_pen, obv_from, disc, w_disc
         # 窗口 2048 条 ≈ 8 步：窗口只有 2 步（16 个任务）时，抽到哪几种操作就能让某一项的均值上下 0.05，
         # 明明没有下降也频繁触发回调（实测四分之一的检查触发），权重被按在起步值附近，难度项等于没加
         self.w = w_hard if not (ref or refs) else w_hard / 2   # 从一半起步，前面几项稳得住再放大
@@ -143,7 +143,10 @@ class OpsRewarder:
         else:
             w = self.track(r1, (s["p_err"], s["p_natural"], s["p_op"]))
             h = (soft_hard if self.stage == 2 else hardness)(s["p_halluc"]) if gate else 0.0
-            r, q = r1 + w * r1 * h, bool(gate and h > 0)
+            # 难度项直接加，不再乘阶段一的分：过了三道门槛之后，能拿多少难度分只看 critic。
+            # 乘法时难度项和阶段一的分天然相关，权重小的时候训练继续往「三项更高」走，而那三项和 critic 同向——
+            # 实测权重 0.25 跑 27 步，达标样本里 critic 拿不准的从 24% 降到 17%，样本反而更好认了
+            r, q = r1 + w * h, bool(gate and h > 0)
         return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "low": self.low, "hardness": h, "reward": r, "qualified": bool(q),
                 "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 0.0}
 
@@ -156,4 +159,6 @@ class OpsRewarder:
         for x in cand:
             lo = sum(q < x["p_disc"] for q in ps) + 0.5 * (sum(q == x["p_disc"] for q in ps) - 1)
             x["disc_rank"] = lo / (len(cand) - 1) if len(cand) > 1 else 0.5
-            x["reward"] = x["reward"] + x["w_hard"] * x["r1"] * x["disc_rank"]
+            # 阶段一里判别器项用自动调的权重；阶段二、三里那个权重给了难度项，判别器项用固定的 w_disc
+            wd = x["w_hard"] if self.stage == 1 else self.w_disc
+            x["reward"] = x["reward"] + wd * x["r1"] * x["disc_rank"]

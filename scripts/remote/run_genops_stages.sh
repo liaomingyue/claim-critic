@@ -3,8 +3,8 @@
 #   起点 = s2d（阶段一：真错 × 自然 × 操作一致 × critic「不明显」系数，再加判别器项）
 #   阶段二 st2：过门槛的样本，critic 给分越低分越高（0.9 以下都算）。阶段一的分和判别器项原样留着
 #   阶段三 st3：从 st2 接着训，难度只在 critic 拿不准的区间给分
-#   难度项权重的上限 WHARD 默认 1.5：上限 0.5 时新加的部分在组内的波动只有阶段一得分的一半，总奖励和阶段一得分相关 0.95，
-#   等于还在学阶段一的东西；1.5 时新加的部分略大于阶段一得分的波动。权重从上限的四分之一起步，三项守得住才放大
+#   难度项是加法（奖励 = 阶段一的分 + w × 难度），权重上限 WHARD 默认 2.0，从一半起步，三项守得住才放大。
+#   权重小的时候总奖励和阶段一的分几乎是同一个东西（0.5 时相关 0.95），训练会继续往 critic 认得出的方向走
 #   每个阶段的约束 = 进入该阶段时真错、自然、操作一致三项各自的平均水平，任何一项掉下去难度权重自动调小
 #   任务 = 普查过的回答里，8 条至少有一条达标的任务（outputs/rt/gen_ops_grpo/census_tasks.json）
 cd ${CODE:-/root/autodl-fs/code/critic_model}
@@ -47,7 +47,7 @@ for v in "st2|2" "st3|3"; do
   read -r REF REFS <<< "$(refs $prev)"
   log "stage $stage ($e) from $prev: ref score $REF, refs real/natural/op $REFS"
   E=$e STAGE=$stage STYLE=free LR=2e-5 STEPS=100 N=32 PPS=8 DISC=rm2__d2 PROMPTS=$O/prompts_free_c.jsonl INIT=$G-$prev/step100/policy \
-    EXTRA="--ops_disc 1 --ops_ref $REF --ops_refs $REFS --ops_w_hard ${WHARD:-1.5}" CODE=$PWD bash $S/run_genops_grpo.sh >> $LOG 2>&1
+    EXTRA="--ops_disc 1 --ops_ref $REF --ops_refs $REFS --ops_w_hard ${WHARD:-2.0}" CODE=$PWD bash $S/run_genops_grpo.sh >> $LOG 2>&1
   [ -d $G-$e/step100/policy ] || { log "$e FAILED"; break; }
   ev $e
   prev=$e
