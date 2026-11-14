@@ -274,6 +274,10 @@ def build_rewarder(args):
         return V2SevRewarder(cl, load_temps(args.temps), nat_gate=args.nat_gate, crit=bool(args.crit_gate), crit_lo=args.crit_lo, crit_hi=args.crit_hi,
                              fail_scale=args.fail_scale, shape=args.v2_shape, err_gate=args.err_gate,
                              err_gate_start=args.err_gate_start, hard_shape=args.hard_shape, hard_base=args.hard_base, warm_samples=args.err_gate_warm * args.n * args.prompts_per_step)
+    if args.reward == "ops":   # 按操作清单造错的生成器：三个阶段逐步加难（train.gen_reward_ops）
+        from train.gen_reward_ops import OpsRewarder
+        return OpsRewarder(cl, load_temps(args.temps), stage=args.ops_stage, err_gate=args.ops_err_gate, nat_gate=args.nat_gate, op_gate=args.op_gate,
+                           min_sim=args.ops_min_sim, fail_scale=args.fail_scale, hard_base=args.ops_hard_base)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
                               err_mode=args.err_mode, shape=args.shape, w_real2=args.w_real2, w_hard2=args.w_hard2, crit_max=args.crit_max, crit_floor=args.crit_floor,
@@ -1145,7 +1149,12 @@ def main() -> None:
     ap.add_argument("--err_gate_start", type=float, default=None, help="v2sev hard：动态门槛起点（不设 = 固定 err_gate）")
     ap.add_argument("--err_gate_warm", type=int, default=0, help="v2sev hard：门槛从起点升到终值用多少步")
     ap.add_argument("--fail_scale", type=float, default=0.1, help="v2sev：没过门槛时奖励 = fail_scale × sev")
-    ap.add_argument("--reward", choices=["default", "target", "v2sev"], default="default", help="target = 真实性主力、正确性和 critic 只扣分（gen_reward.TargetRewarder）")
+    ap.add_argument("--reward", choices=["default", "target", "v2sev", "ops"], default="default", help="target = 真实性主力、正确性和 critic 只扣分（gen_reward.TargetRewarder）")
+    ap.add_argument("--ops_stage", type=int, default=1, choices=[1, 2, 3], help="ops：1 = 真错 × 自然 × 操作一致；2 = 过门槛后 critic 越低分越高；3 = 只在 critic 拿不准的区间给分")
+    ap.add_argument("--ops_err_gate", type=float, default=0.5, help="ops：sev4 P(有错) 门槛")
+    ap.add_argument("--op_gate", type=float, default=0.5, help="ops：opm P(操作一致) 门槛")
+    ap.add_argument("--ops_min_sim", type=float, default=0.6, help="ops：改写句和原句的词序列相似度下限（只改一处）")
+    ap.add_argument("--ops_hard_base", type=float, default=0.2, help="ops 阶段二 / 三：过门槛的保底分")
     ap.add_argument("--temps", default="", help="RM 温度来源：vLLM 名=RM 目录，逗号分隔；空 = 9B 版")
     ap.add_argument("--w_corr", type=float, default=0.5)
     ap.add_argument("--w_crit", type=float, default=0.3)

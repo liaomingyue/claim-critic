@@ -10,6 +10,7 @@
 
   python -m ragtruth.gen_ops examples  # 每种操作挑 2 条例句对 → configs/rt/op_examples.json
   python -m ragtruth.gen_ops build     # → outputs/rt/core/seed_ops_{train,holdout}.jsonl（--card：提示词里放整张操作卡片）
+  python -m ragtruth.gen_ops prompts --pool genpool_train.jsonl   # GRPO 的提示 → outputs/rt/gen_ops_grpo/prompts.jsonl
   python -m ragtruth.gen_ops sample --model gen --tokenizer <基座> --out samples_ops_mc.jsonl   # 留出回答 × 每种操作各采 1 条（要先起 vLLM）
 """
 import argparse
@@ -146,6 +147,26 @@ def cmd_build(a) -> None:
         print(sp, " ".join(f"{k}:{c[k]}({cl[k]})" for k in OPS))
 
 
+def cmd_prompts(a) -> None:
+    """GRPO 的提示：训练池回答 × 每种操作（有前提规则的，回答里至少一句满足才派），提示词 = 整张卡片 + 步骤 + 先写打算。
+    行格式同 gen_grpo：id / prompt，另带 source / sentences / op（奖励 train.gen_reward_ops 要用）。"""
+    cards, seen, rows = examples(), set(), []
+    for r in read_jsonl(D / a.pool):
+        if r["resp_id"] in seen:
+            continue
+        seen.add(r["resp_id"])
+        sents = r["sentences"] if isinstance(r["sentences"], list) else json.loads(r["sentences"])
+        for op in OPS:
+            if OPS[op]["pre"] is None or any(PRE[OPS[op]["pre"]](x, r["source"]) for x in sents):
+                rows.append({"id": f"{r['resp_id']}|{op}", "prompt": prompt(r["source"], sents, op, cards=cards, style="plan"), "source": r["source"], "sentences": sents,
+                             "op": op, "mechanism": op, "resp_id": r["resp_id"], "task_type": r["task_type"]})
+    random.Random("gen_ops|prompts").shuffle(rows)
+    out = Path("outputs/rt/gen_ops_grpo")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "prompts.jsonl").write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+    print("GEN_OPS_PROMPTS", len(rows), "responses", len(seen), dict(collections.Counter(x["op"] for x in rows).most_common()), flush=True)
+
+
 def cmd_sample(a) -> None:
     """留出原文的回答 × 每种操作采样。有前提规则的操作，只派给至少有一句满足规则的回答；模型挑的那一句满不满足另记在 pre_ok。"""
     import zlib
@@ -161,6 +182,10 @@ def cmd_sample(a) -> None:
         if r["resp_id"] not in seen:
             seen.add(r["resp_id"])
             resps.append({**r, "sentences": r["sentences"] if isinstance(r["sentences"], list) else json.loads(r["sentences"])})
+
+    if a.max_resp:   # 大池子上试采：固定打乱后取前若干条回答
+        random.Random("gen_ops|sample").shuffle(resps)
+        resps = resps[:a.max_resp]
 
     def ok(op, sent, src):
         return OPS[op]["pre"] is None or PRE[OPS[op]["pre"]](sent, src)
@@ -194,13 +219,14 @@ def cmd_sample(a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["build", "sample", "examples"])
+    ap.add_argument("cmd", choices=["build", "sample", "examples", "prompts"])
     ap.add_argument("--card", action="store_true", help="提示词里放整张操作卡片（做法、在什么句子上能做、为什么算错、例句对），指令在原文和回答之后")
     ap.add_argument("--examples", action="store_true", help="指令里附上这种操作的例子")
     ap.add_argument("--tail", action="store_true", help="指令放在原文和回答之后")
     ap.add_argument("--min_sim", type=float, default=0.0, help="build：只留改对句和错句词重合度不低于这个值的样本")
     ap.add_argument("--tag", default="", help="build：输出文件名后缀（seed_ops<tag>_train.jsonl）")
     ap.add_argument("--style", default="", choices=["", "strict", "plan"], help="sample（配 --card）：只靠提示词时的写法，见 STYLES")
+    ap.add_argument("--max_resp", type=int, default=0, help="sample：只用池子里的这么多条回答（0 = 全部）")
     ap.add_argument("--pool", default="genpool_eval.jsonl")
     ap.add_argument("--ops", nargs="*", default=[])
     ap.add_argument("--n", type=int, default=1)
@@ -213,7 +239,7 @@ def main() -> None:
     ap.add_argument("--desc", default="", help="改动描述文件（outputs/rt/core 下，{id, desc, ok}）；没有的用规则模板")
     ap.add_argument("--max_chars", type=int, default=14000)
     a = ap.parse_args()
-    {"build": cmd_build, "sample": cmd_sample, "examples": cmd_examples}[a.cmd](a)
+    {"build": cmd_build, "sample": cmd_sample, "examples": cmd_examples, "prompts": cmd_prompts}[a.cmd](a)
 
 
 if __name__ == "__main__":
