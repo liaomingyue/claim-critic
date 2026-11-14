@@ -71,7 +71,7 @@ Output only one JSON object, nothing else:
 STEPS_FREE = """How to do it:
 1. Go through the numbered sentences and find those where this edit can be done (see "Where it can be done"). If a sentence lacks what the edit needs, do not pick it.
 2. Among them, choose the one where a real assistant could most plausibly make this mistake.
-3. Rewrite the sentence so that it makes this mistake. Write it the way an assistant would naturally write it: rephrase as much or as little as you need.
+3. Rewrite the sentence so that it makes this mistake. Write it the way an assistant would naturally write it: rephrase as much or as little as you need. The rewritten sentence must say something different from the original; never return the original sentence unchanged.
 4. Check against the source that the rewritten sentence is now wrong for the reason given above ("Why the result is an error"), and is not just another way of saying the same thing.
 5. Read the rewritten sentence once more: it must be fluent and fit the response. If it sounds odd or contradicts itself, rewrite it.
 

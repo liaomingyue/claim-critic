@@ -2,7 +2,7 @@
 
 每条操作有：所属的层、给生成器看的改写说明、核实时要对照原文的什么、能不能做的前提规则、真实错误里的例子。
 card() 把一条操作渲染成给生成器看的卡片（做法、在什么句子上能做、为什么算错、例句），直接放进提示词。
-前提规则只给数字和「限定」层里的三种删改用：这些操作要求句子里先有可改的原料（数字、推测词、「据称」、打算），没有就不该派这个任务。
+前提规则只给数字、所属关系和「限定」层里的三种删改用：这些操作要求句子里先有可改的原料（数字、「谁的」、推测词、「据称」、打算），没有就不该派这个任务。
 「挂接」层的操作在语法上大多数句子都能做，规则筛不掉什么，不设前提，靠改写说明和后面的核实把关。
 
 用法：
@@ -32,7 +32,10 @@ def _nums(t: str) -> set[str]:
     return set(re.findall(r"\d[\d,.:/]*", t))
 
 
+OWNER = re.compile(r"\w['’]s|\ws['’](?=\s)|(his|her|hers|their|theirs|its|whose|my|our|your)", re.I)
+
 PRE = {   # 前提规则：句子（和原文）里有没有这条操作要用的原料
+    "owner": lambda s, src: bool(OWNER.search(s)),   # 句子里要先有「谁的」：没有时模型只能凭空加一个所有者（实测这种操作在任意句子上达标率 3%）
     "number": lambda s, src: bool(NUM.search(s)) and len(_nums(src) - _nums(s)) >= 1,
     "has_number": lambda s, src: bool(NUM.search(s)),
     "hedge": lambda s, src: bool(HEDGE.search(s)),
@@ -93,7 +96,7 @@ OPS = {
         "examples": ["Resolve 'his body' to Hernandez instead of Odin Lloyd.", "Make 'send back to Earth' refer to the delivered cargo instead of the experiments and trash packed for return.", "Replace the actor 'prosecutors' with 'the court'."],
     },
     "change_owner": {
-        "layer": "binding", "zh": "所属关系换人", "action": "move", "pre": None,
+        "layer": "binding", "zh": "所属关系换人", "action": "move", "pre": "owner",
         "desc": "change whose something is: a relative, a possession, an employee or a work is given to a different person or body from the source",
         "check": "在原文里找这个人或东西属于谁",
         "examples": ["Turn her daughter's two children (her grandchildren) into 'her two children'.", "Change 'Copeland's driver' to 'the club's driver'."],
