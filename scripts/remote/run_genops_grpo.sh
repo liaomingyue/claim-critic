@@ -2,7 +2,7 @@
 # 按操作清单造错的生成器 GRPO（奖励 train/gen_reward_ops.py，三个阶段逐步加难）。单卡 5090：vLLM 和训练同卡。
 #   策略起点 = 基座 2B + 卡片提示词（B 清零的 LoRA，等于基座）；提示 = 训练池回答 × 20 种操作（outputs/rt/gen_ops_grpo/prompts.jsonl）
 #   把关模型 = sev__v4 / rm2__v4 / opm__v1（ragtruth/rm_ops.py），阶段二、三另加 critic rm1__core_r2_bfcl
-#   环境变量：E=运行名  STAGE=1|2|3  LR  STEPS  INIT=起点（默认 B 清零的 LoRA；阶段二 / 三接上一阶段的 ckpt）  N  PPS  STYLE=提示词写法（plan / free）
+#   环境变量：E=运行名  STAGE=1|2|3  LR  STEPS  INIT=起点（默认 B 清零的 LoRA；阶段二 / 三接上一阶段的 ckpt）  N  PPS  STYLE=提示词写法（plan / free）  DISC=判别器（默认 rm2__d1）  EXTRA=其他参数（如 --ops_disc 1 --ops_ref 0.43）
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; O=outputs/rt/gen_ops_grpo
 E=${E:?}; STAGE=${STAGE:-1}; LR=${LR:-1e-5}; STEPS=${STEPS:-100}; N=${N:-16}; PPS=${PPS:-16}; LOG=$A/genops_grpo_$E.log
@@ -20,10 +20,10 @@ R=$O/$E
 [ -d $R/ckpt/step$STEPS ] && { log "skip $E (done)"; exit 0; }
 free_gpu
 A=$A bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.4 --base $MC --log $A/vllm-gog.log --priority \
-  sev4=$FS/adapters/sev__v4-mc/adapter nat4=$FS/adapters/rm2__v4-mc/adapter opm=$FS/adapters/opm__v1-mc/adapter rm1=$FS/adapters/rm1__core_r2_bfcl-mc/adapter policy_v0=$INIT >> $LOG 2>&1 || { log "$E vllm FAILED"; exit 1; }
+  sev4=$FS/adapters/sev__v4-mc/adapter nat4=$FS/adapters/rm2__v4-mc/adapter opm=$FS/adapters/opm__v1-mc/adapter rm1=$FS/adapters/rm1__core_r2_bfcl-mc/adapter disc=$FS/adapters/${DISC:-rm2__d1}-mc/adapter policy_v0=$INIT >> $LOG 2>&1 || { log "$E vllm FAILED"; exit 1; }
 log "train $E: stage $STAGE lr $LR steps $STEPS n $N prompts/step $PPS init $INIT"
 CUDA_VISIBLE_DEVICES=0 python -u -m train.gen_grpo --causal 1 --base $MC --init $INIT --prompts $PF --reward ops --ops_stage $STAGE \
-  --temps sev4=sev__v4,nat4=rm2__v4,opm=opm__v1,rm1=rm1__core_r2_bfcl \
+  --temps sev4=sev__v4,nat4=rm2__v4,opm=opm__v1,rm1=rm1__core_r2_bfcl,disc=${DISC:-rm2__d1} \
   --share 1 --share_impl train.prefix_share_llama --share_mb 8 --ref_on_vllm 1 --trip 0 --eval_k 0 --max_tokens 512 --pipeline 1 --rm_concurrency 128 \
   --steps $STEPS --lr $LR --n $N --prompts_per_step $PPS --save_every 50 --state_every 50 --version_prefix ${E}_ --out $R ${EXTRA:-} >> $A/gengrpo_$E.log 2>&1 && log "$E done" || log "$E FAILED"
 tail -3 $A/gengrpo_$E.log | cut -c1-400 | sed "s/^/[$E] /" | tee -a $LOG

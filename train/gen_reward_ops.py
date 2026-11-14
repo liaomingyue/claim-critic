@@ -17,6 +17,12 @@
         这样难度只在「不拖累前面几项」的范围内被优化；前面几项一掉，难度项自己让路。
         阶段二的 h：critic P(有幻觉) 从 0.9 到 0.1 线性升到 1，低于 0.1 的停在 0.5（不单调奖励「完全骗过 critic」，之前那样做生成器塌成了造非错句）。
         阶段三的 h：只在 critic 拿不准的区间给分（0.1→0.3 升、0.3–0.5 为 1、0.5→0.9 降）。
+
+判别器项（disc=True，思路同 GAN 的判别模型）：再加一个把关模型 disc（ragtruth.rm_disc 的 rm2__d1：这句错是模型自己写错的，还是事后改出来的）。
+        现在的合成错句离真实错句很远（留出原文上判别器给真实错句 93% 判为真、合成的只有一成，AUC 0.95），绝对分数几乎全在低位，
+        直接乘进奖励会把所有样本压扁。所以只用组内的相对高低：同一个提示的一组样本里，按判别器的分从低到高排名，
+        奖励 = 阶段一的分 + w × 阶段一的分 × 排名分（比它更不像真的同伴占比）。w 和阶段二、三的难度权重一样自动调。
+        判别器要跟着生成器更新：每训完一段，用新生成器的样本重训。
 """
 from __future__ import annotations
 
@@ -36,14 +42,14 @@ def soft_hard(p: float) -> float:
 
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
-                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512, obv_pen=0.5, obv_from=0.7):
+                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512, obv_pen=0.5, obv_from=0.7, disc=False):
         import collections
         import threading
         self.client, self.t = client, temps
         self.stage, self.err_gate, self.nat_gate, self.op_gate, self.min_sim, self.fail_scale = stage, err_gate, nat_gate, op_gate, min_sim, fail_scale
         # ref = 进入本阶段时阶段一的平均分（同一批提示上量的）；0 = 不自动调，w 固定为 w_hard
         self.ref, self.w_max, self.w_min, self.tol, self.window = ref, w_hard, w_min, tol, window
-        self.obv_pen, self.obv_from = obv_pen, obv_from
+        self.obv_pen, self.obv_from, self.disc = obv_pen, obv_from, disc
         self.w = w_hard if not ref else w_hard / 4   # 从小的权重起步，前面几项稳得住再放大
         self.recent, self.n_seen, self.lock = collections.deque(maxlen=window), 0, threading.Lock()
 
@@ -94,6 +100,10 @@ class OpsRewarder:
         po = self.option_p("opm", opm_prompt(x, row["op"]), "AB", priority)
         out = {"why": "ok", "idx": rec["idx"], "original": o, "sentence": s, "edit_gen": rec["edit_gen"], "sim": edit_sim(o, s),
                "p_err": (pe["A"] + pe["B"]) if pe else 0.0, "p_clear": pe["A"] if pe else 0.0, "p_natural": pn["A"] if pn else 0.0, "p_op": po["A"] if po else 0.0, "p_halluc": None}
+        if self.disc:
+            from ragtruth.rm_disc import prompt as disc_prompt
+            pd = self.option_p("disc", disc_prompt(row["source"], ctx, rec["idx"]), "AB", priority)
+            out["p_disc"] = pd["A"] if pd else 0.0
         if self.stage >= 2 or self.obv_pen:
             p1 = self.option_p("rm1", [{"role": "system", "content": RM1_SYSTEM}, {"role": "user", "content": render_input({"source": row["source"], "sentences": ctx, "idx": rec["idx"]})}], "ABC", priority)
             out["p_halluc"] = (p1["B"] + p1["C"]) if p1 else 1.0
@@ -104,7 +114,7 @@ class OpsRewarder:
         op = row["op"]
         base = {"type": op, "tactic": op, "tactic_raw": op, "op": "rewrite", "reason": "", "evidence": ""}
         if s["why"] != "ok":
-            if self.stage >= 2:
+            if self.stage >= 2 or self.disc:
                 self.track(0.0)
             return {**base, "idx": 0, "sentence": "", "reward": 0.0, "why": s["why"], "qualified": False}
         geo = (s["p_err"] * s["p_natural"] * s["p_op"]) ** (1 / 3)
@@ -114,10 +124,21 @@ class OpsRewarder:
         obv = 1.0 if pc is None or pc <= self.obv_from else 1.0 - self.obv_pen * (pc - self.obv_from) / (1.0 - self.obv_from)
         r1 = (geo if near else self.fail_scale * geo) * obv   # 阶段一的分：三个阶段都原样在奖励里
         if self.stage == 1:
-            r, h, q, w = r1, 0.0, gate, 0.0
+            r, h, q, w = r1, 0.0, gate, (self.track(r1) if self.disc else 0.0)   # 判别器的那一项在 group_post 里按组内排名加
         else:
             w = self.track(r1)
             h = (soft_hard if self.stage == 2 else hardness)(s["p_halluc"]) if gate else 0.0
             r, q = r1 + w * r1 * h, bool(gate and h > 0)
         return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "hardness": h, "reward": r, "qualified": bool(q),
                 "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 0.0}
+
+    def group_post(self, scores: list[dict]) -> None:
+        """判别器项：同一个提示的一组里，格式合格的样本按判别器的分排名，奖励加上 w × 阶段一的分 × 排名分。"""
+        if not self.disc:
+            return
+        cand = [x for x in scores if x.get("why") == "ok" and "p_disc" in x]
+        ps = [x["p_disc"] for x in cand]
+        for x in cand:
+            lo = sum(q < x["p_disc"] for q in ps) + 0.5 * (sum(q == x["p_disc"] for q in ps) - 1)
+            x["disc_rank"] = lo / (len(cand) - 1) if len(cand) > 1 else 0.5
+            x["reward"] = x["reward"] + x["w_hard"] * x["r1"] * x["disc_rank"]
