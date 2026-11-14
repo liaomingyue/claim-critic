@@ -7,7 +7,10 @@
   自然      nat4（rm2__v4）P(自然)
   操作一致  opm（opm__v1）P(改动做的是要求的操作)
   （改动大小不设条件：min_sim 默认 0。改写句和原句的相似度只记下来观察，不进奖励）
-阶段一：奖励 = 三个概率的几何平均（相似度不够时 × fail_scale）。不看 critic，先把「按指令造出干净的真错」练稳。
+阶段一：奖励 = 三个概率的几何平均 × 「不明显」系数。主目标是把「按指令造出干净的真错」练稳，critic 不是主目标，但不能不管：
+        验证模型和 critic 的打分相关 0.78，只追「真错」会顺带把样本推向 critic 早就认得出的那一类
+        （实测不看 critic 训 50 步，critic ≥ 0.9 的占比 36% → 40%），到阶段二就拉不回来了。
+        系数：critic P(有幻觉) ≤ obv_from（0.7）时为 1，往上线性降到 P = 1 时的 1 − obv_pen（0.5）。只压「明显」的那一头，不奖励骗过 critic。
 阶段二、三：主目标换成难度，但阶段一的目标不许下降（前一阶段的目标是后一阶段的约束）。
         奖励 = 阶段一的分 + w × 阶段一的分 × h（h 只给四个条件都过门槛的样本）。阶段一的分原样留着、权重不变，难度是加在上面的。
         w 自动调：最近一批样本的阶段一平均分低于进入本阶段时的水平（ref × tol）就把 w 调小，回到水平之上再慢慢调大。
@@ -33,13 +36,14 @@ def soft_hard(p: float) -> float:
 
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
-                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512):
+                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512, obv_pen=0.5, obv_from=0.7):
         import collections
         import threading
         self.client, self.t = client, temps
         self.stage, self.err_gate, self.nat_gate, self.op_gate, self.min_sim, self.fail_scale = stage, err_gate, nat_gate, op_gate, min_sim, fail_scale
         # ref = 进入本阶段时阶段一的平均分（同一批提示上量的）；0 = 不自动调，w 固定为 w_hard
         self.ref, self.w_max, self.w_min, self.tol, self.window = ref, w_hard, w_min, tol, window
+        self.obv_pen, self.obv_from = obv_pen, obv_from
         self.w = w_hard if not ref else w_hard / 4   # 从小的权重起步，前面几项稳得住再放大
         self.recent, self.n_seen, self.lock = collections.deque(maxlen=window), 0, threading.Lock()
 
@@ -90,7 +94,7 @@ class OpsRewarder:
         po = self.option_p("opm", opm_prompt(x, row["op"]), "AB", priority)
         out = {"why": "ok", "idx": rec["idx"], "original": o, "sentence": s, "edit_gen": rec["edit_gen"], "sim": edit_sim(o, s),
                "p_err": (pe["A"] + pe["B"]) if pe else 0.0, "p_clear": pe["A"] if pe else 0.0, "p_natural": pn["A"] if pn else 0.0, "p_op": po["A"] if po else 0.0, "p_halluc": None}
-        if self.stage >= 2:
+        if self.stage >= 2 or self.obv_pen:
             p1 = self.option_p("rm1", [{"role": "system", "content": RM1_SYSTEM}, {"role": "user", "content": render_input({"source": row["source"], "sentences": ctx, "idx": rec["idx"]})}], "ABC", priority)
             out["p_halluc"] = (p1["B"] + p1["C"]) if p1 else 1.0
         return out
@@ -106,12 +110,14 @@ class OpsRewarder:
         geo = (s["p_err"] * s["p_natural"] * s["p_op"]) ** (1 / 3)
         near = s["sim"] >= self.min_sim
         gate = near and s["p_err"] >= self.err_gate and s["p_natural"] >= self.nat_gate and s["p_op"] >= self.op_gate
-        r1 = geo if near else self.fail_scale * geo   # 阶段一的分：三个阶段都原样在奖励里
+        pc = s["p_halluc"]
+        obv = 1.0 if pc is None or pc <= self.obv_from else 1.0 - self.obv_pen * (pc - self.obv_from) / (1.0 - self.obv_from)
+        r1 = (geo if near else self.fail_scale * geo) * obv   # 阶段一的分：三个阶段都原样在奖励里
         if self.stage == 1:
             r, h, q, w = r1, 0.0, gate, 0.0
         else:
             w = self.track(r1)
             h = (soft_hard if self.stage == 2 else hardness)(s["p_halluc"]) if gate else 0.0
             r, q = r1 + w * r1 * h, bool(gate and h > 0)
-        return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "r1": r1, "w_hard": w, "hardness": h, "reward": r, "qualified": bool(q),
+        return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "hardness": h, "reward": r, "qualified": bool(q),
                 "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 0.0}
