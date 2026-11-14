@@ -43,7 +43,7 @@ def soft_hard(p: float) -> float:
 
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
-                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5):
+                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -62,6 +62,8 @@ class OpsRewarder:
         self.low = ""   # 最近一次检查时掉到基准线下面的项（记进样本，方便看是哪一项在拖）
         self.lam, self.lam_max = [0.0, 0.0, 0.0], 2.0   # 真错 / 自然 / 操作一致三项的补偿权重（逐项守基准线时用）
         self.w_floor = w_hard / 2 if refs else w_min    # 逐项守基准线时，难度权重不低于起步值
+        if w_fixed:   # 难度权重整段训练固定为 w_hard，不升不降；前面几项靠各自的补偿权重守
+            self.w = self.w_floor = w_hard
 
     def state_dict(self) -> dict:
         return {"w": self.w, "recent": list(self.recent), "n_seen": self.n_seen, "lam": list(self.lam)}
