@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -148,6 +148,7 @@ case $ROLE in
   genopsprompt) CODE=$R bash $S/run_genops_prompt.sh; rc=$? ;;   # 只靠提示词的错误合成：2B / 9B 基座 × 三种提示词写法
   rmops2) ORDER="rm2__v4 opm__v1 sev__v4" CODE=$R bash $S/run_rmops.sh; rc=$? ;;   # 第二台单卡机器：先训自然度
   rmops) ORDER="sev__v4 opm__v1 rm2__v4" CODE=$R bash $S/run_rmops.sh; rc=$? ;;   # 给错误合成把关的三个 2B 模型（sev__v4 / rm2__v4 / opm__v1），两张卡并行
+  gogrpoc) E=s1c STAGE=1 STYLE=free LR=2e-5 STEPS=100 N=16 PPS=16 CODE=$R bash $S/run_genops_grpo.sh; rc=$? ;;   # 生成器 GRPO 阶段一，奖励里带 critic 的「不明显」系数
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"
