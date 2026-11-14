@@ -46,6 +46,7 @@ def main() -> None:
     ap.add_argument("--run", default="s1", help="训练集里合成一类取哪次 GRPO 存下的样本（outputs/rt/gen_ops_grpo/<run>/samples）")
     ap.add_argument("--name", default="rm2__d1")
     ap.add_argument("--neg_per_pos", type=float, default=2.0)
+    ap.add_argument("--test_evs", default="", help="测试集里另加的合成一类：留出回答上的采样（core/samples_ops_<名字>.jsonl + _rm4 打分，逗号分隔），取验证模型判为真错的，每个最多 500 条")
     a = ap.parse_args()
     parts, rng = collections.defaultdict(list), random.Random("rm_disc|" + a.name)
     # A：真实错句。种子集训练部分的原文再按哈希留一成做校准
@@ -88,6 +89,12 @@ def main() -> None:
         x = S[r["id"]]
         if r["c"]["severity"] != "none":
             parts["test"].append(row("d/check_pplan/" + r["id"], x["source"], x["context"], int(x["idx"]), "B", "check_pplan", "src-" + str(x["source_id"])))
+    for tag in [t for t in a.test_evs.split(",") if t]:
+        P = {r["id"]: r for r in read_jsonl(RT / f"core/samples_ops_{tag}_rm4.jsonl")}
+        xs = [x for x in read_jsonl(RT / f"core/samples_ops_{tag}.jsonl") if x["why"] == "ok" and P[x["id"]]["p_err"] >= 0.5]
+        rng.shuffle(xs)
+        for x in xs[:500]:
+            parts["test"].append(row(f"d/{tag}/{x['id']}", x["source"], x["context"], int(x["idx"]), "B", tag, "src-" + str(x["source_id"])))
     m = write_rm(a.name, parts, 3072)
     print("RM_DISC", a.name, json.dumps({k: m[k]["n"] for k in ("train", "calib", "test")}), {k: m[k]["label"] for k in ("train", "calib", "test")}, m["test"]["origin"], "train pos", n_pos, "too long", m["too_long_dropped"])
 
