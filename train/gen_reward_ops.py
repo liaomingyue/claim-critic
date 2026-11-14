@@ -42,7 +42,7 @@ def soft_hard(p: float) -> float:
 
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
-                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512, obv_pen=0.5, obv_from=0.7, disc=False, refs=None):
+                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -50,7 +50,9 @@ class OpsRewarder:
         # ref = 进入本阶段时阶段一的平均分（同一批提示上量的）；0 = 不自动调，w 固定为 w_hard
         self.ref, self.w_max, self.w_min, self.tol, self.window = ref, w_hard, w_min, tol, window
         self.obv_pen, self.obv_from, self.disc = obv_pen, obv_from, disc
-        self.w = w_hard if not (ref or refs) else w_hard / 4   # 从小的权重起步，前面几项稳得住再放大
+        # 窗口 2048 条 ≈ 8 步：窗口只有 2 步（16 个任务）时，抽到哪几种操作就能让某一项的均值上下 0.05，
+        # 明明没有下降也频繁触发回调（实测四分之一的检查触发），权重被按在起步值附近，难度项等于没加
+        self.w = w_hard if not (ref or refs) else w_hard / 2   # 从一半起步，前面几项稳得住再放大
         self.recent, self.n_seen, self.lock = collections.deque(maxlen=window), 0, threading.Lock()
         # refs = 进入本阶段时真错 / 自然 / 操作一致三项各自的平均概率。给了就逐项看：任何一项掉下去都把难度权重调小。
         # 只看综合分不够：s2d 里自然度涨、真错率 74% → 70%，综合分没变，约束没有察觉。
@@ -80,7 +82,7 @@ class OpsRewarder:
                     if sum(q) / len(q) < r * self.tol:
                         low.append(name)
                 self.low = ",".join(low)
-                self.w = max(self.w_min, self.w * 0.7) if low else min(self.w_max, self.w * 1.15)
+                self.w = max(self.w_min, self.w * 0.7) if low else min(self.w_max, self.w * 1.2)
             return self.w
 
     def option_p(self, model: str, msgs: list[dict], opts: str, priority: int = 0) -> dict | None:
