@@ -65,9 +65,21 @@ STEPS = """How to do it:
 
 Output only one JSON object, nothing else:
 {{%s"idx": <number of the rewritten sentence>, "from": "<the exact words of the original sentence that you replace>", "to": "<what you put in their place>", "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}"""
+# free：不再要求「其余每个词保持原样」。核实过的样本里，改多改少和「真错、自然、操作对」的比例无关（各重合度段都是两成上下），
+# 而只换词不调句子会改出病句（自然度是最弱的一项）。改成：意思只在这一处变，周围的措辞可以为了通顺而调整；输出里也不再要 from / to。
+STEPS_FREE = """How to do it:
+1. Go through the numbered sentences and find those where this edit can be done (see "Where it can be done"). If a sentence lacks what the edit needs, do not pick it.
+2. Among them, choose the one where a real assistant could most plausibly make this mistake.
+3. Make the edit this operation needs. The meaning should change at that one point only: do not introduce any other change of meaning. You may adjust the wording around it (word order, verb forms, articles, connecting words) so that the sentence reads the way an assistant would naturally write it.
+4. Check against the source that the rewritten sentence is now wrong for the reason given above ("Why the result is an error"), and is not just another way of saying the same thing.
+5. Read the rewritten sentence once more: it must be fluent and fit the response. If it sounds odd or contradicts itself, rewrite it.
+
+Output only one JSON object, nothing else:
+{{"plan": "<one or two sentences: which sentence fits this edit, what the source says about it, and what you will change>", "idx": <number of the rewritten sentence>, "sentence": "<the full rewritten sentence>", "edit": "<one sentence describing exactly what you changed>"}}"""
 OLD_TAIL = TAIL[TAIL.index("Choose the sentence where"):]
 STYLES = {"strict": TAIL.replace(OLD_TAIL, STEPS % ""),
-          "plan": TAIL.replace(OLD_TAIL, STEPS % '"plan": "<one or two sentences: which sentence fits this edit, what the source says about it, and which words you will change>", ')}
+          "plan": TAIL.replace(OLD_TAIL, STEPS % '"plan": "<one or two sentences: which sentence fits this edit, what the source says about it, and which words you will change>", '),
+          "free": TAIL.replace(OLD_TAIL, STEPS_FREE)}
 
 
 def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False, cards: dict | None = None, style: str = "") -> str:
@@ -158,12 +170,12 @@ def cmd_prompts(a) -> None:
         sents = r["sentences"] if isinstance(r["sentences"], list) else json.loads(r["sentences"])
         for op in OPS:
             if OPS[op]["pre"] is None or any(PRE[OPS[op]["pre"]](x, r["source"]) for x in sents):
-                rows.append({"id": f"{r['resp_id']}|{op}", "prompt": prompt(r["source"], sents, op, cards=cards, style="plan"), "source": r["source"], "sentences": sents,
+                rows.append({"id": f"{r['resp_id']}|{op}", "prompt": prompt(r["source"], sents, op, cards=cards, style=a.style or "plan"), "source": r["source"], "sentences": sents,
                              "op": op, "mechanism": op, "resp_id": r["resp_id"], "task_type": r["task_type"]})
     random.Random("gen_ops|prompts").shuffle(rows)
     out = Path("outputs/rt/gen_ops_grpo")
     out.mkdir(parents=True, exist_ok=True)
-    (out / "prompts.jsonl").write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+    (out / ("prompts.jsonl" if (a.style or "plan") == "plan" else f"prompts_{a.style}.jsonl")).write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
     print("GEN_OPS_PROMPTS", len(rows), "responses", len(seen), dict(collections.Counter(x["op"] for x in rows).most_common()), flush=True)
 
 
@@ -225,7 +237,7 @@ def main() -> None:
     ap.add_argument("--tail", action="store_true", help="指令放在原文和回答之后")
     ap.add_argument("--min_sim", type=float, default=0.0, help="build：只留改对句和错句词重合度不低于这个值的样本")
     ap.add_argument("--tag", default="", help="build：输出文件名后缀（seed_ops<tag>_train.jsonl）")
-    ap.add_argument("--style", default="", choices=["", "strict", "plan"], help="sample（配 --card）：只靠提示词时的写法，见 STYLES")
+    ap.add_argument("--style", default="", choices=["", "strict", "plan", "free"], help="sample（配 --card）：只靠提示词时的写法，见 STYLES")
     ap.add_argument("--max_resp", type=int, default=0, help="sample：只用池子里的这么多条回答（0 = 全部）")
     ap.add_argument("--pool", default="genpool_eval.jsonl")
     ap.add_argument("--ops", nargs="*", default=[])

@@ -6,7 +6,7 @@
   真错      sev4（ragtruth.rm_ops 的 sev__v4）P(明显错) + P(轻微错)
   自然      nat4（rm2__v4）P(自然)
   操作一致  opm（opm__v1）P(改动做的是要求的操作)
-  只改一处  改写句和原句的词序列相似度 ≥ min_sim（程序算）
+  不是整句替换  改写句和原句的词序列相似度 ≥ min_sim（程序算，默认 0.3）。只是底线：改多改少本身不是目标
 阶段一：奖励 = 三个概率的几何平均（相似度不够时 × fail_scale）。不看 critic，先把「按指令造出干净的真错」练稳。
 阶段二、三：主目标换成难度，但阶段一的目标不许下降（前一阶段的目标是后一阶段的约束）。
         奖励 = 阶段一的分 + w × 阶段一的分 × h（h 只给四个条件都过门槛的样本）。阶段一的分原样留着、权重不变，难度是加在上面的。
@@ -32,7 +32,7 @@ def soft_hard(p: float) -> float:
 
 
 class OpsRewarder:
-    def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.6, fail_scale=0.1,
+    def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.3, fail_scale=0.1,
                  ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512):
         import collections
         import threading
