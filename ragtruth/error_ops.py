@@ -32,7 +32,7 @@ def _nums(t: str) -> set[str]:
     return set(re.findall(r"\d[\d,.:/]*", t))
 
 
-OWNER = re.compile(r"\w['’]s|\ws['’](?=\s)|(his|her|hers|their|theirs|its|whose|my|our|your)", re.I)
+OWNER = re.compile(r"\w['’]s\b|\ws['’](?=\s)|\b(his|her|hers|their|theirs|its|whose|my|our|your)\b", re.I)
 
 PRE = {   # 前提规则：句子（和原文）里有没有这条操作要用的原料
     "owner": lambda s, src: bool(OWNER.search(s)),   # 句子里要先有「谁的」：没有时模型只能凭空加一个所有者（实测这种操作在任意句子上达标率 3%）
