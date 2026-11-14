@@ -13,8 +13,9 @@
         系数：critic P(有幻觉) ≤ obv_from（0.7）时为 1，往上线性降到 P = 1 时的 1 − obv_pen（0.5）。只压「明显」的那一头，不奖励骗过 critic。
 阶段二、三：主目标换成难度，但阶段一的目标不许下降（前一阶段的目标是后一阶段的约束）。
         奖励 = 阶段一的分 + w × h（h 只给几个条件都过门槛的样本）。阶段一的分原样留着、权重不变，难度是加在上面的。
-        w 自动调：最近一批样本的阶段一平均分低于进入本阶段时的水平（ref × tol）就把 w 调小，回到水平之上再慢慢调大。
-        这样难度只在「不拖累前面几项」的范围内被优化；前面几项一掉，难度项自己让路。
+        约束（refs：进入本阶段时真错、自然、操作一致各自的平均水平）：某一项的近期平均掉到基准线下，就给这一项加补偿权重
+        （奖励 += λ × 这一项的概率，λ 每次检查加 0.25、回到线上后慢慢减），难度权重 w 不低于起步值。
+        最初的做法是前面几项一掉就把 w 调小：实测 w 被压到 0.2–0.4 后停住，难度项等于被关掉。难度项和约束都不能让步。
         阶段二的 h：critic P(有幻觉) 从 0.9 到 0.1 线性升到 1，低于 0.1 的停在 0.5（不单调奖励「完全骗过 critic」，之前那样做生成器塌成了造非错句）。
         阶段三的 h：只在 critic 拿不准的区间给分（0.1→0.3 升、0.3–0.5 为 1、0.5→0.9 降）。
 
@@ -59,13 +60,16 @@ class OpsRewarder:
         self.refs = tuple(refs) if refs else None
         self.recent3 = [collections.deque(maxlen=window) for _ in range(3)]
         self.low = ""   # 最近一次检查时掉到基准线下面的项（记进样本，方便看是哪一项在拖）
+        self.lam, self.lam_max = [0.0, 0.0, 0.0], 2.0   # 真错 / 自然 / 操作一致三项的补偿权重（逐项守基准线时用）
+        self.w_floor = w_hard / 2 if refs else w_min    # 逐项守基准线时，难度权重不低于起步值
 
     def state_dict(self) -> dict:
-        return {"w": self.w, "recent": list(self.recent), "n_seen": self.n_seen}
+        return {"w": self.w, "recent": list(self.recent), "n_seen": self.n_seen, "lam": list(self.lam)}
 
     def load_state_dict(self, st: dict) -> None:
         self.w, self.n_seen = float(st.get("w", self.w)), int(st.get("n_seen", 0))
         self.recent.extend(st.get("recent", []))
+        self.lam = [float(v) for v in st.get("lam", self.lam)]
 
     def track(self, base: float, comps: tuple = (0.0, 0.0, 0.0)) -> float:
         """记下这条样本的阶段一得分；每满半个窗口看一次：最近的平均分掉到 ref × tol 以下就把难度权重调小，否则慢慢调大。返回当前权重。"""
@@ -82,7 +86,15 @@ class OpsRewarder:
                     if sum(q) / len(q) < r * self.tol:
                         low.append(name)
                 self.low = ",".join(low)
-                self.w = max(self.w_min, self.w * 0.7) if low else min(self.w_max, self.w * 1.2)
+                if self.refs:
+                    # 哪一项掉了，就给哪一项加补偿权重，难度权重不动。之前的做法是一掉就把难度权重调小：
+                    # 阶段二里权重从 2.0 被压到 0.2–0.4 就停在那里，难度项等于被关掉，critic 那边 100 步没有任何进展。
+                    # 两头都要：难度不让步，掉下去的那一项靠加它自己的权重拉回来（要的正是 critic 认不出、验证模型又确信的样本）
+                    for k, name in enumerate(("real", "natural", "op")):
+                        self.lam[k] = min(self.lam_max, self.lam[k] + 0.25) if name in low else max(0.0, self.lam[k] - 0.1)
+                    self.w = max(self.w_floor, self.w * 0.9) if "score" in low else min(self.w_max, self.w * 1.2)
+                else:
+                    self.w = max(self.w_min, self.w * 0.7) if low else min(self.w_max, self.w * 1.2)
             return self.w
 
     def option_p(self, model: str, msgs: list[dict], opts: str, priority: int = 0) -> dict | None:
@@ -146,8 +158,9 @@ class OpsRewarder:
             # 难度项直接加，不再乘阶段一的分：过了三道门槛之后，能拿多少难度分只看 critic。
             # 乘法时难度项和阶段一的分天然相关，权重小的时候训练继续往「三项更高」走，而那三项和 critic 同向——
             # 实测权重 0.25 跑 27 步，达标样本里 critic 拿不准的从 24% 降到 17%，样本反而更好认了
-            r, q = r1 + w * h, bool(gate and h > 0)
-        return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "low": self.low, "hardness": h, "reward": r, "qualified": bool(q),
+            lam = list(self.lam)
+            r, q = r1 + w * h + lam[0] * s["p_err"] + lam[1] * s["p_natural"] + lam[2] * s["p_op"], bool(gate and h > 0)
+        return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "low": self.low, "lam": list(self.lam), "hardness": h, "reward": r, "qualified": bool(q),
                 "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 0.0}
 
     def group_post(self, scores: list[dict]) -> None:
