@@ -277,7 +277,8 @@ def build_rewarder(args):
     if args.reward == "ops":   # 按操作清单造错的生成器：三个阶段逐步加难（train.gen_reward_ops）
         from train.gen_reward_ops import OpsRewarder
         return OpsRewarder(cl, load_temps(args.temps), stage=args.ops_stage, err_gate=args.ops_err_gate, nat_gate=args.nat_gate, op_gate=args.op_gate,
-                           min_sim=args.ops_min_sim, fail_scale=args.fail_scale, ref=args.ops_ref, w_hard=args.ops_w_hard, obv_pen=args.ops_obv_pen, disc=bool(args.ops_disc))
+                           min_sim=args.ops_min_sim, fail_scale=args.fail_scale, ref=args.ops_ref, w_hard=args.ops_w_hard, obv_pen=args.ops_obv_pen, disc=bool(args.ops_disc),
+                           refs=[float(v) for v in args.ops_refs.split(",")] if args.ops_refs else None)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
                               err_mode=args.err_mode, shape=args.shape, w_real2=args.w_real2, w_hard2=args.w_hard2, crit_max=args.crit_max, crit_floor=args.crit_floor,
@@ -1157,6 +1158,7 @@ def main() -> None:
     ap.add_argument("--ops_ref", type=float, default=0.0, help="ops 阶段二 / 三：进入本阶段时阶段一的平均分；给了就自动调难度权重，保证前面几项不下降")
     ap.add_argument("--ops_disc", type=int, default=0, help="ops：1 = 加判别器项（vLLM 上名为 disc 的把关模型：像不像模型自己写错的），按组内排名加分")
     ap.add_argument("--ops_obv_pen", type=float, default=0.5, help="ops：critic 已经明确认得出的样本（P ≥ 0.7 起）扣分的上限，0 = 不看 critic")
+    ap.add_argument("--ops_refs", default="", help="ops：进入本阶段时真错、自然、操作一致三项各自的平均概率（逗号分隔）；给了就逐项守住，任何一项掉下去难度权重都调小")
     ap.add_argument("--ops_w_hard", type=float, default=0.5, help="ops 阶段二 / 三：难度项权重的上限")
     ap.add_argument("--temps", default="", help="RM 温度来源：vLLM 名=RM 目录，逗号分隔；空 = 9B 版")
     ap.add_argument("--w_corr", type=float, default=0.5)

@@ -42,7 +42,7 @@ def soft_hard(p: float) -> float:
 
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
-                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512, obv_pen=0.5, obv_from=0.7, disc=False):
+                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=512, obv_pen=0.5, obv_from=0.7, disc=False, refs=None):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -50,8 +50,13 @@ class OpsRewarder:
         # ref = 进入本阶段时阶段一的平均分（同一批提示上量的）；0 = 不自动调，w 固定为 w_hard
         self.ref, self.w_max, self.w_min, self.tol, self.window = ref, w_hard, w_min, tol, window
         self.obv_pen, self.obv_from, self.disc = obv_pen, obv_from, disc
-        self.w = w_hard if not ref else w_hard / 4   # 从小的权重起步，前面几项稳得住再放大
+        self.w = w_hard if not (ref or refs) else w_hard / 4   # 从小的权重起步，前面几项稳得住再放大
         self.recent, self.n_seen, self.lock = collections.deque(maxlen=window), 0, threading.Lock()
+        # refs = 进入本阶段时真错 / 自然 / 操作一致三项各自的平均概率。给了就逐项看：任何一项掉下去都把难度权重调小。
+        # 只看综合分不够：s2d 里自然度涨、真错率 74% → 70%，综合分没变，约束没有察觉。
+        self.refs = tuple(refs) if refs else None
+        self.recent3 = [collections.deque(maxlen=window) for _ in range(3)]
+        self.low = ""   # 最近一次检查时掉到基准线下面的项（记进样本，方便看是哪一项在拖）
 
     def state_dict(self) -> dict:
         return {"w": self.w, "recent": list(self.recent), "n_seen": self.n_seen}
@@ -60,14 +65,22 @@ class OpsRewarder:
         self.w, self.n_seen = float(st.get("w", self.w)), int(st.get("n_seen", 0))
         self.recent.extend(st.get("recent", []))
 
-    def track(self, base: float) -> float:
+    def track(self, base: float, comps: tuple = (0.0, 0.0, 0.0)) -> float:
         """记下这条样本的阶段一得分；每满半个窗口看一次：最近的平均分掉到 ref × tol 以下就把难度权重调小，否则慢慢调大。返回当前权重。"""
         with self.lock:
             self.recent.append(base)
+            for q, v in zip(self.recent3, comps):
+                q.append(v)
             self.n_seen += 1
-            if self.ref and self.n_seen % (self.window // 2) == 0 and len(self.recent) >= self.window // 2:
-                m = sum(self.recent) / len(self.recent)
-                self.w = max(self.w_min, self.w * 0.7) if m < self.ref * self.tol else min(self.w_max, self.w * 1.15)
+            if (self.ref or self.refs) and self.n_seen % (self.window // 2) == 0 and len(self.recent) >= self.window // 2:
+                low = []
+                if self.ref and sum(self.recent) / len(self.recent) < self.ref * self.tol:
+                    low.append("score")
+                for name, q, r in zip(("real", "natural", "op"), self.recent3, self.refs or ()):
+                    if sum(q) / len(q) < r * self.tol:
+                        low.append(name)
+                self.low = ",".join(low)
+                self.w = max(self.w_min, self.w * 0.7) if low else min(self.w_max, self.w * 1.15)
             return self.w
 
     def option_p(self, model: str, msgs: list[dict], opts: str, priority: int = 0) -> dict | None:
@@ -124,12 +137,12 @@ class OpsRewarder:
         obv = 1.0 if pc is None or pc <= self.obv_from else 1.0 - self.obv_pen * (pc - self.obv_from) / (1.0 - self.obv_from)
         r1 = (geo if near else self.fail_scale * geo) * obv   # 阶段一的分：三个阶段都原样在奖励里
         if self.stage == 1:
-            r, h, q, w = r1, 0.0, gate, (self.track(r1) if self.disc else 0.0)   # 判别器的那一项在 group_post 里按组内排名加
+            r, h, q, w = r1, 0.0, gate, (self.track(r1, (s["p_err"], s["p_natural"], s["p_op"])) if self.disc else 0.0)   # 判别器的那一项在 group_post 里按组内排名加
         else:
-            w = self.track(r1)
+            w = self.track(r1, (s["p_err"], s["p_natural"], s["p_op"]))
             h = (soft_hard if self.stage == 2 else hardness)(s["p_halluc"]) if gate else 0.0
             r, q = r1 + w * r1 * h, bool(gate and h > 0)
-        return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "hardness": h, "reward": r, "qualified": bool(q),
+        return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "low": self.low, "hardness": h, "reward": r, "qualified": bool(q),
                 "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 0.0}
 
     def group_post(self, scores: list[dict]) -> None:

@@ -2,7 +2,7 @@
 # 按操作清单造错的生成器 GRPO（奖励 train/gen_reward_ops.py，三个阶段逐步加难）。单卡 5090：vLLM 和训练同卡。
 #   策略起点 = 基座 2B + 卡片提示词（B 清零的 LoRA，等于基座）；提示 = 训练池回答 × 20 种操作（outputs/rt/gen_ops_grpo/prompts.jsonl）
 #   把关模型 = sev__v4 / rm2__v4 / opm__v1（ragtruth/rm_ops.py），阶段二、三另加 critic rm1__core_r2_bfcl
-#   环境变量：E=运行名  STAGE=1|2|3  LR  STEPS  INIT=起点（默认 B 清零的 LoRA；阶段二 / 三接上一阶段的 ckpt）  N  PPS  STYLE=提示词写法（plan / free）  DISC=判别器（默认 rm2__d1）  EXTRA=其他参数（如 --ops_disc 1 --ops_ref 0.43）
+#   环境变量：E=运行名  STAGE=1|2|3  LR  STEPS  INIT=起点（默认 B 清零的 LoRA；阶段二 / 三接上一阶段的 ckpt）  N  PPS  STYLE=提示词写法（plan / free）  DISC=判别器（默认 rm2__d1）  EXTRA=其他参数（如 --ops_disc 1 --ops_ref 0.43）  PROMPTS=提示文件（默认按 STYLE 取全部任务）
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; O=outputs/rt/gen_ops_grpo
 E=${E:?}; STAGE=${STAGE:-1}; LR=${LR:-1e-5}; STEPS=${STEPS:-100}; N=${N:-16}; PPS=${PPS:-16}; LOG=$A/genops_grpo_$E.log
@@ -14,7 +14,7 @@ source $S/model_env.sh minicpm5-2b && MC=$MODEL_LOCAL
 Z=$FS/adapters/gen-ops-zero-mc/adapter
 [ -f $Z/adapter_model.safetensors ] || python scripts/zero_lora.py $FS/adapters/gen-ops-mc/adapter $Z >> $LOG 2>&1 || { log "zero lora FAILED"; exit 1; }
 INIT=${INIT:-$Z}
-STYLE=${STYLE:-plan}; PF=$O/prompts$([ $STYLE = plan ] || echo _$STYLE).jsonl
+STYLE=${STYLE:-plan}; PF=${PROMPTS:-$O/prompts$([ $STYLE = plan ] || echo _$STYLE).jsonl}
 [ -s $PF ] || python -u -m ragtruth.gen_ops prompts --pool genpool_train.jsonl --style $STYLE >> $LOG 2>&1 || { log "prompts FAILED"; exit 1; }
 R=$O/$E
 [ -d $R/ckpt/step$STEPS ] && { log "skip $E (done)"; exit 0; }
