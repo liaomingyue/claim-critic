@@ -277,7 +277,7 @@ def build_rewarder(args):
     if args.reward == "ops":   # 按操作清单造错的生成器：三个阶段逐步加难（train.gen_reward_ops）
         from train.gen_reward_ops import OpsRewarder
         return OpsRewarder(cl, load_temps(args.temps), stage=args.ops_stage, err_gate=args.ops_err_gate, nat_gate=args.nat_gate, op_gate=args.op_gate,
-                           min_sim=args.ops_min_sim, fail_scale=args.fail_scale, hard_base=args.ops_hard_base)
+                           min_sim=args.ops_min_sim, fail_scale=args.fail_scale, ref=args.ops_ref, w_hard=args.ops_w_hard)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
                               err_mode=args.err_mode, shape=args.shape, w_real2=args.w_real2, w_hard2=args.w_hard2, crit_max=args.crit_max, crit_floor=args.crit_floor,
@@ -1154,7 +1154,8 @@ def main() -> None:
     ap.add_argument("--ops_err_gate", type=float, default=0.5, help="ops：sev4 P(有错) 门槛")
     ap.add_argument("--op_gate", type=float, default=0.5, help="ops：opm P(操作一致) 门槛")
     ap.add_argument("--ops_min_sim", type=float, default=0.6, help="ops：改写句和原句的词序列相似度下限（只改一处）")
-    ap.add_argument("--ops_hard_base", type=float, default=0.2, help="ops 阶段二 / 三：过门槛的保底分")
+    ap.add_argument("--ops_ref", type=float, default=0.0, help="ops 阶段二 / 三：进入本阶段时阶段一的平均分；给了就自动调难度权重，保证前面几项不下降")
+    ap.add_argument("--ops_w_hard", type=float, default=0.5, help="ops 阶段二 / 三：难度项权重的上限")
     ap.add_argument("--temps", default="", help="RM 温度来源：vLLM 名=RM 目录，逗号分隔；空 = 9B 版")
     ap.add_argument("--w_corr", type=float, default=0.5)
     ap.add_argument("--w_crit", type=float, default=0.3)
