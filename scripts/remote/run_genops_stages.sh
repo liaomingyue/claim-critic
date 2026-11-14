@@ -28,14 +28,14 @@ m = lambda k: sum((x.get(k) or 0.0) if x.get("why") == "ok" else 0.0 for x in xs
 print("%.3f %.3f,%.3f,%.3f" % (m("r1"), m("p_err"), m("p_natural"), m("p_op")))
 EOF
 }
-ev() {   # ev <运行名>：留出回答上采样 + 打分
+ev() {   # ev <运行名>：留出回答上采样 + 打分。判别器用第一版（rm2__d1）：前面几个阶段的留出样本都是它打的分，同一把尺子才能比；训练里用的是第二版
   local e=$1
   [ -s $C/samples_ops_ev_${e}_rm4.jsonl ] && return 0
   pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1)" -lt 1000 ] && break; sleep 5; done
-  A=$A bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.85 --base $MC --log $A/vllm-ev-$e.log sev4=$FS/adapters/sev__v4-mc/adapter nat4=$FS/adapters/rm2__v4-mc/adapter opm=$FS/adapters/opm__v1-mc/adapter rm1=$FS/adapters/rm1__core_r2_bfcl-mc/adapter disc=$FS/adapters/rm2__d2-mc/adapter g=$G-$e/step100/policy >> $LOG 2>&1 || { log "ev serve $e FAILED"; return 1; }
+  A=$A bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.85 --base $MC --log $A/vllm-ev-$e.log sev4=$FS/adapters/sev__v4-mc/adapter nat4=$FS/adapters/rm2__v4-mc/adapter opm=$FS/adapters/opm__v1-mc/adapter rm1=$FS/adapters/rm1__core_r2_bfcl-mc/adapter disc=$FS/adapters/rm2__d1-mc/adapter g=$G-$e/step100/policy >> $LOG 2>&1 || { log "ev serve $e FAILED"; return 1; }
   python -u -m ragtruth.gen_ops sample --model g --tokenizer $MC --card --style free --n 4 --out samples_ops_ev_$e.jsonl >> $LOG 2>&1 || log "ev sample $e FAILED"
   t() { python -c "import json;print(json.load(open('$R/$1/eval/report.json'))['temperature'])"; }
-  python -u $A/score6.py "{\"sev4\": $(t sev__v4), \"nat4\": $(t rm2__v4), \"opm\": $(t opm__v1), \"rm1\": $(t rm1__core_r2_bfcl), \"disc\": $(t rm2__d2)}" ev_$e >> $LOG 2>&1 || log "ev score $e FAILED"
+  python -u $A/score6.py "{\"sev4\": $(t sev__v4), \"nat4\": $(t rm2__v4), \"opm\": $(t opm__v1), \"rm1\": $(t rm1__core_r2_bfcl), \"disc\": $(t rm2__d1)}" ev_$e >> $LOG 2>&1 || log "ev score $e FAILED"
   pkill -f '[v]llm serve'; sleep 5
   log "EV_DONE $e"
 }
