@@ -19,7 +19,7 @@ python -u -m ragtruth.gen_ops sample --model g --tokenizer $MC --card --style fr
 t() { python -c "import json;print(json.load(open('$R/$1/eval/report.json'))['temperature'])"; }
 python -u $T/genops_score.py "{\"sev4\": $(t sev__v4), \"nat4\": $(t rm2__v4), \"opm\": $(t opm__v1), \"rm1\": $(t rm1__core_r2_bfcl), \"disc\": $(t rm2__d1)}" ev_$E >> $LOG 2>&1 || log "ev score FAILED"
 pkill -f '[v]llm serve'; sleep 8
-A=$A bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.85 --base $MC --log $A/vllm-opc-$E.log opl=$FS/adapters/opl__v1-mc/adapter opc=$FS/adapters/opc__v1-mc/adapter >> $LOG 2>&1 \n  && python -u $T/genops_classify.py "{\"opl\": $(t opl__v1), \"opc\": $(t opc__v1)}" ev_$E >> $LOG 2>&1 || log "classify FAILED"
+A=$A bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.85 --base $MC --log $A/vllm-opc-$E.log opl=$FS/adapters/opl__v1-mc/adapter opc=$FS/adapters/opc__v1-mc/adapter >> $LOG 2>&1 && python -u $T/genops_classify.py "{\"opl\": $(t opl__v1), \"opc\": $(t opc__v1)}" ev_$E >> $LOG 2>&1 || log "classify FAILED"
 pkill -f '[v]llm serve'
 python $T/genops_cmp.py ev_base_free ev_s1c ev_s2d ev_st2 ev_st2c ev_st3 ev_st4 ev_$E > $A/st5_cmp.txt 2>&1
 python $T/genops_steps.py $E > $A/st5_steps.txt 2>&1
