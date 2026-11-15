@@ -74,7 +74,7 @@ def soft_hard(p: float) -> float:
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
                  ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False,
-                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None):
+                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -85,6 +85,12 @@ class OpsRewarder:
         self.clear_ref, self.div_sim, self.div_floor = clear_ref, div_sim, div_floor
         # node_base = {操作: {"share": {节点: 起点模型的占比}}}；cat_target = {类别: 出题里的占比}（没给的类别按 0.02）
         self.node_base, self.cls, self.cat_target = node_base, cls, cat_target or {}
+        # div_rare > 0（要 cls = 2）：占比系数改成 (目标占比 / 实际占比) ** div_rare，占比高的重罚、占比低的加分。分两种情况：
+        #   分类模型判的操作 = 要求的操作：按节点算，目标是起点模型在这种操作上的节点占比，系数夹在 [0.5, div_cap]，可以大于 1；
+        #   判成了别的操作：按它落进的类别算，目标是出题占比，系数夹在 [0.4, 1]，只罚不奖。
+        # 稀有的加分只给做对了的样本：在留出样本上模拟过不分情况的版本，稀有的格子大半是做成了别的操作的样本，
+        # 做错的平均系数（0.82）反而高过做对的（0.61），等于奖励跑偏
+        self.div_rare, self.div_cap = div_rare, div_cap
         self.node_recent = {}                                                                # 每种操作最近 300 条达标样本的节点
         self.cat_recent = collections.deque(maxlen=2048)                                     # 最近的达标样本的类别
         # 窗口 2048 条 ≈ 8 步：窗口只有 2 步（16 个任务）时，抽到哪几种操作就能让某一项的均值上下 0.05，
@@ -240,25 +246,39 @@ class OpsRewarder:
             def shrink(p: float, q: float) -> float:
                 return 1.0 if p <= 1.5 * q else max(0.5, (1.5 * q / p) ** 0.5)
 
+            def rare(p: float, q: float, lo: float, hi: float) -> float:
+                return min(hi, max(lo, (q / max(p, 1e-6)) ** self.div_rare))
+
+            def node_target(op: str, n: str) -> float:
+                return max(0.05, self.node_base.get(op, {}).get("share", {}).get(n, 0.0))
+
+            right = lambda x: x.get("c_op") == x["type"]
+
             with self.lock:
                 for x in P:
                     if self.node_base:
                         x["node"] = (x.get("c_node") or "none/none") if self.cls == 2 else node(x["original"], x["sentence"])
-                        self.node_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["node"])   # 兜底节点也记：它是分母的一部分
+                        if not self.div_rare or right(x):   # 双向的版本只统计做对了的样本
+                            self.node_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["node"])   # 兜底节点也记：它是分母的一部分
                     if self.cls and x.get("c_op"):
                         self.cat_recent.append(x["c_op"])
-                for x in P:
+                for x in P if self.div_rare else []:
+                    if right(x) and self.node_base and len(self.node_recent.get(x["type"], ())) >= 30:
+                        q = self.node_recent[x["type"]]
+                        x["node_mult"] = rare(sum(n == x["node"] for n in q) / len(q), node_target(x["type"], x["node"]), 0.5, self.div_cap)
+                    elif not right(x) and x.get("c_op") and len(self.cat_recent) >= 300:
+                        x["cat_mult"] = rare(sum(c == x["c_op"] for c in self.cat_recent) / len(self.cat_recent), self.cat_target.get(x["c_op"], 0.02), 0.4, 1.0)
+                for x in [] if self.div_rare else P:
                     # 兜底节点（规则说不出是哪类词）不扣；挂接层不用这一项：这一层改的是实词和语序，规则大半认不出，套路交给事后分类看
                     if self.node_base and (self.cls == 2 or (x["node"] not in FALLBACK and OPS[x["type"]]["layer"] != "binding")):
                         q = self.node_recent[x["type"]]
                         if len(q) >= 30:   # 这种操作的达标样本攒够了再算占比
-                            base = max(0.05, self.node_base.get(x["type"], {}).get("share", {}).get(x["node"], 0.0))
-                            x["node_mult"] = shrink(sum(n == x["node"] for n in q) / len(q), base)
+                            x["node_mult"] = shrink(sum(n == x["node"] for n in q) / len(q), node_target(x["type"], x["node"]))
                     if self.cls and x.get("c_op") and len(self.cat_recent) >= 300:
                         x["cat_mult"] = shrink(sum(c == x["c_op"] for c in self.cat_recent) / len(self.cat_recent), self.cat_target.get(x["c_op"], 0.02))
         # 几项多样性的系数相乘，合起来不低于 div_floor：扣得再狠，达标样本的分也不该掉到没达标的样本下面，否则是在把模型往不达标推
         for x in P:
-            x["div_total"] = max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0))
+            x["div_total"] = min(self.div_cap if self.div_rare else 1.0, max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0)))
             x["reward"] = x["reward_raw"] * x["div_total"]
 
     def disc_post(self, scores: list[dict]) -> None:
