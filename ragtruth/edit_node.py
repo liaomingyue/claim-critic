@@ -3,6 +3,8 @@
 用来认套路：should → may、must → might、加 possibly 都是「hedge+」；12 → several、300 → hundreds of 都是「vague_qty+」。
 按具体的词比较时这些各算一种改法，按节点比较时是同一种。训到后期各种操作都在往几个节点上收：
 要求改数字，起点一半是换成另一个数（num_swap），后来三分之二带上了 vague_qty+；要求扩大范围，起点多是 all / every（universal+），后来近半是 vague_qty+。
+规则只认得有固定词汇标志的改法。换的是实词或语序时只能记成兜底节点（FALLBACK）：达标样本里约两成，换近义词、改归属、
+换指代对象这几种操作占四到七成。兜底节点是个大杂烩，不拿它算占比；挂接层的套路要靠事后分类模型看。
 节点名：<类>+ 表示新加了这类词，<类>- 表示去掉了；数字和专名另有 swap / add / drop。一条样本最多取两个（按下面的顺序）。
 """
 import collections
@@ -25,6 +27,7 @@ LEX = [
     ("report", _w("said says say according claims claim claimed alleged allegedly reported reports believe believes suspect suspects told stated")),
 ]
 NUMW = _w("one two three four five six seven eight nine ten eleven twelve twenty thirty forty fifty hundred thousand million billion half")
+FALLBACK = frozenset(("word_swap", "word_add", "word_drop", "reorder"))   # 规则说不出是哪一类词的改动：只换了实词或语序
 TOK = re.compile(r"[A-Za-z]+(?:'[a-z]+)?|\d[\d,.]*")
 
 

@@ -224,7 +224,8 @@ class OpsRewarder:
                 x["div_k"], x["div"] = k, (1 + k) ** -0.5
         if self.node_base or self.cls:
             import collections
-            from ragtruth.edit_node import node
+            from ragtruth.edit_node import FALLBACK, node
+            from ragtruth.error_ops import OPS
 
             def shrink(p: float, q: float) -> float:
                 return 1.0 if p <= 1.5 * q else max(0.5, (1.5 * q / p) ** 0.5)
@@ -233,11 +234,12 @@ class OpsRewarder:
                 for x in P:
                     if self.node_base:
                         x["node"] = node(x["original"], x["sentence"])
-                        self.node_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["node"])
+                        self.node_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["node"])   # 兜底节点也记：它是分母的一部分
                     if self.cls and x.get("c_op"):
                         self.cat_recent.append(x["c_op"])
                 for x in P:
-                    if self.node_base:
+                    # 兜底节点（规则说不出是哪类词）不扣；挂接层不用这一项：这一层改的是实词和语序，规则大半认不出，套路交给事后分类看
+                    if self.node_base and x["node"] not in FALLBACK and OPS[x["type"]]["layer"] != "binding":
                         q = self.node_recent[x["type"]]
                         if len(q) >= 30:   # 这种操作的达标样本攒够了再算占比
                             base = max(0.05, self.node_base.get(x["type"], {}).get("share", {}).get(x["node"], 0.0))
