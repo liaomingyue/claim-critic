@@ -33,6 +33,14 @@
         签名重合度 ≥ div_sim 的算同一种改法，同一种改法的 k + 1 条每条奖励乘 1 / √(1 + k)（不低于 div_floor）。
         只扣不加、只在达标样本之间比：给「不一样」加分会鼓励离谱的句子。训到阶段三，同一任务两两相似度从 0.44 升到 0.61，
         改法向几个套路收敛（add_hedge 里 91% 是加 may，generalize 里 34% 是加 many）。
+  组内多样性只管得到「同一个任务里重复」，管不到「每个任务都用同一招」。再加两项跨任务的，都只扣不加、只作用在达标样本上：
+  手段节点（node_base）：每条样本按 ragtruth.edit_node 归到手段节点（新加或去掉了哪一类词）。按要求的操作分别滚动统计达标样本的节点占比，
+        某个节点的占比超过起点模型在这种操作上占比的 1.5 倍（起点占比不足 5% 的按 5% 算），奖励乘 √(1.5 × 起点占比 / 现占比)，不低于 0.5。
+        以起点为基准而不是均匀：加限定语本来就只有一个节点，不该因为集中被罚；要罚的是套路渗进别的操作
+        （要求改数字，起点一半是换成另一个数，训到后来三分之二带上了 several / at least）。
+  类别分布（cls）：事后分类模型（ragtruth.rm_opc 的 opl、opc，不看要求的操作）判这条样本实际是哪一种操作。滚动统计全部达标样本的类别占比，
+        某个类别的占比超过它在出题里占比的 1.5 倍，奖励按同样的公式缩小。出题是各种操作均匀的，产出的类别分布偏了，
+        说明有些操作被做成了别的操作，或者被判为不是错。
 """
 from __future__ import annotations
 
@@ -63,7 +71,7 @@ def soft_hard(p: float) -> float:
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
                  ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False,
-                 clear_ref=0.0, div_sim=0.0, div_floor=0.4):
+                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -72,6 +80,10 @@ class OpsRewarder:
         self.ref, self.w_max, self.w_min, self.tol, self.window = ref, w_hard, w_min, tol, window
         self.obv_pen, self.obv_from, self.disc, self.w_disc = obv_pen, obv_from, disc, w_disc
         self.clear_ref, self.div_sim, self.div_floor = clear_ref, div_sim, div_floor
+        # node_base = {操作: {"share": {节点: 起点模型的占比}}}；cat_target = {类别: 出题里的占比}（没给的类别按 0.02）
+        self.node_base, self.cls, self.cat_target = node_base, cls, cat_target or {}
+        self.node_recent = {}                                                                # 每种操作最近 300 条达标样本的节点
+        self.cat_recent = collections.deque(maxlen=2048)                                     # 最近的达标样本的类别
         # 窗口 2048 条 ≈ 8 步：窗口只有 2 步（16 个任务）时，抽到哪几种操作就能让某一项的均值上下 0.05，
         # 明明没有下降也频繁触发回调（实测四分之一的检查触发），权重被按在起步值附近，难度项等于没加
         self.w = w_hard if not (ref or refs) else w_hard / 2   # 从一半起步，前面几项稳得住再放大
@@ -154,6 +166,15 @@ class OpsRewarder:
             from ragtruth.rm_disc import prompt as disc_prompt
             pd = self.option_p("disc", disc_prompt(row["source"], ctx, rec["idx"]), "AB", priority)
             out["p_disc"] = pd["A"] if pd else 0.0
+        if self.cls:
+            from ragtruth.rm_opc import LAYER_LETTER, LAYER_OPS, opc_prompt, opl_prompt
+            pl = self.option_p("opl", opl_prompt(x), "ABCDE", priority)
+            layer = {v: k for k, v in LAYER_LETTER.items()}.get(max(pl, key=pl.get), "none") if pl else None
+            out["c_layer"], out["c_op"] = layer, "none" if layer == "none" else None
+            if layer and layer != "none":
+                ops = LAYER_OPS[layer]
+                pq = self.option_p("opc", opc_prompt(x, layer), "ABCDEFGH"[:len(ops)], priority)
+                out["c_op"] = ops[ord(max(pq, key=pq.get)) - 65] if pq else None
         if self.stage >= 2 or self.obv_pen:
             p1 = self.option_p("rm1", [{"role": "system", "content": RM1_SYSTEM}, {"role": "user", "content": render_input({"source": row["source"], "sentences": ctx, "idx": rec["idx"]})}], "ABC", priority)
             out["p_halluc"] = (p1["B"] + p1["C"]) if p1 else 1.0
@@ -193,13 +214,40 @@ class OpsRewarder:
         组内多样性：达标样本里同一种改法的分摊奖励（在判别器项之后，对整条奖励按比例缩小）。"""
         if self.disc:
             self.disc_post(scores)
+        P = [x for x in scores if x.get("why") == "ok" and x.get("gate")]
+        for x in P:
+            x["reward_raw"], x["div"] = x["reward"], 1.0
         if self.div_sim:
-            P = [x for x in scores if x.get("why") == "ok" and x.get("gate")]
             S = [edit_sig(x["original"], x["sentence"]) for x in P]
             for i, x in enumerate(P):
                 k = sum(1 for j in range(len(P)) if j != i and (len(S[i] & S[j]) / len(S[i] | S[j]) if (S[i] | S[j]) else 1.0) >= self.div_sim)
-                x["div_k"], x["div"] = k, max(self.div_floor, (1 + k) ** -0.5)
-                x["reward"] = x["reward"] * x["div"]
+                x["div_k"], x["div"] = k, (1 + k) ** -0.5
+        if self.node_base or self.cls:
+            import collections
+            from ragtruth.edit_node import node
+
+            def shrink(p: float, q: float) -> float:
+                return 1.0 if p <= 1.5 * q else max(0.5, (1.5 * q / p) ** 0.5)
+
+            with self.lock:
+                for x in P:
+                    if self.node_base:
+                        x["node"] = node(x["original"], x["sentence"])
+                        self.node_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["node"])
+                    if self.cls and x.get("c_op"):
+                        self.cat_recent.append(x["c_op"])
+                for x in P:
+                    if self.node_base:
+                        q = self.node_recent[x["type"]]
+                        if len(q) >= 30:   # 这种操作的达标样本攒够了再算占比
+                            base = max(0.05, self.node_base.get(x["type"], {}).get("share", {}).get(x["node"], 0.0))
+                            x["node_mult"] = shrink(sum(n == x["node"] for n in q) / len(q), base)
+                    if self.cls and x.get("c_op") and len(self.cat_recent) >= 300:
+                        x["cat_mult"] = shrink(sum(c == x["c_op"] for c in self.cat_recent) / len(self.cat_recent), self.cat_target.get(x["c_op"], 0.02))
+        # 几项多样性的系数相乘，合起来不低于 div_floor：扣得再狠，达标样本的分也不该掉到没达标的样本下面，否则是在把模型往不达标推
+        for x in P:
+            x["div_total"] = max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0))
+            x["reward"] = x["reward_raw"] * x["div_total"]
 
     def disc_post(self, scores: list[dict]) -> None:
         cand = [x for x in scores if x.get("why") == "ok" and "p_disc" in x]
