@@ -24,12 +24,31 @@
         直接乘进奖励会把所有样本压扁。所以只用组内的相对高低：同一个提示的一组样本里，按判别器的分从低到高排名，
         奖励 = 阶段一的分 + w × 阶段一的分 × 排名分（比它更不像真的同伴占比）。w 和阶段二、三的难度权重一样自动调。
         判别器要跟着生成器更新：每训完一段，用新生成器的样本重训。
+
+三个阶段训完后 Claude 抽查发现两个偏向，各加一项来纠（都默认关）：
+  明显错系数（clear_ref > 0）：难度项再乘 min(1, P(明显错) / clear_ref)²。三项达标且 critic 低于 0.5 的样本里六成是轻微错
+        （should → may 这类），明显错只有 18%：过门槛的样本里难度分和 P(明显错) 的相关是 −0.41，难度项实际在奖励「错得轻」。
+        不用硬门槛（P(明显错) ≥ 0.5 才给分）：那样只有 15% 的任务组内有可比较的难度分，没有东西可学。
+  组内多样性（div_sim > 0）：同一个任务的一组样本里，达标样本之间比「改动签名」（相对原句删掉和新加的实词），
+        签名重合度 ≥ div_sim 的算同一种改法，同一种改法的 k + 1 条每条奖励乘 1 / √(1 + k)（不低于 div_floor）。
+        只扣不加、只在达标样本之间比：给「不一样」加分会鼓励离谱的句子。训到阶段三，同一任务两两相似度从 0.44 升到 0.61，
+        改法向几个套路收敛（add_hedge 里 91% 是加 may，generalize 里 34% 是加 many）。
 """
 from __future__ import annotations
 
 from ragtruth.rm_eval import option_logprobs, probs
 from train.gen_reward import NO_THINK, edit_sim
 from train.gen_reward_v2 import BANNED, hardness
+
+STOP = frozenset("the a an to of in on at for and or is are was were be been it that this with by as from s".split())
+
+
+def edit_sig(original: str, sentence: str) -> frozenset:
+    """改动签名：相对原句删掉的实词（-词）和新加的实词（+词）。"""
+    import collections
+    import re
+    a, b = (collections.Counter(re.findall(r"\w+", t.lower())) for t in (original, sentence))
+    return frozenset("-" + w for w in (a - b) if w not in STOP) | frozenset("+" + w for w in (b - a) if w not in STOP)
 
 
 def soft_hard(p: float) -> float:
@@ -43,7 +62,8 @@ def soft_hard(p: float) -> float:
 
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
-                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False):
+                 ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False,
+                 clear_ref=0.0, div_sim=0.0, div_floor=0.4):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -51,6 +71,7 @@ class OpsRewarder:
         # ref = 进入本阶段时阶段一的平均分（同一批提示上量的）；0 = 不自动调，w 固定为 w_hard
         self.ref, self.w_max, self.w_min, self.tol, self.window = ref, w_hard, w_min, tol, window
         self.obv_pen, self.obv_from, self.disc, self.w_disc = obv_pen, obv_from, disc, w_disc
+        self.clear_ref, self.div_sim, self.div_floor = clear_ref, div_sim, div_floor
         # 窗口 2048 条 ≈ 8 步：窗口只有 2 步（16 个任务）时，抽到哪几种操作就能让某一项的均值上下 0.05，
         # 明明没有下降也频繁触发回调（实测四分之一的检查触发），权重被按在起步值附近，难度项等于没加
         self.w = w_hard if not (ref or refs) else w_hard / 2   # 从一半起步，前面几项稳得住再放大
@@ -157,18 +178,30 @@ class OpsRewarder:
         else:
             w = self.track(r1, (s["p_err"], s["p_natural"], s["p_op"]))
             h = (soft_hard if self.stage == 2 else hardness)(s["p_halluc"]) if gate else 0.0
+            if self.clear_ref:
+                h *= min(1.0, s["p_clear"] / self.clear_ref) ** 2
             # 难度项直接加，不再乘阶段一的分：过了三道门槛之后，能拿多少难度分只看 critic。
             # 乘法时难度项和阶段一的分天然相关，权重小的时候训练继续往「三项更高」走，而那三项和 critic 同向——
             # 实测权重 0.25 跑 27 步，达标样本里 critic 拿不准的从 24% 降到 17%，样本反而更好认了
             lam = list(self.lam)
             r, q = r1 + w * h + lam[0] * s["p_err"] + lam[1] * s["p_natural"] + lam[2] * s["p_op"], bool(gate and h > 0)
         return {**base, **s, "p_halluc": s["p_halluc"] if s["p_halluc"] is not None else 0.0, "gate": gate, "geo": geo, "obv": obv, "r1": r1, "w_hard": w, "low": self.low, "lam": list(self.lam), "hardness": h, "reward": r, "qualified": bool(q),
-                "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 0.0}
+                "p_correct": s["p_err"], "hard": h, "real": s["p_natural"], "div": 1.0, "div_k": 0}
 
     def group_post(self, scores: list[dict]) -> None:
-        """判别器项：同一个提示的一组里，格式合格的样本按判别器的分排名，奖励加上 w × 阶段一的分 × 排名分。"""
-        if not self.disc:
-            return
+        """判别器项：同一个提示的一组里，格式合格的样本按判别器的分排名，奖励加上 w × 阶段一的分 × 排名分。
+        组内多样性：达标样本里同一种改法的分摊奖励（在判别器项之后，对整条奖励按比例缩小）。"""
+        if self.disc:
+            self.disc_post(scores)
+        if self.div_sim:
+            P = [x for x in scores if x.get("why") == "ok" and x.get("gate")]
+            S = [edit_sig(x["original"], x["sentence"]) for x in P]
+            for i, x in enumerate(P):
+                k = sum(1 for j in range(len(P)) if j != i and (len(S[i] & S[j]) / len(S[i] | S[j]) if (S[i] | S[j]) else 1.0) >= self.div_sim)
+                x["div_k"], x["div"] = k, max(self.div_floor, (1 + k) ** -0.5)
+                x["reward"] = x["reward"] * x["div"]
+
+    def disc_post(self, scores: list[dict]) -> None:
         cand = [x for x in scores if x.get("why") == "ok" and "p_disc" in x]
         ps = [x["p_disc"] for x in cand]
         for x in cand:

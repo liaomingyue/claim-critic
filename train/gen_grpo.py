@@ -278,7 +278,8 @@ def build_rewarder(args):
         from train.gen_reward_ops import OpsRewarder
         return OpsRewarder(cl, load_temps(args.temps), stage=args.ops_stage, err_gate=args.ops_err_gate, nat_gate=args.nat_gate, op_gate=args.op_gate,
                            min_sim=args.ops_min_sim, fail_scale=args.fail_scale, ref=args.ops_ref, w_hard=args.ops_w_hard, obv_pen=args.ops_obv_pen, disc=bool(args.ops_disc),
-                           refs=[float(v) for v in args.ops_refs.split(",")] if args.ops_refs else None, w_fixed=bool(args.ops_w_fixed))
+                           refs=[float(v) for v in args.ops_refs.split(",")] if args.ops_refs else None, w_fixed=bool(args.ops_w_fixed),
+                           clear_ref=args.ops_clear, div_sim=args.ops_div)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
                               err_mode=args.err_mode, shape=args.shape, w_real2=args.w_real2, w_hard2=args.w_hard2, crit_max=args.crit_max, crit_floor=args.crit_floor,
@@ -1160,6 +1161,8 @@ def main() -> None:
     ap.add_argument("--ops_obv_pen", type=float, default=0.5, help="ops：critic 已经明确认得出的样本（P ≥ 0.7 起）扣分的上限，0 = 不看 critic")
     ap.add_argument("--ops_refs", default="", help="ops：进入本阶段时真错、自然、操作一致三项各自的平均概率（逗号分隔）；给了就逐项守住，任何一项掉下去难度权重都调小")
     ap.add_argument("--ops_w_fixed", type=int, default=0, help="ops 阶段二 / 三：1 = 难度权重固定为 ops_w_hard，整段训练不变")
+    ap.add_argument("--ops_clear", type=float, default=0.0, help="ops 阶段二 / 三：> 0 时难度项再乘 min(1, P(明显错) / 这个值)²，难度分只给错得明显的样本")
+    ap.add_argument("--ops_div", type=float, default=0.0, help="ops：> 0 时加组内多样性，达标样本里改动签名重合度 ≥ 这个值的算同一种改法，分摊奖励")
     ap.add_argument("--ops_w_hard", type=float, default=0.5, help="ops 阶段二 / 三：难度项权重的上限")
     ap.add_argument("--temps", default="", help="RM 温度来源：vLLM 名=RM 目录，逗号分隔；空 = 9B 版")
     ap.add_argument("--w_corr", type=float, default=0.5)
