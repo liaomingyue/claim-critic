@@ -7,8 +7,9 @@ opl / opc 要读两遍原文，只给出「哪一种操作」；手段靠词表�
   位置 3  动作    改动的语义方向：replace / add / remove / move / strengthen / weaken / blur（不是错时写 Z）
   位置 4  手段    用的是哪一类词或结构：modal / quantifier / generic_agent / connective / negation / tense / name / number / report / content / structure
 节点 = 动作 / 手段。should → may、must → might、conceivably 都是 weaken/modal；12 → several、300 → hundreds of 都是 blur/quantifier。
-标签：层和操作是 Claude 独立判的操作（同 rm_opc）。动作和手段：规则认不出手段的样本由 Claude 标（analysis/opd_label，只看原句和改写句）；
-规则认得出的按规则换算（RULE_MAP），另抽了一批让 Claude 也标，用来量换算的准确率。
+标签：层和操作是 Claude 独立判的操作（同 rm_opc）。动作和手段全部由 Claude 标（analysis/opd_label，只看原句和改写句）。
+原打算规则认得出手段的样本按规则换算（RULE_MAP），抽 150 条让 Claude 也标了一遍：动作一致 44%、手段一致 41%、两项都一致只有 29%。
+改写幅度大的句子里，顺带出现的数字、连接词会触发规则，而真正造成错误的改动在别处。所以规则换算的标签不用，那部分也交给 Claude 标了。
 
   python -m ragtruth.rm_opd      # → outputs/rt/rm/opd__v1/{train,calib,test}.jsonl
 """
@@ -96,23 +97,23 @@ def decode(lps: list[dict]) -> dict:
 
 def main() -> None:
     rows = load()
-    L = {r["uid"]: r for r in read_jsonl(RT / "analysis/opd_label/labels.jsonl")}
+    L = {r["uid"]: r for f in ("labels.jsonl", "labels2.jsonl") if (RT / "analysis/opd_label" / f).exists() for r in read_jsonl(RT / "analysis/opd_label" / f)}
     parts, src, agree = collections.defaultdict(list), collections.Counter(), collections.Counter()
     for r in rows:
         if r["op"] not in OPS:
             lab = "E Z Z Z"
         else:
             rule, c = from_rule(node(r["original"], r["sentence"])), L.get(r["uid"])
-            if c and rule:   # 抽查的那批：两边都有，量规则换算准不准；训练用 Claude 的
+            if c and rule:   # 两边都有的：量规则换算准不准
                 agree["n"] += 1
                 agree["action"] += c["action"] == rule[0]
                 agree["device"] += c["device"] == rule[1]
                 agree["both"] += (c["action"], c["device"]) == rule
-            ad = (c["action"], c["device"]) if c else rule
-            if not ad:
+            if not c:
                 src["dropped: no label"] += 1
                 continue
-            src["claude" if c else "rule"] += 1
+            ad = (c["action"], c["device"])
+            src["claude"] += 1
             lab = f"{LAYER_LETTER[OPS[r['op']]['layer']]} {chr(65 + OPLIST.index(r['op']))} {chr(65 + ACTIONS.index(ad[0]))} {chr(65 + DEVICES.index(ad[1]))}"
         parts[r["split"]].append({**row("opd/" + r["uid"], r, prompt(r), lab), "op": r["op"]})
     m = write_rm("opd__v1", parts, 4096)
