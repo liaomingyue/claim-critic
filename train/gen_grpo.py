@@ -286,7 +286,7 @@ def build_rewarder(args):
                            min_sim=args.ops_min_sim, fail_scale=args.fail_scale, ref=args.ops_ref, w_hard=args.ops_w_hard, obv_pen=args.ops_obv_pen, disc=bool(args.ops_disc),
                            refs=[float(v) for v in args.ops_refs.split(",")] if args.ops_refs else None, w_fixed=bool(args.ops_w_fixed),
                            clear_ref=args.ops_clear, div_sim=args.ops_div,
-                           node_base=json.load(open(args.ops_node_base, encoding="utf-8")) if args.ops_node_base else None, cls=bool(args.ops_cls),
+                           node_base=json.load(open(args.ops_node_base, encoding="utf-8")) if args.ops_node_base else None, cls=args.ops_cls,
                            cat_target=ops_cat_target(args.prompts) if args.ops_cls else None)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
