@@ -20,7 +20,7 @@ R=$O/$E
 [ -d $R/ckpt/step$STEPS ] && { log "skip $E (done)"; exit 0; }
 free_gpu
 A=$A bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.4 --base $MC --log $A/vllm-gog.log --priority \
-  sev4=$FS/adapters/sev__v4-mc/adapter nat4=$FS/adapters/rm2__v4-mc/adapter opm=$FS/adapters/opm__v1-mc/adapter rm1=$FS/adapters/rm1__core_r2_bfcl-mc/adapter disc=$FS/adapters/${DISC:-rm2__d1}-mc/adapter $([ "${CLS:-0}" = 1 ] && echo "opl=$FS/adapters/opl__v1-mc/adapter opc=$FS/adapters/opc__v1-mc/adapter") policy_v0=$INIT >> $LOG 2>&1 || { log "$E vllm FAILED"; exit 1; }
+  sev4=$FS/adapters/sev__v4-mc/adapter nat4=$FS/adapters/rm2__v4-mc/adapter opm=$FS/adapters/opm__v1-mc/adapter rm1=$FS/adapters/rm1__core_r2_bfcl-mc/adapter disc=$FS/adapters/${DISC:-rm2__d1}-mc/adapter $([ "${CLS:-0}" = 1 ] && echo "opl=$FS/adapters/opl__v1-mc/adapter opc=$FS/adapters/opc__v1-mc/adapter") $([ "${CLS:-0}" = 2 ] && echo "opd=$FS/adapters/opd__v1-mc/adapter") policy_v0=$INIT >> $LOG 2>&1 || { log "$E vllm FAILED"; exit 1; }
 log "train $E: stage $STAGE lr $LR steps $STEPS n $N prompts/step $PPS init $INIT"
 CUDA_VISIBLE_DEVICES=0 python -u -m train.gen_grpo --causal 1 --base $MC --init $INIT --prompts $PF --reward ops --ops_stage $STAGE \
   --temps sev4=sev__v4,nat4=rm2__v4,opm=opm__v1,rm1=rm1__core_r2_bfcl,disc=${DISC:-rm2__d1}$([ "${CLS:-0}" = 1 ] && echo ",opl=opl__v1,opc=opc__v1") \

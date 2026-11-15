@@ -41,6 +41,9 @@
   类别分布（cls）：事后分类模型（ragtruth.rm_opc 的 opl、opc，不看要求的操作）判这条样本实际是哪一种操作。滚动统计全部达标样本的类别占比，
         某个类别的占比超过它在出题里占比的 1.5 倍，奖励按同样的公式缩小。出题是各种操作均匀的，产出的类别分布偏了，
         说明有些操作被做成了别的操作，或者被判为不是错。
+  cls = 2：换成多维度的事后分类模型（ragtruth.rm_opd 的 opd，一次前向给出层、操作、动作、手段）。类别占比照旧用它判的操作；
+        手段节点改用它判的「动作 / 手段」，不再用词表规则：规则认不出换实词和换语序的改法（达标样本里约两成），词表外的同义说法也认不出。
+        这时 node_base 要给模型节点的起点占比（scripts/analysis/genops_classify_opd.py 在起点模型的样本上算出来）。
 """
 from __future__ import annotations
 
@@ -166,7 +169,14 @@ class OpsRewarder:
             from ragtruth.rm_disc import prompt as disc_prompt
             pd = self.option_p("disc", disc_prompt(row["source"], ctx, rec["idx"]), "AB", priority)
             out["p_disc"] = pd["A"] if pd else 0.0
-        if self.cls:
+        if self.cls == 2:
+            from ragtruth.rm_opd import decode, multi_logprobs, prompt as opd_prompt
+            body = {**NO_THINK["extra_body"], **({"priority": priority} if priority else {})}
+            r = self.client.chat.completions.create(model="opd", messages=opd_prompt(x), max_tokens=12, temperature=0.0, logprobs=True, top_logprobs=20, extra_body=body)
+            lps = multi_logprobs(r.choices[0])
+            d = decode(lps) if lps else {}
+            out["c_layer"], out["c_op"], out["c_node"] = d.get("layer"), d.get("op"), (f"{d['action']}/{d['device']}" if d else None)
+        elif self.cls:
             from ragtruth.rm_opc import LAYER_LETTER, LAYER_OPS, opc_prompt, opl_prompt
             pl = self.option_p("opl", opl_prompt(x), "ABCDE", priority)
             layer = {v: k for k, v in LAYER_LETTER.items()}.get(max(pl, key=pl.get), "none") if pl else None
@@ -233,13 +243,13 @@ class OpsRewarder:
             with self.lock:
                 for x in P:
                     if self.node_base:
-                        x["node"] = node(x["original"], x["sentence"])
+                        x["node"] = (x.get("c_node") or "none/none") if self.cls == 2 else node(x["original"], x["sentence"])
                         self.node_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["node"])   # 兜底节点也记：它是分母的一部分
                     if self.cls and x.get("c_op"):
                         self.cat_recent.append(x["c_op"])
                 for x in P:
                     # 兜底节点（规则说不出是哪类词）不扣；挂接层不用这一项：这一层改的是实词和语序，规则大半认不出，套路交给事后分类看
-                    if self.node_base and x["node"] not in FALLBACK and OPS[x["type"]]["layer"] != "binding":
+                    if self.node_base and (self.cls == 2 or (x["node"] not in FALLBACK and OPS[x["type"]]["layer"] != "binding")):
                         q = self.node_recent[x["type"]]
                         if len(q) >= 30:   # 这种操作的达标样本攒够了再算占比
                             base = max(0.05, self.node_base.get(x["type"], {}).get("share", {}).get(x["node"], 0.0))
