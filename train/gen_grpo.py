@@ -256,6 +256,8 @@ class Producer:
             try:
                 b = self.make_batch()
             except Exception:   # 生成线程出错时整个进程退出：否则主线程一直等队列，机器空转
+                if self.stop:   # 训练已经结束、线程池关了之后的报错不算
+                    return
                 import os
                 import traceback
                 traceback.print_exc()
