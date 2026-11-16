@@ -44,6 +44,14 @@
   cls = 2：换成多维度的事后分类模型（ragtruth.rm_opd 的 opd，一次前向给出层、操作、动作、手段）。类别占比照旧用它判的操作；
         手段节点改用它判的「动作 / 手段」，不再用词表规则：规则认不出换实词和换语序的改法（达标样本里约两成），词表外的同义说法也认不出。
         这时 node_base 要给模型节点的起点占比（scripts/analysis/genops_classify_opd.py 在起点模型的样本上算出来）。
+  和真实错误的分布比（real_target，要 cls = 2）：上面两项拿起点模型的分布当目标，而起点模型本身就在用套路（加限定语 92% 是 may），
+        查训练样本发现用了套路词的样本几乎没被罚，换了写法的反而因为被判成别的操作罚得更重。给了 real_target 就换成这一套，上面两项不再用：
+        节点：分类模型不取最可能的一格，整个概率分布都用（一半的准确率下，硬判的一格有一半是错的）。目标 = 同一个分类模型在真实错误句上给出的平均分布
+              （两边用同一把尺子，分类模型的偏差大体抵消），实际 = 这种操作最近 300 条达标样本的平均分布。
+              系数 = Σ 这条样本在各格的概率 × (目标占比 / 实际占比)，夹在 [0.5, div_cap]：落在占比偏高的格子里的罚，落在偏低的格子里的加分。
+        词面：节点比套路粗（many、most、some 是同一格）。同一种操作里统计「新加进句子的词」的占比，
+              超过它在真实错误里占比的 1.5 倍（不足 10% 的按 10% 算）就乘 允许占比 / 实际占比，不低于 0.3。只罚不奖：给少见的词加分会鼓励怪词。
+        真实错误不足 30 对的操作（加限定语只有 3 对）两项都不设目标。目标文件由 scripts/analysis/genops_classify_opd.py real 生成。
 """
 from __future__ import annotations
 
@@ -52,6 +60,8 @@ from train.gen_reward import NO_THINK, edit_sim
 from train.gen_reward_v2 import BANNED, hardness
 
 STOP = frozenset("the a an to of in on at for and or is are was were be been it that this with by as from s".split())
+# 词面占比不看的词：代词和助动词是改写时顺带出现的，不是套路。情态词（may、can、might）留着：它们正是套路
+FUNC = frozenset("have has had he she they his her their them you we i its which who what there here do does did".split())
 
 
 def edit_sig(original: str, sentence: str) -> frozenset:
@@ -74,7 +84,7 @@ def soft_hard(p: float) -> float:
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
                  ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False,
-                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0):
+                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0, real_target=None):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -91,6 +101,9 @@ class OpsRewarder:
         # 稀有的加分只给做对了的样本：在留出样本上模拟过不分情况的版本，稀有的格子大半是做成了别的操作的样本，
         # 做错的平均系数（0.82）反而高过做对的（0.61），等于奖励跑偏
         self.div_rare, self.div_cap = div_rare, div_cap
+        # real_target = {操作: {"n": 真实错误的对数, "node": {节点: 分类模型在真实错误上的平均概率}, "word": {新加的词: 占比}}}
+        self.real_target = real_target
+        self.soft_recent, self.word_recent = {}, {}                                          # 每种操作最近 300 条达标样本的节点概率分布、新加的词
         self.node_recent = {}                                                                # 每种操作最近 300 条达标样本的节点
         self.cat_recent = collections.deque(maxlen=2048)                                     # 最近的达标样本的类别
         # 窗口 2048 条 ≈ 8 步：窗口只有 2 步（16 个任务）时，抽到哪几种操作就能让某一项的均值上下 0.05，
@@ -181,6 +194,9 @@ class OpsRewarder:
             r = self.client.chat.completions.create(model="opd", messages=opd_prompt(x), max_tokens=12, temperature=0.0, logprobs=True, top_logprobs=20, extra_body=body)
             lps = multi_logprobs(r.choices[0])
             d = decode(lps) if lps else {}
+            if self.real_target and lps:
+                from ragtruth.rm_opd import soft_nodes
+                out["c_soft"] = soft_nodes(lps)
             out["c_layer"], out["c_op"], out["c_node"] = d.get("layer"), d.get("op"), (f"{d['action']}/{d['device']}" if d else None)
         elif self.cls:
             from ragtruth.rm_opc import LAYER_LETTER, LAYER_OPS, opc_prompt, opl_prompt
@@ -238,7 +254,9 @@ class OpsRewarder:
             for i, x in enumerate(P):
                 k = sum(1 for j in range(len(P)) if j != i and (len(S[i] & S[j]) / len(S[i] | S[j]) if (S[i] | S[j]) else 1.0) >= self.div_sim)
                 x["div_k"], x["div"] = k, (1 + k) ** -0.5
-        if self.node_base or self.cls:
+        if self.real_target:
+            self.real_post(P)
+        elif self.node_base or self.cls:
             import collections
             from ragtruth.edit_node import FALLBACK, node
             from ragtruth.error_ops import OPS
@@ -278,8 +296,43 @@ class OpsRewarder:
                         x["cat_mult"] = shrink(sum(c == x["c_op"] for c in self.cat_recent) / len(self.cat_recent), self.cat_target.get(x["c_op"], 0.02))
         # 几项多样性的系数相乘，合起来不低于 div_floor：扣得再狠，达标样本的分也不该掉到没达标的样本下面，否则是在把模型往不达标推
         for x in P:
-            x["div_total"] = min(self.div_cap if self.div_rare else 1.0, max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0)))
+            x["div_total"] = min(self.div_cap if (self.div_rare or self.real_target) else 1.0, max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0) * x.get("word_mult", 1.0)))
             x["reward"] = x["reward_raw"] * x["div_total"]
+
+    def real_post(self, P: list[dict], eps: float = 0.02, min_n: int = 30) -> None:
+        """和真实错误的分布比：节点按概率分布算（node_mult，可以大于 1），新加的词按占比算（word_mult，只罚）。"""
+        import collections
+        with self.lock:
+            todo = []
+            for x in P:
+                tg = self.real_target.get(x["type"])
+                if not tg or tg["n"] < min_n:
+                    continue
+                x["add_words"] = sorted(t[1:] for t in edit_sig(x["original"], x["sentence"]) if t[0] == "+" and t[1:] not in FUNC)
+                self.word_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(frozenset(x["add_words"]))
+                if x.get("c_soft"):
+                    self.soft_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["c_soft"])
+                todo.append((x, tg))
+            share = {}   # 每种操作这一批只算一次平均分布
+            for x, tg in todo:
+                op = x["type"]
+                q = self.soft_recent.get(op, ())
+                if x.get("c_soft") and len(q) >= min_n:
+                    if op not in share:
+                        acc = collections.Counter()
+                        for s in q:
+                            acc.update(s)
+                        share[op] = {k: v / len(q) for k, v in acc.items()}
+                    m = sum(w * min(4.0, max(0.25, (tg["node"].get(k, 0.0) + eps) / (share[op].get(k, 0.0) + eps))) for k, w in x["c_soft"].items())
+                    x["node_mult"] = min(self.div_cap, max(0.5, m))
+                wq = self.word_recent[op]
+                if len(wq) >= min_n and x["add_words"]:
+                    wm, worst = 1.0, ""
+                    for w in x["add_words"]:
+                        allow, p = max(1.5 * tg["word"].get(w, 0.0), 0.10), sum(w in s for s in wq) / len(wq)
+                        if p > allow and allow / p < wm:
+                            wm, worst = max(0.3, allow / p), w
+                    x["word_mult"], x["word_hit"] = wm, worst
 
     def disc_post(self, scores: list[dict]) -> None:
         cand = [x for x in scores if x.get("why") == "ok" and "p_disc" in x]

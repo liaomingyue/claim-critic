@@ -295,7 +295,8 @@ def build_rewarder(args):
                            refs=[float(v) for v in args.ops_refs.split(",")] if args.ops_refs else None, w_fixed=bool(args.ops_w_fixed),
                            clear_ref=args.ops_clear, div_sim=args.ops_div, div_rare=args.ops_div_rare, div_cap=args.ops_div_cap,
                            node_base=json.load(open(args.ops_node_base, encoding="utf-8")) if args.ops_node_base else None, cls=args.ops_cls,
-                           cat_target=ops_cat_target(args.prompts) if args.ops_cls else None)
+                           cat_target=ops_cat_target(args.prompts) if args.ops_cls else None,
+                           real_target=json.load(open(args.ops_real_target, encoding="utf-8")) if args.ops_real_target else None)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
                               err_mode=args.err_mode, shape=args.shape, w_real2=args.w_real2, w_hard2=args.w_hard2, crit_max=args.crit_max, crit_floor=args.crit_floor,
@@ -1180,6 +1181,7 @@ def main() -> None:
     ap.add_argument("--ops_clear", type=float, default=0.0, help="ops 阶段二 / 三：> 0 时难度项再乘 min(1, P(明显错) / 这个值)²，难度分只给错得明显的样本")
     ap.add_argument("--ops_div", type=float, default=0.0, help="ops：> 0 时加组内多样性，达标样本里改动签名重合度 ≥ 这个值的算同一种改法，分摊奖励")
     ap.add_argument("--ops_div_rare", type=float, default=0.0, help="ops：> 0 时节点和类别的占比系数改成双向的 (目标占比 / 实际占比) 的这个次方：占比高的重罚，占比低的加分")
+    ap.add_argument("--ops_real_target", default="", help="ops：真实错误的节点分布和新加的词的占比（configs/rt/op_real_target.json）；给了就拿它当多样性的目标，不再和起点模型比（要 --ops_cls 2）")
     ap.add_argument("--ops_div_cap", type=float, default=2.0, help="ops：双向占比系数合起来的上限")
     ap.add_argument("--ops_node_base", default="", help="ops：起点模型各操作的手段节点占比（configs/rt/op_node_base.json）；给了就按节点扣跨任务的套路")
     ap.add_argument("--ops_cls", type=int, default=0, help="ops：1 = 用事后分类模型（vLLM 上的 opl、opc）判实际做成的操作，按类别占比扣分")

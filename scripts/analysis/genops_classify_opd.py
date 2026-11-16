@@ -3,6 +3,7 @@
   python genops_classify_opd.py eval                      # 留出测试集上各维度的准确率 → outputs/rt/rm/opd__v1/eval/report_multi.json
   python genops_classify_opd.py classify ev_st4 ...       # 给合成样本分类 → outputs/rt/core/samples_ops_<tag>_opd.jsonl（id、layer、op、action、device）
   python genops_classify_opd.py base ev_base_free         # 起点模型各操作的节点（动作 / 手段）占比 → configs/rt/op_node_base_opd.json，只算真错的样本
+  python genops_classify_opd.py real                      # 真实错误句上的节点分布（分类模型的平均概率）和新加的词的占比 → configs/rt/op_real_target.json
 """
 import collections
 import json
@@ -83,9 +84,40 @@ def cmd_base(tag: str) -> None:
     print("OPD_BASE", {op: (b["n"], max(b["share"], key=b["share"].get)) for op, b in base.items()})
 
 
+def cmd_real() -> None:
+    """真实错误（模型自己写错的句子和它忠于原文的版本，seed_pairs）按人工核实的操作分组：分类模型给每一对的节点概率取平均 = 节点的目标分布；
+    每一对里新加进句子的词，占这种操作的多少对 = 词的目标占比。分类模型训练时见过其中七成，在这些句子上会比在合成样本上更确信，目标分布因此偏尖一些。"""
+    import re
+    from ragtruth.rm_opd import soft_nodes
+    from train.gen_reward_ops import FUNC, edit_sig
+    rows = [r for f in ("train", "calib", "test") for r in map(json.loads, open(f"outputs/rt/rm/opd__v1/{f}.jsonl", encoding="utf-8")) if r["origin"] == "seed_pairs" and r["op"] in OPS]
+
+    def one(r: dict) -> dict | None:
+        c = cl.chat.completions.create(model="opd", messages=r["prompt"], max_tokens=12, temperature=0.0, logprobs=True, top_logprobs=20, extra_body=NO_THINK["extra_body"])
+        lps = multi_logprobs(c.choices[0])
+        return soft_nodes(lps) if lps else None
+
+    with ThreadPoolExecutor(64) as ex:
+        soft = list(ex.map(one, rows))
+    N, W, n, n_soft = collections.defaultdict(collections.Counter), collections.defaultdict(collections.Counter), collections.Counter(), collections.Counter()
+    for r, s in zip(rows, soft):
+        t = r["prompt"][-1]["content"]
+        o, e = re.search(r"ORIGINAL: (.*)", t).group(1), re.search(r"EDITED: (.*)", t).group(1)
+        n[r["op"]] += 1
+        W[r["op"]].update({w[1:] for w in edit_sig(o, e) if w[0] == "+" and w[1:] not in FUNC})
+        if s:
+            n_soft[r["op"]] += 1
+            N[r["op"]].update(s)
+    out = {op: {"n": n[op], "node": {k: round(v / n_soft[op], 4) for k, v in sorted(N[op].items())}, "word": {k: round(v / n[op], 4) for k, v in sorted(W[op].items()) if v >= 2}} for op in sorted(n) if n_soft[op]}
+    Path("configs/rt/op_real_target.json").write_text(json.dumps(out, indent=0, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+    print("OPD_REAL", {op: (v["n"], max(v["node"], key=v["node"].get), round(max(v["node"].values()), 2)) for op, v in out.items()})
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "eval":
         cmd_eval()
+    elif sys.argv[1] == "real":
+        cmd_real()
     elif sys.argv[1] == "base":
         cmd_base(sys.argv[2])
     else:

@@ -95,6 +95,27 @@ def decode(lps: list[dict]) -> dict:
     return {"layer": {v: k for k, v in LAYER_LETTER.items()}[best[0]], "op": pick(lps[1], OPLIST), "action": pick(lps[2], ACTIONS), "device": pick(lps[3], DEVICES)}
 
 
+def soft_nodes(lps: list[dict]) -> dict:
+    """节点（动作 / 手段）上的概率分布，外加 none/none（第一位是 E 的概率）。动作和手段两个位置各自归一后相乘，再乘上「是错」的概率。小于 0.001 的格子不留。"""
+    import math
+
+    def norm(lp: dict, keep: str) -> dict:
+        e = {c: math.exp(lp[c]) for c in keep}
+        s = sum(e.values()) or 1.0
+        return {c: v / s for c, v in e.items()}
+
+    p_none = norm(lps[0], OPTS[0])["E"]
+    pa, pd = norm(lps[2], OPTS[2]), norm(lps[3], OPTS[3])
+    out = {"none/none": p_none}
+    for i, a in enumerate(ACTIONS):
+        for j, d in enumerate(DEVICES):
+            v = (1.0 - p_none) * pa[chr(65 + i)] * pd[chr(65 + j)]
+            if v >= 1e-3:
+                out[f"{a}/{d}"] = v
+    s = sum(out.values())
+    return {k: round(v / s, 4) for k, v in out.items()}
+
+
 def main() -> None:
     rows = load()
     L = {r["uid"]: r for f in ("labels.jsonl", "labels2.jsonl") if (RT / "analysis/opd_label" / f).exists() for r in read_jsonl(RT / "analysis/opd_label" / f)}
