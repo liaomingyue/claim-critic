@@ -219,7 +219,7 @@ class OpsRewarder:
                 from ragtruth.rm_opd import soft_nodes
                 out["c_soft"] = soft_nodes(lps)
                 from ragtruth.rm_opd import op_prob
-                out["c_pop"] = op_prob(lps, x["type"])
+                out["c_pop"] = op_prob(lps, row["op"])
             out["c_layer"], out["c_op"], out["c_node"] = d.get("layer"), d.get("op"), (f"{d['action']}/{d['device']}" if d else None)
         elif self.cls:
             from ragtruth.rm_opc import LAYER_LETTER, LAYER_OPS, opc_prompt, opl_prompt
