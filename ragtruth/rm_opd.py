@@ -116,6 +116,16 @@ def soft_nodes(lps: list[dict]) -> dict:
     return {k: round(v / s, 4) for k, v in out.items()}
 
 
+def op_prob(lps: list[dict], op: str) -> float:
+    """分类模型给「这条样本做的是 op」的概率：「是错」的概率 × 操作那一位归一后的概率。"""
+    import math
+    if op not in OPLIST:
+        return 0.0
+    e = {c: math.exp(lps[1][c]) for c in OPTS[1]}
+    p_none = math.exp(lps[0]["E"]) / (sum(math.exp(lps[0][c]) for c in OPTS[0]) or 1.0)
+    return round((1.0 - p_none) * e[chr(65 + OPLIST.index(op))] / (sum(e.values()) or 1.0), 4)
+
+
 def main() -> None:
     rows = load()
     L = {r["uid"]: r for f in ("labels.jsonl", "labels2.jsonl") if (RT / "analysis/opd_label" / f).exists() for r in read_jsonl(RT / "analysis/opd_label" / f)}

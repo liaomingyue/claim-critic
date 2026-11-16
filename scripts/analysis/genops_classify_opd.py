@@ -89,7 +89,7 @@ def cmd_real() -> None:
     每一对里新加进句子的词，占这种操作的多少对 = 词的目标占比。分类模型训练时见过其中七成，在这些句子上会比在合成样本上更确信，目标分布因此偏尖一些。"""
     import re
     from ragtruth.rm_opd import soft_nodes
-    from train.gen_reward_ops import FUNC, edit_sig
+    from train.gen_reward_ops import FUNC, edit_sig, word_groups
     rows = [r for f in ("train", "calib", "test") for r in map(json.loads, open(f"outputs/rt/rm/opd__v1/{f}.jsonl", encoding="utf-8")) if r["origin"] == "seed_pairs" and r["op"] in OPS]
 
     def one(r: dict) -> dict | None:
@@ -100,15 +100,19 @@ def cmd_real() -> None:
     with ThreadPoolExecutor(64) as ex:
         soft = list(ex.map(one, rows))
     N, W, n, n_soft = collections.defaultdict(collections.Counter), collections.defaultdict(collections.Counter), collections.Counter(), collections.Counter()
+    GR = collections.defaultdict(collections.Counter)   # 近义词组：这种操作里有多少对新加了这一组的词
     for r, s in zip(rows, soft):
         t = r["prompt"][-1]["content"]
         o, e = re.search(r"ORIGINAL: (.*)", t).group(1), re.search(r"EDITED: (.*)", t).group(1)
         n[r["op"]] += 1
-        W[r["op"]].update({w[1:] for w in edit_sig(o, e) if w[0] == "+" and w[1:] not in FUNC})
+        ws = {w[1:] for w in edit_sig(o, e) if w[0] == "+" and w[1:] not in FUNC}
+        W[r["op"]].update(ws)
+        GR[r["op"]].update(word_groups(ws))
         if s:
             n_soft[r["op"]] += 1
             N[r["op"]].update(s)
-    out = {op: {"n": n[op], "node": {k: round(v / n_soft[op], 4) for k, v in sorted(N[op].items())}, "word": {k: round(v / n[op], 4) for k, v in sorted(W[op].items()) if v >= 2}} for op in sorted(n) if n_soft[op]}
+    out = {op: {"n": n[op], "node": {k: round(v / n_soft[op], 4) for k, v in sorted(N[op].items())}, "word": {k: round(v / n[op], 4) for k, v in sorted(W[op].items()) if v >= 2},
+                "group": {k: round(v / n[op], 4) for k, v in sorted(GR[op].items())}} for op in sorted(n) if n_soft[op]}
     Path("configs/rt/op_real_target.json").write_text(json.dumps(out, indent=0, sort_keys=True, ensure_ascii=False), encoding="utf-8")
     print("OPD_REAL", {op: (v["n"], max(v["node"], key=v["node"].get), round(max(v["node"].values()), 2)) for op, v in out.items()})
 

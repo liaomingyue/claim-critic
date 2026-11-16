@@ -52,6 +52,13 @@
         词面：节点比套路粗（many、most、some 是同一格）。同一种操作里统计「新加进句子的词」的占比，
               超过它在真实错误里占比的 1.5 倍（不足 10% 的按 10% 算）就乘 允许占比 / 实际占比，不低于 0.3。只罚不奖：给少见的词加分会鼓励怪词。
         真实错误不足 30 对的操作（加限定语只有 3 对）两项都不设目标。目标文件由 scripts/analysis/genops_classify_opd.py real 生成。
+  第二版（real_v = 2）：上一版把 many、because、not 压下去了，留下两个问题，这一版各补一项，再把词面项加重：
+        近义词并组：改数字时 about、around、several 轮着用，每个词单看都在门槛附近。同一组的词（WORD_GROUPS）合起来再算一次占比，
+              超过真实错误里这一组占比的 1.5 倍（不足 15% 的按 15% 算）就罚，和单个词的系数取小的。
+        操作系数：没被罚的样本里操作做对的比例明显更低（扩大范围 50% 对 82%），躲开套路词的办法之一是改去做别的操作。
+              乘一项 0.75 + 0.5 × 分类模型给「要求的操作」的概率（用概率，不用硬判：硬判只有一半准；以 1 为中心，免得达标样本整体的分被压到没达标的样本下面）；节点的加分部分也按这个概率打折。
+        没有目标的操作：新加的词按固定上限算（单个词不超过 30%），不设节点目标。
+        单个词的门槛 10% → 8%；词面系数的下限 0.3 → 0.2，不过几项相乘后仍不低于 div_floor（0.4），实际多罚的有限。
 """
 from __future__ import annotations
 
@@ -62,6 +69,19 @@ from train.gen_reward_v2 import BANNED, hardness
 STOP = frozenset("the a an to of in on at for and or is are was were be been it that this with by as from s".split())
 # 词面占比不看的词：代词和助动词是改写时顺带出现的，不是套路。情态词（may、can、might）留着：它们正是套路
 FUNC = frozenset("have has had he she they his her their them you we i its which who what there here do does did".split())
+# 近义词组（real_v = 2）：同一组的词合起来算占比，防止一个词被压下去、换一个意思相同的词顶上
+WORD_GROUPS = {
+    "approx": "about around approximately roughly nearly almost over under least up",
+    "vague_quantity": "many several few some most numerous various multiple countless dozens hundreds thousands",
+    "cause": "because since due therefore thus hence so led leading caused causing resulting",
+    "hedge": "may might could possibly potentially perhaps likely probably reportedly allegedly apparently",
+    "contrast": "not no never but yet still however although though",
+}
+WORD_GROUP = {w: g for g, ws in WORD_GROUPS.items() for w in ws.split()}
+
+
+def word_groups(words) -> frozenset:
+    return frozenset(WORD_GROUP[w] for w in words if w in WORD_GROUP)
 
 
 def edit_sig(original: str, sentence: str) -> frozenset:
@@ -84,7 +104,7 @@ def soft_hard(p: float) -> float:
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
                  ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False,
-                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0, real_target=None):
+                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0, real_target=None, real_v=1):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -102,7 +122,8 @@ class OpsRewarder:
         # 做错的平均系数（0.82）反而高过做对的（0.61），等于奖励跑偏
         self.div_rare, self.div_cap = div_rare, div_cap
         # real_target = {操作: {"n": 真实错误的对数, "node": {节点: 分类模型在真实错误上的平均概率}, "word": {新加的词: 占比}}}
-        self.real_target = real_target
+        self.real_target, self.real_v = real_target, real_v
+        self.group_recent = {}                                                               # real_v = 2：每种操作最近 300 条达标样本用到的近义词组
         self.soft_recent, self.word_recent = {}, {}                                          # 每种操作最近 300 条达标样本的节点概率分布、新加的词
         self.node_recent = {}                                                                # 每种操作最近 300 条达标样本的节点
         self.cat_recent = collections.deque(maxlen=2048)                                     # 最近的达标样本的类别
@@ -197,6 +218,8 @@ class OpsRewarder:
             if self.real_target and lps:
                 from ragtruth.rm_opd import soft_nodes
                 out["c_soft"] = soft_nodes(lps)
+                from ragtruth.rm_opd import op_prob
+                out["c_pop"] = op_prob(lps, x["type"])
             out["c_layer"], out["c_op"], out["c_node"] = d.get("layer"), d.get("op"), (f"{d['action']}/{d['device']}" if d else None)
         elif self.cls:
             from ragtruth.rm_opc import LAYER_LETTER, LAYER_OPS, opc_prompt, opl_prompt
@@ -296,43 +319,62 @@ class OpsRewarder:
                         x["cat_mult"] = shrink(sum(c == x["c_op"] for c in self.cat_recent) / len(self.cat_recent), self.cat_target.get(x["c_op"], 0.02))
         # 几项多样性的系数相乘，合起来不低于 div_floor：扣得再狠，达标样本的分也不该掉到没达标的样本下面，否则是在把模型往不达标推
         for x in P:
-            x["div_total"] = min(self.div_cap if (self.div_rare or self.real_target) else 1.0, max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0) * x.get("word_mult", 1.0)))
+            x["div_total"] = min(self.div_cap if (self.div_rare or self.real_target) else 1.0, max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0) * x.get("word_mult", 1.0) * x.get("op_mult", 1.0)))
             x["reward"] = x["reward_raw"] * x["div_total"]
 
     def real_post(self, P: list[dict], eps: float = 0.02, min_n: int = 30) -> None:
-        """和真实错误的分布比：节点按概率分布算（node_mult，可以大于 1），新加的词按占比算（word_mult，只罚）。"""
+        """和真实错误的分布比：节点按概率分布算（node_mult，可以大于 1），新加的词按占比算（word_mult，只罚）。
+        real_v = 2 时再加近义词组的占比、操作系数（op_mult），没有目标的操作按固定上限算词面。"""
         import collections
+        v2 = self.real_v >= 2
+        floor, thr = (0.2, 0.08) if v2 else (0.3, 0.10)
         with self.lock:
             todo = []
             for x in P:
                 tg = self.real_target.get(x["type"])
-                if not tg or tg["n"] < min_n:
+                has = bool(tg) and tg["n"] >= min_n
+                if not has and not v2:
                     continue
                 x["add_words"] = sorted(t[1:] for t in edit_sig(x["original"], x["sentence"]) if t[0] == "+" and t[1:] not in FUNC)
                 self.word_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(frozenset(x["add_words"]))
-                if x.get("c_soft"):
+                if v2:
+                    self.group_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(word_groups(x["add_words"]))
+                if has and x.get("c_soft"):
                     self.soft_recent.setdefault(x["type"], collections.deque(maxlen=300)).append(x["c_soft"])
-                todo.append((x, tg))
+                todo.append((x, tg if has else None))
             share = {}   # 每种操作这一批只算一次平均分布
             for x, tg in todo:
                 op = x["type"]
+                pr = x.get("c_pop") if v2 else None
                 q = self.soft_recent.get(op, ())
-                if x.get("c_soft") and len(q) >= min_n:
+                if tg and x.get("c_soft") and len(q) >= min_n:
                     if op not in share:
                         acc = collections.Counter()
                         for s in q:
                             acc.update(s)
                         share[op] = {k: v / len(q) for k, v in acc.items()}
                     m = sum(w * min(4.0, max(0.25, (tg["node"].get(k, 0.0) + eps) / (share[op].get(k, 0.0) + eps))) for k, w in x["c_soft"].items())
-                    x["node_mult"] = min(self.div_cap, max(0.5, m))
+                    m = min(self.div_cap, max(0.5, m))
+                    if pr is not None and m > 1.0:   # 加分只按「做的是要求的操作」的概率给
+                        m = 1.0 + (m - 1.0) * pr
+                    x["node_mult"] = m
                 wq = self.word_recent[op]
                 if len(wq) >= min_n and x["add_words"]:
                     wm, worst = 1.0, ""
                     for w in x["add_words"]:
-                        allow, p = max(1.5 * tg["word"].get(w, 0.0), 0.10), sum(w in s for s in wq) / len(wq)
+                        allow = max(1.5 * tg["word"].get(w, 0.0), thr) if tg else 0.30
+                        p = sum(w in s for s in wq) / len(wq)
                         if p > allow and allow / p < wm:
-                            wm, worst = max(0.3, allow / p), w
+                            wm, worst = max(floor, allow / p), w
+                    if v2 and tg:
+                        gq = self.group_recent[op]
+                        for g in word_groups(x["add_words"]):
+                            allow, p = max(1.5 * tg.get("group", {}).get(g, 0.0), 0.15), sum(g in s for s in gq) / len(gq)
+                            if p > allow and allow / p < wm:
+                                wm, worst = max(floor, allow / p), "group:" + g
                     x["word_mult"], x["word_hit"] = wm, worst
+                if pr is not None:
+                    x["op_mult"] = 0.75 + 0.5 * pr
 
     def disc_post(self, scores: list[dict]) -> None:
         cand = [x for x in scores if x.get("why") == "ok" and "p_disc" in x]
