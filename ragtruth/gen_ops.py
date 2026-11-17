@@ -83,11 +83,11 @@ STYLES = {"strict": TAIL.replace(OLD_TAIL, STEPS % ""),
           "free": TAIL.replace(OLD_TAIL, STEPS_FREE)}
 
 
-def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False, cards: dict | None = None, style: str = "") -> str:
+def prompt(source: str, sentences: list[str], op: str, examples: bool = False, tail: bool = False, cards: dict | None = None, style: str = "", hard: bool = False) -> str:
     """examples：说明后面附上这种操作的真实例子；tail：指令放在原文和回答之后；cards：放整张操作卡片（例句对由 examples() 给）。"""
     if cards is not None:
         sents = "\n".join(f"[S{k}] {s}" for k, s in enumerate(sentences, 1))
-        return (STYLES[style] if style else TAIL).format(mech_name=op, mech_desc=card(op, cards[op]), source=source.strip(), sentences=sents)
+        return (STYLES[style] if style else TAIL).format(mech_name=op, mech_desc=card(op, cards[op], hard), source=source.strip(), sentences=sents)
     sents = "\n".join(f"[S{k}] {s}" for k, s in enumerate(sentences, 1))
     desc = OPS[op]["desc"]
     if examples:
@@ -171,7 +171,7 @@ def cmd_prompts(a) -> None:
         sents = r["sentences"] if isinstance(r["sentences"], list) else json.loads(r["sentences"])
         for op in OPS:
             if OPS[op]["pre"] is None or any(PRE[OPS[op]["pre"]](x, r["source"]) for x in sents):
-                rows.append({"id": f"{r['resp_id']}|{op}", "prompt": prompt(r["source"], sents, op, cards=cards, style=a.style or "plan"), "source": r["source"], "sentences": sents,
+                rows.append({"id": f"{r['resp_id']}|{op}", "prompt": prompt(r["source"], sents, op, cards=cards, style=a.style or "plan", hard=a.card_hard), "source": r["source"], "sentences": sents,
                              "op": op, "mechanism": op, "resp_id": r["resp_id"], "task_type": r["task_type"]})
     random.Random("gen_ops|prompts").shuffle(rows)
     out = Path("outputs/rt/gen_ops_grpo")
@@ -208,7 +208,7 @@ def cmd_sample(a) -> None:
     def one(job):
         r, op = job
         key = f"{r['resp_id']}|{op}"
-        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op, a.examples, a.tail, cards, a.style)))["input_ids"], max_tokens=512,
+        out = cl.completions.create(model=a.model, prompt=tok(chat_prompt(tok, prompt(r["source"], r["sentences"], op, a.examples, a.tail, cards, a.style, a.card_hard)))["input_ids"], max_tokens=512,
                                     temperature=a.temperature, top_p=1.0, n=a.n, seed=zlib.crc32(key.encode()) % 100000, extra_body={"top_k": -1})
         res = []
         for j, c in enumerate(out.choices):
@@ -234,6 +234,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["build", "sample", "examples", "prompts"])
     ap.add_argument("--card", action="store_true", help="提示词里放整张操作卡片（做法、在什么句子上能做、为什么算错、例句对），指令在原文和回答之后")
+    ap.add_argument("--card_hard", action="store_true", help="卡片里再加一项：真实的助手是怎么犯这个错的、怎样改才难认（error_ops.HARD）")
     ap.add_argument("--examples", action="store_true", help="指令里附上这种操作的例子")
     ap.add_argument("--tail", action="store_true", help="指令放在原文和回答之后")
     ap.add_argument("--min_sim", type=float, default=0.0, help="build：只留改对句和错句词重合度不低于这个值的样本")

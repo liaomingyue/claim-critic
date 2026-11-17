@@ -218,11 +218,43 @@ CARD = {
 assert set(CARD) == set(OPS)
 
 
-def card(op: str, pairs: list[dict]) -> str:
-    """给生成器看的整张卡片：做法、在什么句子上能做、改完为什么算错、真实例子（改之前 / 改之后的整句）。"""
+# 真实错误是怎么产生的、为什么难认（卡片的第四项，hard=True 时才放）。
+# 来源：模型自己写错的句子和合成的句子对比。同一个 critic 认得出 82% 合成的挂接层错句，真实的张冠李戴、跨段拼接、直接矛盾只认得出 55%–66%。
+# 真实的：把原文几句话压成一句时，句子的主要意思没错，旁边的一个细节（职务、属性、时间、次要动作是谁做的）接到了别的对象上；
+#         接错的那个成分来自原文别处，句子单看通顺合理，和回答里其他句子也不冲突，只有回原文核对才看得出。
+# 合成的：在同一句里把两个主角对调、或把主要意思反过来，改动大，单看就别扭，或者和回答里别的句子对不上。
+HARD_BINDING = ("Real assistants make this mistake while condensing several source sentences into one. The main point of the sentence stays true; "
+                "one side detail gets attached to the wrong thing. Take the wrong element from a nearby part of the source, not from the sentence itself. "
+                "Keep the rewritten sentence plausible on its own and consistent with the other sentences of the response, so that the error can only be found "
+                "by checking the source. Do not swap the two main actors of the sentence and do not reverse its main point: that is easy to spot.")
+HARD = {
+    "change_speaker": "Good targets: a secondary remark, a reaction or an assessment; give it to another person or body that the source quotes nearby on the same topic.",
+    "move_modifier": "Good targets: a role or title, a property, a criticism; attach it to a neighbouring person, group or thing the source describes in the same passage.",
+    "reverse_direction": "Good targets: a secondary relation inside the sentence (who informed whom, who promised what to whom, what led to what), not its headline fact.",
+    "swap_referent": "Good targets: two people, groups or things of the same kind that the source discusses close together; let a pronoun or a short description point to the other one.",
+    "change_owner": "Good targets: a relative, an employee, a possession or a work mentioned in passing; give it to another person the source names nearby.",
+    "move_number": "Good targets: a number the source gives for a neighbouring quantity (another group, another period, a part instead of the whole); keep the number itself unchanged.",
+    "move_time_place": "Good targets: the time or place of a neighbouring event in the source; keep both events and the time or place exactly as the source words them.",
+    "merge_events": "Good targets: a detail of a second event, rule or object that the source describes right before or after; fold it into the sentence as if it belonged to the first.",
+    "swap_term": ("Real assistants make this mistake when they paraphrase: the replaced word sounds like the same thing, and the rest of the sentence stays true. "
+                  "Choose a term whose neighbour changes who or what is meant (friends / family members, head of operations / head, detained / arrested), "
+                  "in a side detail, not in the main point of the sentence. The rewritten sentence must be plausible on its own; the error should show only against the source."),
+    "flip_outcome": ("Real assistants make this mistake on a secondary outcome inside the sentence (whether something was received or only promised, allowed or only requested, "
+                     "confirmed or only reported), not on the headline fact. Do not just insert 'not'. The rewritten sentence must be plausible on its own and consistent "
+                     "with the other sentences of the response; the error should show only against the source."),
+}
+for _k, _o in OPS.items():
+    if _o["layer"] == "binding":
+        HARD[_k] = HARD_BINDING + " " + HARD[_k]
+
+
+def card(op: str, pairs: list[dict], hard: bool = False) -> str:
+    """给生成器看的整张卡片：做法、在什么句子上能做、改完为什么算错、真实例子（改之前 / 改之后的整句）。
+    hard=True：再加一项「真实的助手是怎么犯这个错的、怎样改才难认」（HARD 里有的操作才加）。"""
     need, wrong = CARD[op]
     ex = "\n".join(f"- Faithful: {e['faithful']}\n  With the error: {e['error']}" for e in pairs)
-    return (f"{OPS[op]['desc']}.\nWhere it can be done: {need}.\nWhy the result is an error: {wrong}.\n"
+    how = f"How real assistants make it, and what makes it hard to spot: {HARD[op]}\n" if hard and op in HARD else ""
+    return (f"{OPS[op]['desc']}.\nWhere it can be done: {need}.\nWhy the result is an error: {wrong}.\n{how}"
             f"Real examples from other texts (only the edit differs between the two versions):\n{ex}")
 
 
