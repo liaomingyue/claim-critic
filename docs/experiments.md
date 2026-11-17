@@ -1028,7 +1028,21 @@ critic 是 §6.3 的 rd2，从 RAG-S3-bf 接着训 100 步（tech_share_details 
 
 两组的含任意错都往下走了 3 到 4 个点，都不显著；含显然错没有降。全量组里范围偏移的错句从 12 句降到 5 句，和它的 critic 在这一类上静态提升最大对得上，但只有十来句，只能当方向看。同一批回答上，核实判含任意错的约 25%，9B 只有 5% 到 11%，一致性也低（κ 0.25 到 0.49）：剩下的错大多是 9B 看不见的细微错，9B 在这个水平上已经分不出变化。
 
-代码：`ragtruth/ops_fill.py`、`scripts/remote/run_ops_fill.sh`、`run_rag_s5.sh`、`ragtruth/claude_pair_check.py`；核实结果 `results/claude_check_cont8.json`、`results/claude_check_cont9.json`；结果 `results/critic_cap_of1.json`、`results/loop2_cont8_cmp.json`（全量组）、`results/loop2_cont9_cmp.json`（核实组）。
+**全量组标完全部 596 对。** 99 对的区间太宽，全量组的全部配对回答（300 篇原文）都按同样的方式标了：
+
+| | 起点 | 第 100 步 | 变化 |
+|---|---|---|---|
+| 含显然错的回答 | 7.7% | 8.1% | +0.3 [−2.1, +2.6] |
+| 含任意错的回答 | 24.0% | 21.6% | −2.4 [−5.5, +0.9] |
+| 错句占全部句子 | 7.95% | 6.61% | −1.34 [−2.65, −0.04] |
+| 其中轻微错句 | 5.46% | 4.57% | −0.89 [−1.78, +0.01] |
+| 错句数（全部回答合计） | 178 | 153 | |
+
+按句子算的错误率显著下降，含任意错的回答比例方向相同但没过显著；含显然错没有变。按类型，降的是无依据推断（11 → 4 句）、数字日期（8 → 2）、近义偏移（21 → 16），直接矛盾升了（19 → 26），范围偏移没有变（50 → 48）：99 对里看到的 12 → 5 是抽样波动。句数 2,233 → 2,319，多出的句子没有带来更多错句。同一批回答上 9B 的含任意错是 11.2% → 10.7%，和核实的一致性 κ 0.34 到 0.40。
+
+所以不核实、只靠 2B 把关模型筛出的盲区样本补 critic，能让 RAG 的错句再少一成多，降在细微错上；这个幅度 9B 量不出来，要 600 对的独立核实才看得到。
+
+代码：`ragtruth/ops_fill.py`、`scripts/remote/run_ops_fill.sh`、`run_rag_s5.sh`、`ragtruth/claude_pair_check.py`；核实结果 `results/claude_check_cont8.json`、`results/claude_check_cont9.json`（各 99 对）、`results/claude_check_cont8_full.json`（全量组 596 对）；结果 `results/critic_cap_of1.json`、`results/loop2_cont8_cmp.json`（全量组）、`results/loop2_cont9_cmp.json`（核实组）。
 
 ---
 
