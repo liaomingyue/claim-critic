@@ -11,6 +11,10 @@
   python -m ragtruth.ops_fill select --tag tr_st8 --round of1
   python -m ragtruth.ops_fill build --round of1 --base rm1__core_r2_bfcl --arms all
   python -m ragtruth.ops_fill build --round of1 --base rm1__core_r2_bfcl --arms cl nc
+
+第二轮（of2）：只在 RAG 剩余显然错最集中的类别对应的操作上多采样（挂接层 8 种 + 近义替换 + 翻转结果），补到一定数量，和第一轮的盲区全量一起加：
+  python -m ragtruth.ops_fill target --round of2 --arms zone clear --per_op 300          # → target_zone.jsonl / target_clear.jsonl（不核实）
+  python -m ragtruth.ops_fill build_target --round of2 --name rm1__core_of2 --arms zone clear
 """
 from __future__ import annotations
 
@@ -102,17 +106,81 @@ def cmd_build(a) -> None:
     print("OPS_FILL_BUILD", json.dumps(stat), flush=True)
 
 
+def load_scored(tag: str) -> list[dict]:
+    import gzip
+    op = lambda f: gzip.open(str(f) + ".gz", "rt", encoding="utf-8") if not f.exists() else open(f, encoding="utf-8")
+    P = {r["id"]: r for r in map(json.loads, op(C / f"samples_ops_{tag}_rm4.jsonl"))}
+    return [{**r, "idx": int(r["idx"]), "tag": tag, **{k: v for k, v in P[r["id"]].items() if k != "id"}} for r in map(json.loads, op(C / f"samples_ops_{tag}.jsonl"))
+            if r["why"] == "ok" and r["id"] in P and all(P[r["id"]].get(k) is not None for k in ("p_err", "p_nat", "p_op", "p_edit", "p_clear"))]
+
+
+def cmd_target(a) -> None:
+    """针对性补充：只在指定操作上多采样的结果里挑（--tags），和上一轮的盲区（--with_zone）不重复。两种挑法：
+      zone  = 和盲区同一条规则（三项达标且 critic < 0.5），每种操作最多 --per_op 条
+      clear = 把关模型判为显然错（≥ 0.5）且 critic 没把握（< 0.8），不设每种操作的上限
+    同一回答的同一句最多留 --per_sent 条不同的改法。→ outputs/rt/ops_fill/<round>/target_<arm>.jsonl"""
+    B = O / a.round
+    key = lambda r: (r["resp_id"], int(r["idx"]), " ".join(r["sentence"].lower().split()))
+    old = {key(z) for z in read_jsonl(O / a.with_zone / "zone.jsonl")} if a.with_zone else set()
+    rows = [r for t in a.tags for r in load_scored(t)]
+    rows = [r for r in rows if r["p_err"] >= 0.5 and r["p_nat"] >= 0.5 and r["p_op"] >= 0.5]
+    rules = {"zone": lambda r: r["p_edit"] < 0.5, "clear": lambda r: r["p_clear"] >= 0.5 and r["p_edit"] < 0.8}
+    for arm in a.arms:
+        cand = sorted((r for r in rows if rules[arm](r)), key=lambda r: (r["id"], r["tag"]))
+        random.Random(f"ops_fill|{a.round}|{arm}").shuffle(cand)
+        seen, per_sent, per_op, out = set(old), collections.Counter(), collections.Counter(), []
+        for r in cand:
+            k, s = key(r), (r["resp_id"], int(r["idx"]))
+            if k in seen or per_sent[s] >= a.per_sent or (arm == "zone" and per_op[r["op"]] >= a.per_op):
+                continue
+            seen.add(k); per_sent[s] += 1; per_op[r["op"]] += 1
+            out.append({**r, "id": f"{r['id']}@{r['tag']}"})
+        write(B / f"target_{arm}.jsonl", out)
+        print("OPS_FILL_TARGET", arm, json.dumps({"candidates": len(cand), "kept": len(out), "sources": len({r["source_id"] for r in out}), "by_op": dict(sorted(per_op.items())),
+                                                  "clear": sum(r["p_clear"] >= 0.5 for r in out), "critic<0.5": sum(r["p_edit"] < 0.5 for r in out)}), flush=True)
+
+
+def cmd_build_target(a) -> None:
+    """基线训练集 + 上一轮盲区全量（--with_zone）+ 针对性补充（target_<arm>.jsonl），只加错句。→ <name><arm>"""
+    from ragtruth.critic_harvest import row
+    from ragtruth.rm_data import OUT, RM1_OPT
+    B, base = O / a.round, OUT / a.base
+    held = {r["group"] for sp in ("calib.jsonl", "test.jsonl") for r in read_jsonl(base / sp) if "group" in r}
+    mk = lambda x, origin: row(x["id"].replace("#", "_").replace("@", "_") + "-err", x["source"], x["context"], int(x["idx"]), RM1_OPT["baseless" if x["op"] in BASELESS else "conflict"],
+                               x["task_type"], "of-" + str(x["source_id"]), origin)
+    zone = list(read_jsonl(O / a.with_zone / "zone.jsonl")) if a.with_zone else []
+    for arm in a.arms:
+        tg = list(read_jsonl(B / f"target_{arm}.jsonl"))
+        assert not [x for x in zone + tg if str(x["source_id"]) in held], "samples from calib / test sources"
+        add = [mk(x, "ops_fill_all_error") for x in zone] + [mk(x, f"ops_fill_target_{arm}_error") for x in tg]
+        assert len({r["id"] for r in add}) == len(add)
+        d = OUT / f"{a.name}{arm}"
+        d.mkdir(parents=True, exist_ok=True)
+        train = list(read_jsonl(base / "train.jsonl")) + add
+        random.Random(f"ops_fill|{a.round}|{arm}|shuffle").shuffle(train)
+        write(d / "train.jsonl", train)
+        for sp in ("calib.jsonl", "test.jsonl"):
+            shutil.copy(base / sp, d / sp)
+        meta = {**json.load(open(base / "meta.json", encoding="utf-8")), "base": a.base, "arm": arm, "added_errors": len(add), "added_zone": len(zone), "added_target": len(tg),
+                "target_by_op": dict(sorted(collections.Counter(x["op"] for x in tg).items())), "train": {"n": len(train), "label": dict(sorted(collections.Counter(r["label"] for r in train).items()))}}
+        (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        print("OPS_FILL_BUILD_TARGET", arm, json.dumps({k: meta[k] for k in ("added_zone", "added_target", "train")}), flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["select", "build"])
+    ap.add_argument("cmd", choices=["select", "build", "target", "build_target"])
+    ap.add_argument("--tags", nargs="+", default=["trb_st8", "trc_st8"], help="target：多采样的样本（samples_ops_<tag>.jsonl[.gz] 和 _rm4）")
+    ap.add_argument("--with_zone", default="of1", help="target / build_target：上一轮盲区所在的轮次目录（不重复挑、建数据时一起加）；空 = 不用")
+    ap.add_argument("--per_sent", type=int, default=2, help="target：同一回答的同一句最多留几条不同的改法")
     ap.add_argument("--tag", default="tr_st8", help="select：outputs/rt/core/samples_ops_<tag>.jsonl 和 _rm4")
     ap.add_argument("--round", default="of1", help="outputs/rt/ops_fill/ 下的目录")
     ap.add_argument("--per_op", type=int, default=30, help="select：每种操作交 Claude 的条数")
     ap.add_argument("--base", default="rm1__core_r2_bfcl")
     ap.add_argument("--name", default="rm1__core_of1", help="build：新 critic 的名字前缀，后面接组名")
-    ap.add_argument("--arms", nargs="+", default=["cl", "nc"], choices=["cl", "nc", "all"])
+    ap.add_argument("--arms", nargs="+", default=["cl", "nc"], choices=["cl", "nc", "all", "zone", "clear"])
     a = ap.parse_args()
-    {"select": cmd_select, "build": cmd_build}[a.cmd](a)
+    {"select": cmd_select, "build": cmd_build, "target": cmd_target, "build_target": cmd_build_target}[a.cmd](a)
 
 
 if __name__ == "__main__":
