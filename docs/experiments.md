@@ -1016,7 +1016,19 @@ critic 是 §6.3 的 rd2，从 RAG-S3-bf 接着训 100 步（tech_share_details 
 
 和第二轮的结论一致：RAG 已经降到含显然错 4% 上下，补进 critic 的样本又以细微错为主，换 critic 接着训在 9B 评测的精度下看不出新的提升。两个起点是同一个模型重新生成的回答，含任意错就差了 0.7 个点，这是评测本身的波动。
 
-代码：`ragtruth/ops_fill.py`、`scripts/remote/run_ops_fill.sh`、`run_rag_s5.sh`；结果 `results/critic_cap_of1.json`、`results/loop2_cont8_cmp.json`（全量组）、`results/loop2_cont9_cmp.json`（核实组）。
+**独立核实。** 9B 上不显著，所以每组各抽 99 对回答（三套验收原文各 33 篇，起点和第 100 步），按金标 v1 逐句盲标，标的人看不到回答来自哪一步：
+
+| | 核实组：起点 → 第 100 步 | 全量组：起点 → 第 100 步 |
+|---|---|---|
+| 含显然错的回答 | 4 → 6 条，+2.0 [−3.9, +7.8] | 7 → 7 条，0.0 [−5.1, +5.0] |
+| 含任意错的回答 | 27 → 24 条，−3.0 [−12.1, +5.1] | 25 → 21 条，−4.0 [−12.1, +4.2] |
+| 错句占比 | 9.5% → 8.0%，−1.5 [−5.4, +2.3] | 9.4% → 7.0%，−2.5 [−6.4, +0.9] |
+| 其中范围偏移的错句 | 11 → 10 句 | 12 → 5 句 |
+| 同一批回答上 9B 的含任意错 | 5.1% → 6.1% | 9.1% → 11.1% |
+
+两组的含任意错都往下走了 3 到 4 个点，都不显著；含显然错没有降。全量组里范围偏移的错句从 12 句降到 5 句，和它的 critic 在这一类上静态提升最大对得上，但只有十来句，只能当方向看。同一批回答上，核实判含任意错的约 25%，9B 只有 5% 到 11%，一致性也低（κ 0.25 到 0.49）：剩下的错大多是 9B 看不见的细微错，9B 在这个水平上已经分不出变化。
+
+代码：`ragtruth/ops_fill.py`、`scripts/remote/run_ops_fill.sh`、`run_rag_s5.sh`、`ragtruth/claude_pair_check.py`；核实结果 `results/claude_check_cont8.json`、`results/claude_check_cont9.json`；结果 `results/critic_cap_of1.json`、`results/loop2_cont8_cmp.json`（全量组）、`results/loop2_cont9_cmp.json`（核实组）。
 
 ---
 
