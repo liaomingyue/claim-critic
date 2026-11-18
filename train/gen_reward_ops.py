@@ -59,6 +59,14 @@
               乘一项 0.75 + 0.5 × 分类模型给「要求的操作」的概率（用概率，不用硬判：硬判只有一半准；以 1 为中心，免得达标样本整体的分被压到没达标的样本下面）；节点的加分部分也按这个概率打折。
         没有目标的操作：新加的词按固定上限算（单个词不超过 30%），不设节点目标。
         单个词的门槛 10% → 8%；词面系数的下限 0.3 → 0.2，不过几项相乘后仍不低于 div_floor（0.4），实际多罚的有限。
+  按占比给的稀有奖励（share_w = (组内权重, 全局权重)，要 cls = 2）：两项都是「1 − 这条样本所在类别的占比」，占比越小加得越多，只加不扣、只给达标样本。
+        类别 = 分类模型判的手段节点（动作 / 手段），用整个概率分布：两条样本算不算同一类按两个分布的余弦相似度算，硬判时就是 0 或 1。
+        不用它判的操作当类别：同一个任务要求的是同一种操作，按操作算稀有等于奖励做成别的操作
+        （起点模型的样本上模拟：组内 1 − 占比，做对的平均 0.10，做成别的操作的 0.42）。同理两项都乘上分类模型给「要求的操作」的概率。
+        组内：同一个任务的达标样本里，占比 = 和它同类的样本数（含自己）/ 达标样本数；只有一条达标样本时这一项是 0。
+        全局：每种操作一份累计的节点分布，起点 = 起点模型在这种操作上的节点占比（node_base，折成 share_n0 条样本的量），训练中达标样本不断加进去；
+              这一项 = 1 − 这条样本的节点在累计分布里的占比。分布按要求的操作分开：合在一起时 40 多个节点每个占比都很小，1 − 占比全在 0.9 上下，分不出高低。
+        奖励乘 (1 + 组内权重 × 组内项) × (1 + 全局权重 × 全局项)。开了这一项，node_base 只当全局分布的起点，旧的节点 / 类别占比系数不再算。
 """
 from __future__ import annotations
 
@@ -104,7 +112,7 @@ def soft_hard(p: float) -> float:
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
                  ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False,
-                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0, real_target=None, real_v=1):
+                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0, real_target=None, real_v=1, share_w=(0.0, 0.0), share_n0=200.0):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -123,6 +131,7 @@ class OpsRewarder:
         self.div_rare, self.div_cap = div_rare, div_cap
         # real_target = {操作: {"n": 真实错误的对数, "node": {节点: 分类模型在真实错误上的平均概率}, "word": {新加的词: 占比}}}
         self.real_target, self.real_v = real_target, real_v
+        self.share_w, self.share_n0, self.share_cnt = tuple(share_w), share_n0, {}   # share_cnt = {操作: {节点: 累计的量}}
         self.group_recent = {}                                                               # real_v = 2：每种操作最近 300 条达标样本用到的近义词组
         self.soft_recent, self.word_recent = {}, {}                                          # 每种操作最近 300 条达标样本的节点概率分布、新加的词
         self.node_recent = {}                                                                # 每种操作最近 300 条达标样本的节点
@@ -142,12 +151,13 @@ class OpsRewarder:
             self.w = self.w_floor = w_hard
 
     def state_dict(self) -> dict:
-        return {"w": self.w, "recent": list(self.recent), "n_seen": self.n_seen, "lam": list(self.lam)}
+        return {"w": self.w, "recent": list(self.recent), "n_seen": self.n_seen, "lam": list(self.lam), "share_cnt": {k: dict(v) for k, v in self.share_cnt.items()}}
 
     def load_state_dict(self, st: dict) -> None:
         self.w, self.n_seen = float(st.get("w", self.w)), int(st.get("n_seen", 0))
         self.recent.extend(st.get("recent", []))
         self.lam = [float(v) for v in st.get("lam", self.lam)]
+        self.share_cnt = {k: dict(v) for k, v in st.get("share_cnt", {}).items()}
 
     def track(self, base: float, comps: tuple = (0.0, 0.0, 0.0)) -> float:
         """记下这条样本的阶段一得分；每满半个窗口看一次：最近的平均分掉到 ref × tol 以下就把难度权重调小，否则慢慢调大。返回当前权重。"""
@@ -215,7 +225,7 @@ class OpsRewarder:
             r = self.client.chat.completions.create(model="opd", messages=opd_prompt(x), max_tokens=12, temperature=0.0, logprobs=True, top_logprobs=20, extra_body=body)
             lps = multi_logprobs(r.choices[0])
             d = decode(lps) if lps else {}
-            if self.real_target and lps:
+            if (self.real_target or any(self.share_w)) and lps:
                 from ragtruth.rm_opd import soft_nodes
                 out["c_soft"] = soft_nodes(lps)
                 from ragtruth.rm_opd import op_prob
@@ -279,7 +289,7 @@ class OpsRewarder:
                 x["div_k"], x["div"] = k, (1 + k) ** -0.5
         if self.real_target:
             self.real_post(P)
-        elif self.node_base or self.cls:
+        elif (self.node_base or self.cls) and not any(self.share_w):
             import collections
             from ragtruth.edit_node import FALLBACK, node
             from ragtruth.error_ops import OPS
@@ -317,10 +327,36 @@ class OpsRewarder:
                             x["node_mult"] = shrink(sum(n == x["node"] for n in q) / len(q), node_target(x["type"], x["node"]))
                     if self.cls and x.get("c_op") and len(self.cat_recent) >= 300:
                         x["cat_mult"] = shrink(sum(c == x["c_op"] for c in self.cat_recent) / len(self.cat_recent), self.cat_target.get(x["c_op"], 0.02))
+        if any(self.share_w):
+            self.share_post(P)
         # 几项多样性的系数相乘，合起来不低于 div_floor：扣得再狠，达标样本的分也不该掉到没达标的样本下面，否则是在把模型往不达标推
         for x in P:
-            x["div_total"] = min(self.div_cap if (self.div_rare or self.real_target) else 1.0, max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0) * x.get("word_mult", 1.0) * x.get("op_mult", 1.0)))
+            x["div_total"] = min(self.div_cap if (self.div_rare or self.real_target or any(self.share_w)) else 1.0, max(self.div_floor, x["div"] * x.get("node_mult", 1.0) * x.get("cat_mult", 1.0) * x.get("word_mult", 1.0) * x.get("op_mult", 1.0) * x.get("share_mult", 1.0)))
             x["reward"] = x["reward_raw"] * x["div_total"]
+
+    def share_post(self, P: list[dict], min_n: float = 30.0) -> None:
+        """按占比给的稀有奖励：组内和全局各一项「1 − 所在节点的占比」，都乘「做的是要求的操作」的概率。P = 同一个任务的达标样本。"""
+        vec = lambda x: x.get("c_soft") or {x.get("c_node") or "none/none": 1.0}
+        pop = lambda x: x["c_pop"] if x.get("c_pop") is not None else float(x.get("c_op") == x["type"])
+        dot = lambda a, b: sum(v * b.get(k, 0.0) for k, v in a.items())
+        V = [vec(x) for x in P]
+        N = [dot(v, v) ** 0.5 or 1.0 for v in V]
+        wg, wa = self.share_w
+        with self.lock:
+            for i, x in enumerate(P):
+                x["grp_div"] = (1.0 - sum(dot(V[i], V[j]) / (N[i] * N[j]) for j in range(len(P))) / len(P)) * pop(x)
+                op = x["type"]
+                if op not in self.share_cnt:   # 起点：起点模型在这种操作上的节点占比，折成 share_n0 条样本
+                    base = (self.node_base or {}).get(op, {}).get("share", {})
+                    self.share_cnt[op] = {k: v * self.share_n0 for k, v in base.items()}
+                c = self.share_cnt[op]
+                n = sum(c.values())
+                x["all_div"] = (1.0 - sum(v * c.get(k, 0.0) for k, v in V[i].items()) / n) * pop(x) if n >= min_n else 0.0
+                x["share_mult"] = (1.0 + wg * x["grp_div"]) * (1.0 + wa * x["all_div"])
+            for x, v in zip(P, V):   # 这一组算完再记进累计分布；按「做的是要求的操作」的概率记，做成别的操作的样本不算这种操作的产出
+                c, w = self.share_cnt[x["type"]], pop(x)
+                for k, q in v.items():
+                    c[k] = c.get(k, 0.0) + w * q
 
     def real_post(self, P: list[dict], eps: float = 0.02, min_n: int = 30) -> None:
         """和真实错误的分布比：节点按概率分布算（node_mult，可以大于 1），新加的词按占比算（word_mult，只罚）。
