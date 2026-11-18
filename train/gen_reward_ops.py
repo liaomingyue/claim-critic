@@ -60,7 +60,7 @@
         没有目标的操作：新加的词按固定上限算（单个词不超过 30%），不设节点目标。
         单个词的门槛 10% → 8%；词面系数的下限 0.3 → 0.2，不过几项相乘后仍不低于 div_floor（0.4），实际多罚的有限。
   按占比给的稀有奖励（share_w = (组内权重, 全局权重)，要 cls = 2）：只加不扣、只给达标样本，而且只在操作一致的样本之间算
-        （分类模型给「要求的操作」的概率 ≥ share_pop，默认 0.5；其余样本不进分布、不加分）。
+        （分类模型给「要求的操作」的概率 ≥ share_pop，默认 0.5；其余样本不进分布、不加分；过了的按这个概率加权：进分布按它算，加分也按它打折）。
         类别 = 分类模型判的手段节点（动作 / 手段），用整个概率分布：两条样本算不算同一类按两个分布的余弦相似度算，硬判时就是 0 或 1。
         不用它判的操作当类别，也不让操作不一致的样本参与：同一个任务要求的是同一种操作，按操作算稀有等于奖励做成别的操作
         （起点模型的样本上模拟：组内 1 − 占比，做对的平均 0.10，做成别的操作的 0.42）。
@@ -348,12 +348,13 @@ class OpsRewarder:
         E = [x for x in P if pop(x) >= self.share_pop]
         V = [vec(x) for x in E]
         N = [dot(v, v) ** 0.5 or 1.0 for v in V]
+        W = [pop(x) for x in E]   # 操作一致的概率当权重：进分布按它算，加分也按它打折
         wg, wa = self.share_w
         with self.lock:
             for x in P:
                 x["grp_div"], x["all_div"] = 0.0, 0.0
             for i, x in enumerate(E):
-                x["grp_div"] = 1.0 - sum(dot(V[i], V[j]) / (N[i] * N[j]) for j in range(len(E))) / len(E)
+                x["grp_div"] = (1.0 - sum(W[j] * dot(V[i], V[j]) / (N[i] * N[j]) for j in range(len(E))) / sum(W)) * W[i]
                 op = x["type"]
                 tg = (self.real_target or {}).get(op)
                 if not (tg and tg["n"] >= min_n):
@@ -362,13 +363,13 @@ class OpsRewarder:
                         self.share_cnt[op] = {k: v * self.share_n0 for k, v in base.items()}
                     c = self.share_cnt[op]
                     n = sum(c.values())
-                    x["all_div"] = 1.0 - sum(v * c.get(k, 0.0) for k, v in V[i].items()) / n if n >= min_n else 0.0
+                    x["all_div"] = (1.0 - sum(v * c.get(k, 0.0) for k, v in V[i].items()) / n) * W[i] if n >= min_n else 0.0
                 x["share_mult"] = (1.0 + wg * x["grp_div"]) * (1.0 + wa * x["all_div"])
-            for x, v in zip(E, V):   # 这一组算完再记进累计分布
+            for x, v, w in zip(E, V, W):   # 这一组算完再记进累计分布
                 if x["type"] in self.share_cnt:
                     c = self.share_cnt[x["type"]]
                     for k, q in v.items():
-                        c[k] = c.get(k, 0.0) + q
+                        c[k] = c.get(k, 0.0) + w * q
 
     def real_post(self, P: list[dict], eps: float = 0.02, min_n: int = 30) -> None:
         """和真实错误的分布比：节点按概率分布算（node_mult，可以大于 1），新加的词按占比算（word_mult，只罚）。

@@ -51,3 +51,14 @@ def test_global_share_only_covers_operations_without_a_real_target():
     g = [sample("weaken/modal", op="add_hedge")]
     r.group_post(g)
     assert round(g[0]["all_div"], 2) == 0.5
+
+
+def test_share_terms_use_probabilities_not_hard_labels():
+    r = OpsRewarder(None, {}, cls=2, share_w=(1.0, 0.0))
+    a = {**sample("replace/content"), "c_soft": {"replace/content": 0.9, "replace/name": 0.1}, "c_pop": 0.9}
+    b = {**sample("replace/content"), "c_soft": {"replace/content": 0.5, "replace/name": 0.5}, "c_pop": 0.6}   # 硬判和 a 同一格，分布不同
+    c = {**sample("replace/name"), "c_soft": {"replace/name": 1.0}, "c_pop": 0.4}                               # 操作一致的概率不够，不参与
+    r.group_post([a, b, c])
+    assert 0 < a["grp_div"] < 0.2 and 0 < b["grp_div"] and c["grp_div"] == 0.0
+    cos = (0.9 * 0.5 + 0.1 * 0.5) / ((0.82 ** 0.5) * (0.5 ** 0.5))
+    assert abs(a["grp_div"] - (1 - (0.9 + 0.6 * cos) / 1.5) * 0.9) < 1e-9
