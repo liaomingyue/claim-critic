@@ -59,14 +59,17 @@
               乘一项 0.75 + 0.5 × 分类模型给「要求的操作」的概率（用概率，不用硬判：硬判只有一半准；以 1 为中心，免得达标样本整体的分被压到没达标的样本下面）；节点的加分部分也按这个概率打折。
         没有目标的操作：新加的词按固定上限算（单个词不超过 30%），不设节点目标。
         单个词的门槛 10% → 8%；词面系数的下限 0.3 → 0.2，不过几项相乘后仍不低于 div_floor（0.4），实际多罚的有限。
-  按占比给的稀有奖励（share_w = (组内权重, 全局权重)，要 cls = 2）：两项都是「1 − 这条样本所在类别的占比」，占比越小加得越多，只加不扣、只给达标样本。
+  按占比给的稀有奖励（share_w = (组内权重, 全局权重)，要 cls = 2）：只加不扣、只给达标样本，而且只在操作一致的样本之间算
+        （分类模型给「要求的操作」的概率 ≥ share_pop，默认 0.5；其余样本不进分布、不加分）。
         类别 = 分类模型判的手段节点（动作 / 手段），用整个概率分布：两条样本算不算同一类按两个分布的余弦相似度算，硬判时就是 0 或 1。
-        不用它判的操作当类别：同一个任务要求的是同一种操作，按操作算稀有等于奖励做成别的操作
-        （起点模型的样本上模拟：组内 1 − 占比，做对的平均 0.10，做成别的操作的 0.42）。同理两项都乘上分类模型给「要求的操作」的概率。
-        组内：同一个任务的达标样本里，占比 = 和它同类的样本数（含自己）/ 达标样本数；只有一条达标样本时这一项是 0。
-        全局：每种操作一份累计的节点分布，起点 = 起点模型在这种操作上的节点占比（node_base，折成 share_n0 条样本的量），训练中达标样本不断加进去；
-              这一项 = 1 − 这条样本的节点在累计分布里的占比。分布按要求的操作分开：合在一起时 40 多个节点每个占比都很小，1 − 占比全在 0.9 上下，分不出高低。
-        奖励乘 (1 + 组内权重 × 组内项) × (1 + 全局权重 × 全局项)。开了这一项，node_base 只当全局分布的起点，旧的节点 / 类别占比系数不再算。
+        不用它判的操作当类别，也不让操作不一致的样本参与：同一个任务要求的是同一种操作，按操作算稀有等于奖励做成别的操作
+        （起点模型的样本上模拟：组内 1 − 占比，做对的平均 0.10，做成别的操作的 0.42）。
+        组内：1 − 所在节点在这一组里的占比。一组的平均值 = 这一组节点分布的多样性（1 − Σ 占比²）；整组的多样性对组内每条样本是同一个数，
+              减掉组内均值后没有信号，所以按每条样本的贡献分下去。只有一条合条件的样本时是 0。
+        全局：有真实目标的操作由上面「和真实错误的分布比」管（高于真实占比的罚、低于的加分）；这一项只管没有真实目标的操作：
+              每种操作一份累计的节点分布，起点 = 起点模型在这种操作上的节点占比（node_base，折成 share_n0 条样本的量），
+              这一项 = 1 − 这条样本的节点在累计分布里的占比。没给 real_target 时所有操作都用这一项。
+        奖励乘 (1 + 组内权重 × 组内项) × (1 + 全局权重 × 全局项)。开了这一项，旧的节点 / 类别占比系数（以起点为目标的那两项）不再算。
 """
 from __future__ import annotations
 
@@ -112,7 +115,7 @@ def soft_hard(p: float) -> float:
 class OpsRewarder:
     def __init__(self, client, temps: dict[str, float], stage=1, err_gate=0.5, nat_gate=0.5, op_gate=0.5, min_sim=0.0, fail_scale=0.1,
                  ref=0.0, w_hard=0.5, w_min=0.02, tol=0.97, window=2048, obv_pen=0.5, obv_from=0.7, disc=False, refs=None, w_disc=0.5, w_fixed=False,
-                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0, real_target=None, real_v=1, share_w=(0.0, 0.0), share_n0=200.0):
+                 clear_ref=0.0, div_sim=0.0, div_floor=0.4, node_base=None, cls=False, cat_target=None, div_rare=0.0, div_cap=2.0, real_target=None, real_v=1, share_w=(0.0, 0.0), share_n0=200.0, share_pop=0.5):
         import collections
         import threading
         self.client, self.t = client, temps
@@ -131,7 +134,7 @@ class OpsRewarder:
         self.div_rare, self.div_cap = div_rare, div_cap
         # real_target = {操作: {"n": 真实错误的对数, "node": {节点: 分类模型在真实错误上的平均概率}, "word": {新加的词: 占比}}}
         self.real_target, self.real_v = real_target, real_v
-        self.share_w, self.share_n0, self.share_cnt = tuple(share_w), share_n0, {}   # share_cnt = {操作: {节点: 累计的量}}
+        self.share_w, self.share_n0, self.share_pop, self.share_cnt = tuple(share_w), share_n0, share_pop, {}   # share_cnt = {操作: {节点: 累计的量}}
         self.group_recent = {}                                                               # real_v = 2：每种操作最近 300 条达标样本用到的近义词组
         self.soft_recent, self.word_recent = {}, {}                                          # 每种操作最近 300 条达标样本的节点概率分布、新加的词
         self.node_recent = {}                                                                # 每种操作最近 300 条达标样本的节点
@@ -335,28 +338,37 @@ class OpsRewarder:
             x["reward"] = x["reward_raw"] * x["div_total"]
 
     def share_post(self, P: list[dict], min_n: float = 30.0) -> None:
-        """按占比给的稀有奖励：组内和全局各一项「1 − 所在节点的占比」，都乘「做的是要求的操作」的概率。P = 同一个任务的达标样本。"""
+        """按占比给的稀有奖励。P = 同一个任务的达标样本；只在「做的是要求的操作」的概率 ≥ share_pop 的样本之间算，其余的不参与也不加分。
+        组内项 = 1 − 所在节点在这一组里的占比。一组的平均值就是这一组节点分布的多样性（1 − Σ 占比²）：
+        整组的多样性是一个数，组内减均值后对每条样本都一样，学不到东西，所以按每条样本对它的贡献分下去。
+        全局项 = 1 − 所在节点在这种操作累计分布里的占比；给了 real_target 时只用在没有真实目标的操作上（有目标的由 real_post 和真实分布比）。"""
         vec = lambda x: x.get("c_soft") or {x.get("c_node") or "none/none": 1.0}
         pop = lambda x: x["c_pop"] if x.get("c_pop") is not None else float(x.get("c_op") == x["type"])
         dot = lambda a, b: sum(v * b.get(k, 0.0) for k, v in a.items())
-        V = [vec(x) for x in P]
+        E = [x for x in P if pop(x) >= self.share_pop]
+        V = [vec(x) for x in E]
         N = [dot(v, v) ** 0.5 or 1.0 for v in V]
         wg, wa = self.share_w
         with self.lock:
-            for i, x in enumerate(P):
-                x["grp_div"] = (1.0 - sum(dot(V[i], V[j]) / (N[i] * N[j]) for j in range(len(P))) / len(P)) * pop(x)
+            for x in P:
+                x["grp_div"], x["all_div"] = 0.0, 0.0
+            for i, x in enumerate(E):
+                x["grp_div"] = 1.0 - sum(dot(V[i], V[j]) / (N[i] * N[j]) for j in range(len(E))) / len(E)
                 op = x["type"]
-                if op not in self.share_cnt:   # 起点：起点模型在这种操作上的节点占比，折成 share_n0 条样本
-                    base = (self.node_base or {}).get(op, {}).get("share", {})
-                    self.share_cnt[op] = {k: v * self.share_n0 for k, v in base.items()}
-                c = self.share_cnt[op]
-                n = sum(c.values())
-                x["all_div"] = (1.0 - sum(v * c.get(k, 0.0) for k, v in V[i].items()) / n) * pop(x) if n >= min_n else 0.0
+                tg = (self.real_target or {}).get(op)
+                if not (tg and tg["n"] >= min_n):
+                    if op not in self.share_cnt:   # 起点：起点模型在这种操作上的节点占比，折成 share_n0 条样本
+                        base = (self.node_base or {}).get(op, {}).get("share", {})
+                        self.share_cnt[op] = {k: v * self.share_n0 for k, v in base.items()}
+                    c = self.share_cnt[op]
+                    n = sum(c.values())
+                    x["all_div"] = 1.0 - sum(v * c.get(k, 0.0) for k, v in V[i].items()) / n if n >= min_n else 0.0
                 x["share_mult"] = (1.0 + wg * x["grp_div"]) * (1.0 + wa * x["all_div"])
-            for x, v in zip(P, V):   # 这一组算完再记进累计分布；按「做的是要求的操作」的概率记，做成别的操作的样本不算这种操作的产出
-                c, w = self.share_cnt[x["type"]], pop(x)
-                for k, q in v.items():
-                    c[k] = c.get(k, 0.0) + w * q
+            for x, v in zip(E, V):   # 这一组算完再记进累计分布
+                if x["type"] in self.share_cnt:
+                    c = self.share_cnt[x["type"]]
+                    for k, q in v.items():
+                        c[k] = c.get(k, 0.0) + q
 
     def real_post(self, P: list[dict], eps: float = 0.02, min_n: int = 30) -> None:
         """和真实错误的分布比：节点按概率分布算（node_mult，可以大于 1），新加的词按占比算（word_mult，只罚）。

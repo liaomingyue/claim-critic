@@ -297,7 +297,7 @@ def build_rewarder(args):
                            node_base=json.load(open(args.ops_node_base, encoding="utf-8")) if args.ops_node_base else None, cls=args.ops_cls,
                            cat_target=ops_cat_target(args.prompts) if args.ops_cls else None,
                            real_target=json.load(open(args.ops_real_target, encoding="utf-8")) if args.ops_real_target else None, real_v=args.ops_real_v,
-                           share_w=(args.ops_div_group, args.ops_div_all), share_n0=args.ops_share_n0)
+                           share_w=(args.ops_div_group, args.ops_div_all), share_n0=args.ops_share_n0, share_pop=args.ops_share_pop)
     if args.reward == "target":
         return TargetRewarder(cl, load_temps(args.temps), w_div=args.w_div, w_corr=args.w_corr, w_crit=args.w_crit, gate=args.gate, type_floor=args.type_floor,
                               err_mode=args.err_mode, shape=args.shape, w_real2=args.w_real2, w_hard2=args.w_hard2, crit_max=args.crit_max, crit_floor=args.crit_floor,
@@ -1186,6 +1186,7 @@ def main() -> None:
     ap.add_argument("--ops_real_v", type=int, default=1, help="ops：和真实错误比的版本。2 = 再加近义词组的占比、操作系数，没有目标的操作按固定上限算词面，词面项加重")
     ap.add_argument("--ops_div_group", type=float, default=0.0, help="ops：> 0 时加组内的稀有奖励：同一个任务的达标样本里，1 − 这条样本的手段节点占比，乘这个权重（要 --ops_cls 2）")
     ap.add_argument("--ops_div_all", type=float, default=0.0, help="ops：> 0 时加全局的稀有奖励：1 − 这条样本的手段节点在这种操作累计分布里的占比，乘这个权重；累计分布从 --ops_node_base 的起点占比开始（要 --ops_cls 2）")
+    ap.add_argument("--ops_share_pop", type=float, default=0.5, help="ops：稀有奖励只在分类模型给「要求的操作」的概率不低于这个值的样本之间算")
     ap.add_argument("--ops_share_n0", type=float, default=200.0, help="ops：全局累计分布的起点折成多少条样本")
     ap.add_argument("--ops_div_cap", type=float, default=2.0, help="ops：双向占比系数合起来的上限")
     ap.add_argument("--ops_node_base", default="", help="ops：起点模型各操作的手段节点占比（configs/rt/op_node_base.json）；给了就按节点扣跨任务的套路")
