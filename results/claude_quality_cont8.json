@@ -1,0 +1,223 @@
+{
+ "pairs": 86,
+ "arms": {
+  "sft": {
+   "all": {
+    "n": 86,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0116,
+    "off_topic": 0.0581,
+    "missing_major": 0.1163,
+    "missing_any": 0.8721,
+    "incomplete": 0.0,
+    "overall": 3.8488,
+    "chars": 562.5,
+    "sents": 4.74
+   },
+   "QA": {
+    "n": 26,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0385,
+    "off_topic": 0.0769,
+    "missing_major": 0.1923,
+    "missing_any": 0.6923,
+    "incomplete": 0.0,
+    "overall": 3.9231,
+    "chars": 284.9,
+    "sents": 2.27
+   },
+   "Summary": {
+    "n": 60,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0,
+    "off_topic": 0.05,
+    "missing_major": 0.0833,
+    "missing_any": 0.95,
+    "incomplete": 0.0,
+    "overall": 3.8167,
+    "chars": 682.9,
+    "sents": 5.82
+   }
+  },
+  "early": {
+   "all": {
+    "n": 86,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0349,
+    "off_topic": 0.0581,
+    "missing_major": 0.1163,
+    "missing_any": 0.8605,
+    "incomplete": 0.0,
+    "overall": 3.7558,
+    "chars": 559.0,
+    "sents": 5.4
+   },
+   "QA": {
+    "n": 26,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0769,
+    "off_topic": 0.1154,
+    "missing_major": 0.1923,
+    "missing_any": 0.7692,
+    "incomplete": 0.0,
+    "overall": 3.7308,
+    "chars": 241.9,
+    "sents": 2.27
+   },
+   "Summary": {
+    "n": 60,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0167,
+    "off_topic": 0.0333,
+    "missing_major": 0.0833,
+    "missing_any": 0.9,
+    "incomplete": 0.0,
+    "overall": 3.7667,
+    "chars": 696.3,
+    "sents": 6.75
+   }
+  },
+  "best": {
+   "all": {
+    "n": 86,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0233,
+    "off_topic": 0.0349,
+    "missing_major": 0.1279,
+    "missing_any": 0.8488,
+    "incomplete": 0.0,
+    "overall": 3.8721,
+    "chars": 591.7,
+    "sents": 4.57
+   },
+   "QA": {
+    "n": 26,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0385,
+    "off_topic": 0.0385,
+    "missing_major": 0.1538,
+    "missing_any": 0.6154,
+    "incomplete": 0.0,
+    "overall": 4.0769,
+    "chars": 342.6,
+    "sents": 2.31
+   },
+   "Summary": {
+    "n": 60,
+    "not_addressed": 0.0,
+    "partly_or_not": 0.0167,
+    "off_topic": 0.0333,
+    "missing_major": 0.1167,
+    "missing_any": 0.95,
+    "incomplete": 0.0,
+    "overall": 3.7833,
+    "chars": 699.7,
+    "sents": 5.55
+   }
+  }
+ },
+ "diff": {
+  "early - sft": {
+   "not_addressed": {
+    "delta": 0.0,
+    "ci90": [
+     0.0,
+     0.0
+    ]
+   },
+   "partly_or_not": {
+    "delta": 0.0233,
+    "ci90": [
+     -0.0116,
+     0.0581
+    ]
+   },
+   "off_topic": {
+    "delta": 0.0,
+    "ci90": [
+     -0.0465,
+     0.0465
+    ]
+   },
+   "missing_major": {
+    "delta": 0.0,
+    "ci90": [
+     -0.0581,
+     0.0581
+    ]
+   },
+   "missing_any": {
+    "delta": -0.0116,
+    "ci90": [
+     -0.0814,
+     0.0581
+    ]
+   },
+   "incomplete": {
+    "delta": 0.0,
+    "ci90": [
+     0.0,
+     0.0
+    ]
+   },
+   "overall": {
+    "delta": -0.093,
+    "ci90": [
+     -0.2209,
+     0.0465
+    ]
+   }
+  },
+  "best - sft": {
+   "not_addressed": {
+    "delta": 0.0,
+    "ci90": [
+     0.0,
+     0.0
+    ]
+   },
+   "partly_or_not": {
+    "delta": 0.0116,
+    "ci90": [
+     -0.0233,
+     0.0465
+    ]
+   },
+   "off_topic": {
+    "delta": -0.0233,
+    "ci90": [
+     -0.0814,
+     0.0233
+    ]
+   },
+   "missing_major": {
+    "delta": 0.0116,
+    "ci90": [
+     -0.0581,
+     0.0814
+    ]
+   },
+   "missing_any": {
+    "delta": -0.0233,
+    "ci90": [
+     -0.0814,
+     0.0349
+    ]
+   },
+   "incomplete": {
+    "delta": 0.0,
+    "ci90": [
+     0.0,
+     0.0
+    ]
+   },
+   "overall": {
+    "delta": 0.0233,
+    "ci90": [
+     -0.0814,
+     0.1279
+    ]
+   }
+  }
+ }
+}
