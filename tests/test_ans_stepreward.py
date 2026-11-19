@@ -203,3 +203,28 @@ def test_group_advantage_std_floor():
     a = group_advantages(small, [None] * 4, std_floor=0.1)
     assert abs(max(a) - 0.01 / (0.1 + 1e-4)) < 1e-6
     assert group_advantages(big, [None] * 4, std_floor=0.1) == group_advantages(big, [None] * 4)
+
+
+def test_remap_is_piecewise_linear_and_off_by_default():
+    from train.ans_reward import remap
+    k = ([0.1, 0.5, 0.9], [0.03, 0.2, 0.6])
+    assert remap(0.7, None) == 0.7
+    assert remap(0.0, k) == 0.03 and remap(1.0, k) == 0.6
+    assert abs(remap(0.3, k) - 0.115) < 1e-9 and abs(remap(0.7, k) - 0.4) < 1e-9
+
+
+def test_reward_uses_remapped_scores_and_keeps_raw():
+    src = "Briefly answer the following question:\nwhat is x\npassage 1: " + "The quick brown fox jumps over the lazy dog near the river bank. " * 30
+    row = {"id": "q", "task_type": "QA", "source": src, "ref_text": "Alpha is one. Beta is two.", "ref_chars": 60}
+    texts = [f"Item {k} says something about topic {k}. It adds one more remark here." for k in range(4)]
+    gens = [{"text": t, "finish": "stop"} for t in texts]
+    ps = dict(zip(texts, [[0.05, 0.05], [0.05, 0.05], [0.6, 0.05], [0.9, 0.05]]))
+    sat = dict(zip(texts, [0.9] * 4))
+    raw = _rewarder(ps, sat, 0.0).score_group(row, gens)
+    rw = _rewarder(ps, sat, 0.0)
+    rw.p_knots = ([0.0, 0.5, 0.7, 1.0], [0.0, 0.2, 0.3, 0.8])
+    cal = rw.score_group(row, gens)
+    assert "ps_raw" not in raw[2] and cal[2]["ps_raw"] == [0.6, 0.05] and cal[2]["ps"][0] == 0.25
+    assert cal[2]["p_max"] == 0.6                                   # 日志里的最高分仍是原始分数
+    assert raw[0]["reward"] - raw[2]["reward"] > cal[0]["reward"] - cal[2]["reward"] > 0   # 没把握的句子罚得轻了
+    assert cal[2]["reward"] > cal[3]["reward"]

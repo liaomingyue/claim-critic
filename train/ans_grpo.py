@@ -260,6 +260,9 @@ def build_rewarder(args) -> AnswerRewarder:
                         getattr(args, "sigma_floor", 0.1), getattr(args, "count_ratio", 0.0), getattr(args, "count_min", 2.0))
     rw.group_pool = ThreadPoolExecutor(args.rm_concurrency)
     rw.sat_s0 = getattr(args, "sat_s0", 0.0)
+    if getattr(args, "p_calib", ""):
+        k = json.load(open(args.p_calib, encoding="utf-8"))
+        rw.p_knots = (k["x"], k["y"])
     return rw
 
 
@@ -552,6 +555,9 @@ def run(args) -> None:
                         args.refuse_model, refuse_temp, args.refuse_w)
     rw.group_pool = ThreadPoolExecutor(args.rm_concurrency)
     rw.sat_s0 = getattr(args, "sat_s0", 0.0)
+    if getattr(args, "p_calib", ""):
+        k = json.load(open(args.p_calib, encoding="utf-8"))
+        rw.p_knots = (k["x"], k["y"])
     if args.proc_producer:   # 采样 / 打分 / 快评放子进程（训练进程独占 GIL）
         prod = ProcProducer(args, out)
         qe = EvalProxy(prod) if args.eval_k > 0 else None
@@ -655,6 +661,7 @@ def main() -> None:
     ap.add_argument("--sat_report", default="outputs/rt/rm/sat_pair/eval/report.json")
     ap.add_argument("--sat_w", type=float, default=0.5)
     ap.add_argument("--sat_s0", type=float, default=0.0, help="> 0：满意度权重按组缩放，sat_w × min(1, 这组 critic 奖励的标准差 / sat_s0)；0 = 固定权重")
+    ap.add_argument("--p_calib", default="", help="critic 分数的校准节点（json：x、y 两个等长列表）；给了就按实际错误比例算奖励")
     ap.add_argument("--adv_std_floor", type=float, default=0.0, help="> 0：组内优势除以 max(组标准差, 这个值)，奖励差距小的组少更新；0 = 旧行为")
     ap.add_argument("--refuse_model", default="", help="拒答 RM（vLLM 上的 LoRA 名）；空 = 拒答一律 0 分")
     ap.add_argument("--refuse_report", default="outputs/rt/rm/refuse/eval/report.json")

@@ -110,6 +110,19 @@ def sentence_adv(ps: list[float], b: float, sigma: float, mode: str = "neg", gam
     return a
 
 
+def remap(p: float, knots: tuple[list[float], list[float]] | None) -> float:
+    """critic 的分数 → 这个分数的句子里实际是错的比例（分段线性，节点在策略模型自己的句子上量出来）。没给节点就原样返回。"""
+    if not knots:
+        return p
+    xs, ys = knots
+    if p <= xs[0]:
+        return ys[0]
+    for i in range(1, len(xs)):
+        if p <= xs[i]:
+            return ys[i - 1] + (ys[i] - ys[i - 1]) * (p - xs[i - 1]) / (xs[i] - xs[i - 1])
+    return ys[-1]
+
+
 def guarded(r: float, sat: float | None, w: float) -> float:
     """满意度只罚不奖：低于 0.5 才扣，不低于 0（硬规则没过的是 0，不能比它还低）。"""
     return r if sat is None else max(0.0, r - w * max(0.0, 0.5 - sat))
@@ -208,7 +221,9 @@ class AnswerRewarder:
             t = gens[i]["text"].strip()
             ps = self.p_answer(row["source"], sentences(t))
             sat = self.p_sat(row, t)
-            out[i].update(p_mean=sum(ps) / len(ps), p_max=max(ps), ps=[round(p, 4) for p in ps], sat=sat, spans=[list(x) for x in split_sentences(t)])
+            out[i].update(p_mean=sum(ps) / len(ps), p_max=max(ps), ps=[round(remap(p, self.p_knots), 4) for p in ps], sat=sat, spans=[list(x) for x in split_sentences(t)])
+            if self.p_knots:
+                out[i]["ps_raw"] = [round(p, 4) for p in ps]
 
         if live:
             one(live[0])
@@ -231,4 +246,5 @@ class AnswerRewarder:
         return out
 
     group_pool = None
+    p_knots = None   # (xs, ys)：给了就把 critic 的分数按 remap 换成实际错误比例再算奖励；原始分数另存 ps_raw
     sat_s0 = 0.0   # > 0：满意度权重按这一组里 critic 奖励的标准差缩放，w = sat_w × min(1, sd / sat_s0)。critic 在这组没有区分度时满意度也不扣
