@@ -169,6 +169,8 @@ case $ROLE in
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   of2) CODE=$R bash $S/run_of2.sh; rc=$?   # 第二轮补 critic：效果差的类别多采样补量 → 重训两个 critic → 各自接着训 RAG。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  corag) CODE=$R bash $S/run_critic_on_rag.sh; rc=$?   # 定位：补过样本的 critic 训出来的 RAG 模型自己写错的句子，critic 认不认得出（只打分）。跑完留 20 分钟取结果，然后关机
+     nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"
