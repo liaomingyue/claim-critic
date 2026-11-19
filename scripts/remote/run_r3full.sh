@@ -33,7 +33,7 @@ TAG=${TAG:-}; O=${O:-outputs/rt/minicpm/r3full$TAG}; E=$O/eval; mkdir -p $E   # 
 temp() { python -c "import json;print(json.load(open('outputs/rt/rm/$1/eval/report.json'))['temperature'])"; }
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 ad() { [ -f $1/policy/adapter_model.safetensors ] && echo $1/policy || echo $1; }
-RW="--reward_shape count --count_ratio 0.5 --count_min 2 --sat_w ${SAT_W:-0.8} --sent_beta 0.6 --sent_gamma 0.3"   # SAT_W：满意度扣分的权重，默认 0.8
+RW="--reward_shape count --count_ratio 0.5 --count_min 2 --sat_w ${SAT_W:-0.8} --sent_beta 0.6 --sent_gamma 0.3 ${RW_EXTRA:-}"   # SAT_W：满意度扣分的权重，默认 0.8
 free_gpu; mkdir -p $A/s0 $A/s1
 RMS="critic=$FS/adapters/$CRITIC-$RS/adapter sat=$FS/adapters/$SAT-$RS/adapter refuse=$FS/adapters/$REFUSE-$RS/adapter"
 POLURL=http://127.0.0.1:8000/v1; ASYNC=""
