@@ -421,9 +421,10 @@ def place_diversity(scores: list[dict], w: tuple[float, float, float]) -> None:
         s["reward"] = (wh * s["hard"] + wr * s["real"] + wd * s["div"]) / (wh + wr + wd)
 
 
-def group_advantages(rewards: list[float], types: list[str | None], eps: float = 1e-4) -> list[float]:
+def group_advantages(rewards: list[float], types: list[str | None], eps: float = 1e-4, std_floor: float = 0.0) -> list[float]:
     """同一 prompt 的一组输出：减去同类型输出的均值（同类型只有自己时减组均值），除以组标准差。
-    全组奖励一样时优势全为 0（这组不贡献梯度）。"""
+    全组奖励一样时优势全为 0（这组不贡献梯度）。
+    std_floor > 0：除以 max(组标准差, std_floor)。不设下限时，奖励差距很小的组会被放大到和差距大的组一样的更新量。"""
     n = len(rewards)
     mean = sum(rewards) / n
     std = math.sqrt(sum((r - mean) ** 2 for r in rewards) / n)
@@ -433,7 +434,7 @@ def group_advantages(rewards: list[float], types: list[str | None], eps: float =
     for r, t in zip(rewards, types):
         same = [x for x, y in zip(rewards, types) if t is not None and y == t]
         base = sum(same) / len(same) if len(same) >= 2 else mean
-        out.append((r - base) / (std + eps))
+        out.append((r - base) / (max(std, std_floor) + eps))
     return out
 
 

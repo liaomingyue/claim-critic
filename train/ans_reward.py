@@ -215,10 +215,14 @@ class AnswerRewarder:
             list(self.group_pool.map(one, live[1:]))
             b, sd = group_baseline([out[i]["ps"] for i in live], self.sigma_floor)
             k = self.count_k_for(row)
+            hs = {i: count_reward(out[i]["ps"], b, k, self.lam_any, self.lam_cnt) if self.shape == "count" else combine(out[i]["ps"]) for i in live}
+            w = self.sat_w
+            if self.sat_s0 > 0:
+                mu = sum(hs.values()) / len(hs)
+                w *= min(1.0, (sum((h - mu) ** 2 for h in hs.values()) / len(hs)) ** 0.5 / self.sat_s0)
             for i in live:
                 o = out[i]
-                h = count_reward(o["ps"], b, k, self.lam_any, self.lam_cnt) if self.shape == "count" else combine(o["ps"])
-                o.update(reward=guarded(h, o["sat"], self.sat_w), sent_base=round(b, 4), sent_sigma=round(sd, 4))
+                o.update(reward=guarded(hs[i], o["sat"], w), sent_base=round(b, 4), sent_sigma=round(sd, 4), sat_w=round(w, 4))
         refused = [o for o in out if o["why"] == "refusal"]
         if refused and self.refuse_model:   # MiniCPM 偏向拒答，要降拒答率。拒答的奖励 = refuse_w × P(可以拒答)，最高 refuse_w，比一般的好回答低
             pr = self.p_refuse(row)
@@ -227,3 +231,4 @@ class AnswerRewarder:
         return out
 
     group_pool = None
+    sat_s0 = 0.0   # > 0：满意度权重按这一组里 critic 奖励的标准差缩放，w = sat_w × min(1, sd / sat_s0)。critic 在这组没有区分度时满意度也不扣

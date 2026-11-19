@@ -207,7 +207,7 @@ class Producer:
         samples = []
         beta = getattr(self.a, "sent_beta", 0.0)
         for r, p, gs, ss in zip(rows, prompts, gens, scored):
-            adv = group_advantages([s["reward"] for s in ss], [None] * len(ss))
+            adv = group_advantages([s["reward"] for s in ss], [None] * len(ss), std_floor=getattr(self.a, "adv_std_floor", 0.0))
             pids = self.tok(p)["input_ids"]
             for g, s, a in zip(gs, ss, adv):
                 if beta > 0 and s.get("ps") and s.get("spans") and g.get("ids"):
@@ -259,6 +259,7 @@ def build_rewarder(args) -> AnswerRewarder:
                         getattr(args, "reward_shape", "legacy"), getattr(args, "count_k", 3.0), getattr(args, "lam_any", 0.5), getattr(args, "lam_cnt", 0.5),
                         getattr(args, "sigma_floor", 0.1), getattr(args, "count_ratio", 0.0), getattr(args, "count_min", 2.0))
     rw.group_pool = ThreadPoolExecutor(args.rm_concurrency)
+    rw.sat_s0 = getattr(args, "sat_s0", 0.0)
     return rw
 
 
@@ -550,6 +551,7 @@ def run(args) -> None:
     rw = AnswerRewarder([OpenAI(base_url=u, api_key=vllm_key(), timeout=600, max_retries=3) for u in args.vllm_url.split(",")], args.critic, temp, ThreadPoolExecutor(args.rm_concurrency), args.sat_model, args.sat_kind, sat_temp, args.sat_w,
                         args.refuse_model, refuse_temp, args.refuse_w)
     rw.group_pool = ThreadPoolExecutor(args.rm_concurrency)
+    rw.sat_s0 = getattr(args, "sat_s0", 0.0)
     if args.proc_producer:   # 采样 / 打分 / 快评放子进程（训练进程独占 GIL）
         prod = ProcProducer(args, out)
         qe = EvalProxy(prod) if args.eval_k > 0 else None
@@ -652,6 +654,8 @@ def main() -> None:
     ap.add_argument("--sat_kind", choices=["pair", "abs"], default="pair")
     ap.add_argument("--sat_report", default="outputs/rt/rm/sat_pair/eval/report.json")
     ap.add_argument("--sat_w", type=float, default=0.5)
+    ap.add_argument("--sat_s0", type=float, default=0.0, help="> 0：满意度权重按组缩放，sat_w × min(1, 这组 critic 奖励的标准差 / sat_s0)；0 = 固定权重")
+    ap.add_argument("--adv_std_floor", type=float, default=0.0, help="> 0：组内优势除以 max(组标准差, 这个值)，奖励差距小的组少更新；0 = 旧行为")
     ap.add_argument("--refuse_model", default="", help="拒答 RM（vLLM 上的 LoRA 名）；空 = 拒答一律 0 分")
     ap.add_argument("--refuse_report", default="outputs/rt/rm/refuse/eval/report.json")
     ap.add_argument("--refuse_w", type=float, default=0.4, help="拒答的奖励 = refuse_w × P(可以拒答)")

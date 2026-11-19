@@ -160,3 +160,46 @@ def test_count_k_from_reference_ratio():
     assert rw.count_k_for({"ref_text": "One. Two."}) == 2.0      # 下限
     assert rw.count_k_for({}) == 3.0                              # 没有参考回答
     assert AnswerRewarder(None, "c", 1.0, None).count_k_for({"ref_text": ref10}) == 3.0   # ratio 0 = 固定 K
+
+
+def _rewarder(ps_by_text, sat_by_text, s0):
+    from concurrent.futures import ThreadPoolExecutor
+    from train.ans_reward import AnswerRewarder, sentences
+
+    class RW(AnswerRewarder):
+        def p_answer(self, source, sents, model=None, temp=None, priority=0):
+            return next(v for t, v in ps_by_text.items() if sentences(t) == sents)
+
+        def p_sat(self, row, answer, priority=0):
+            return sat_by_text[answer]
+
+    rw = RW(None, "c", 1.0, ThreadPoolExecutor(2), "sat", "pair", 1.0, 0.8, shape="count")
+    rw.group_pool = ThreadPoolExecutor(2)
+    rw.sat_s0 = s0
+    return rw
+
+
+def test_satisfaction_weight_follows_critic_contrast():
+    """critic 在一组里没有区分度时，满意度不再拉开奖励；有区分度时照常扣。"""
+    src = "Briefly answer the following question:\nwhat is x\npassage 1: " + "The quick brown fox jumps over the lazy dog near the river bank. " * 30
+    row = {"id": "q", "task_type": "QA", "source": src, "ref_text": "Alpha is one. Beta is two.", "ref_chars": 60}
+    texts = [f"Item {k} says something about topic {k}. It adds one more remark here." for k in range(4)]
+    gens = [{"text": t, "finish": "stop"} for t in texts]
+    sat = dict(zip(texts, [0.9, 0.1, 0.9, 0.1]))
+    quiet = dict(zip(texts, [[0.05, 0.05]] * 4))
+    loud = dict(zip(texts, [[0.05, 0.05], [0.05, 0.05], [0.9, 0.05], [0.9, 0.05]]))
+    fixed = _rewarder(quiet, sat, 0.0).score_group(row, gens)
+    assert fixed[0]["reward"] - fixed[1]["reward"] > 0.3                       # 固定权重：只靠满意度拉开
+    dyn = _rewarder(quiet, sat, 0.1).score_group(row, gens)
+    assert dyn[0]["sat_w"] == 0.0 and len({s["reward"] for s in dyn}) == 1     # critic 没话说：全组奖励一样
+    dyn = _rewarder(loud, sat, 0.1).score_group(row, gens)
+    assert dyn[0]["sat_w"] == 0.8 and dyn[0]["reward"] - dyn[1]["reward"] > 0.3
+
+
+def test_group_advantage_std_floor():
+    from train.gen_reward import group_advantages
+    small, big = [0.70, 0.72, 0.70, 0.72], [0.2, 0.8, 0.2, 0.8]
+    assert abs(max(group_advantages(small, [None] * 4)) - max(group_advantages(big, [None] * 4))) < 1e-2   # 旧行为：差距再小也放大到一样
+    a = group_advantages(small, [None] * 4, std_floor=0.1)
+    assert abs(max(a) - 0.01 / (0.1 + 1e-4)) < 1e-6
+    assert group_advantages(big, [None] * 4, std_floor=0.1) == group_advantages(big, [None] * 4)
