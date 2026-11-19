@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|opsfill|rags5|opsfillb|of2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -158,6 +158,8 @@ case $ROLE in
   gost7) CODE=$R bash $S/run_genops_st7.sh; rc=$?   # 生成器 GRPO 多样性再训一轮：目标换成真实错误的分布。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   gost8) CODE=$R bash $S/run_genops_st8.sh; rc=$?   # 生成器 GRPO 多样性再训一轮：近义词并组、操作系数。跑完留 20 分钟取结果，然后关机
+     nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  gost9) E=st9 XTRA="--ops_div_group 0.5 --ops_div_all 0.3" CODE=$R bash $S/run_genops_st8.sh; rc=$?   # 生成器 GRPO：在 st8 的设置上加两项多样性（操作一致的样本之间按手段节点算组内多样性；没有真实目标的操作用累计分布）。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   opsfill) CODE=$R bash $S/run_ops_fill.sh; rc=$?   # 闭环后半段：合成错误的盲区样本补进 critic 重训（中间等本地 Claude 核实）。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
