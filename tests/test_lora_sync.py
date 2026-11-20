@@ -30,6 +30,17 @@ def _post(url, body, key=None):
         return e.code
 
 
+def _write_adapter(d):
+    """真实的小 LoRA 文件（只有语言模型模块）：load_lora 推送前会用 strip_visual_inplace 解析它，没有视觉参数所以原样保留。"""
+    pytest.importorskip("safetensors.torch")
+    import numpy as np
+    from safetensors.numpy import save_file
+    f = d / "adapter_model.safetensors"
+    save_file({"base_model.model.model.layers.0.self_attn.q_proj.lora_A.weight": np.zeros((2, 4), dtype=np.float32)}, str(f))
+    (d / "adapter_config.json").write_text("{}")
+    return f.read_bytes()
+
+
 def test_rejects_without_key(sync_server):
     url, _ = sync_server
     assert _post(url + "/sync", {"name": "p", "src": "/"}) == 401
@@ -45,11 +56,10 @@ def test_server_load_and_unload_go_through_sync(sync_server, tmp_path, monkeypat
     monkeypatch.setenv("LORA_SYNC_URL", url)
     src = tmp_path / "fs" / "lora" / "v1" / "policy"
     src.mkdir(parents=True)
-    (src / "adapter_model.safetensors").write_bytes(b"0" * 4096)
-    (src / "adapter_config.json").write_text("{}")
+    data = _write_adapter(src)
     s = gen_grpo.Server("http://127.0.0.1:9/v1")      # vLLM 地址不会被直接访问
     s.load_lora("policy_v1", str(src))
-    assert (shm / "policy_v1" / "adapter_model.safetensors").stat().st_size == 4096
+    assert (shm / "policy_v1" / "adapter_model.safetensors").read_bytes() == data
     assert s.last_sync["name"] == "policy_v1"
     s.unload_lora("policy_v1")
     assert not (shm / "policy_v1").exists()
@@ -101,11 +111,10 @@ def test_server_upload_mode(sync_server, tmp_path, monkeypatch):
     monkeypatch.setenv("LORA_SYNC_MODE", "upload")
     src = tmp_path / "local" / "v4"
     src.mkdir(parents=True)
-    (src / "adapter_model.safetensors").write_bytes(b"2" * 1000)
-    (src / "adapter_config.json").write_text("{}")
+    data = _write_adapter(src)
     s = gen_grpo.Server("http://127.0.0.1:9/v1")
     s.load_lora("policy_v4", str(src))
-    assert (shm / "policy_v4" / "adapter_model.safetensors").read_bytes() == b"2" * 1000
+    assert (shm / "policy_v4" / "adapter_model.safetensors").read_bytes() == data
 
 
 class _FakeModel:
