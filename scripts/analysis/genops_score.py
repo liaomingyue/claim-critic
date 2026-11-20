@@ -1,5 +1,5 @@
 """用重训的把关模型给合成样本打分：sev4（真错 / 明显错）、nat4（自然）、opm（做的是不是要求的操作）、critic。"""
-import json, sys
+import json, os, sys
 from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 from ragtruth.rm_data import RM1_SYSTEM
@@ -27,5 +27,5 @@ def one(x):
 for tag in tags:
     xs = [x for x in map(json.loads, open(f"outputs/rt/core/samples_ops_{tag}.jsonl", encoding="utf-8")) if x["why"] == "ok"]
     with ThreadPoolExecutor(96) as ex: out = list(ex.map(one, xs))
-    open(f"outputs/rt/core/samples_ops_{tag}_rm4.jsonl", "w", encoding="utf-8").write("".join(json.dumps(r) + "\n" for r in out))
+    open(f"outputs/rt/core/samples_ops_{tag}_{os.environ.get('GENOPS_SUF', 'rm4')}.jsonl", "w", encoding="utf-8").write("".join(json.dumps(r) + "\n" for r in out))
     print("SCORE4_DONE", tag, len(out), flush=True)

@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -193,6 +193,8 @@ case $ROLE in
   g9sev|g9nat|g9opm|g9disc)   # 给错误合成把关的模型换成 9B 底座各训一遍（数据同 2B 版）：真错和严重度 / 自然度 / 操作一致 / 判别器。一台一个，只训练。跑完留 20 分钟，然后关机
      case $ROLE in g9sev) x=sev__v4 ;; g9nat) x=rm2__v4 ;; g9opm) x=opm__v1 ;; g9disc) x=rm2__d2 ;; esac
      SETS=none SRC=$x CODE=$R bash $S/run_crit9b.sh; rc=$?
+     nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  gog9) CODE=$R bash $S/run_genops_grpo9.sh; rc=$?   # 错误合成模型换成 9B 的 GRPO 阶段一（双卡：卡 0 训练，卡 1 采样和把关），前后都在留出回答上采样打分。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   of2) CODE=$R bash $S/run_of2.sh; rc=$?   # 第二轮补 critic：效果差的类别多采样补量 → 重训两个 critic → 各自接着训 RAG。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
