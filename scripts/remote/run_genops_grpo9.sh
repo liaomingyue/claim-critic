@@ -1,5 +1,7 @@
 #!/bin/bash
-# 按操作清单造错的生成器 GRPO，整套换成 Qwen3.5-9B（对应 2B 的 run_genops_grpo.sh）。双卡 5090：卡 0 训练，卡 1 vLLM（策略采样 + 把关模型 + critic，都是同一个 9B 基座上的 LoRA）。
+# 按操作清单造错的生成器 GRPO，整套换成 Qwen3.5-9B（对应 2B 的 run_genops_grpo.sh）。策略采样 + 把关模型 + critic 都是同一个 9B 基座上的 LoRA，放在一个 vLLM 上。
+#   两种布局：单机双卡（卡 0 训练，卡 1 vLLM）；两台单卡（本脚本当 run_train_node.sh 的 JOB，RM_URL 等已设好，训练时采样和打分走推理机 run_genops_infer9.sh，
+#   训练前后的留出采样打分在本机的卡上做，那时本机不在训练）。
 #   策略起点 = 9B 基座 + 卡片提示词（B 清零的 LoRA，等于基座）；提示 = 训练池回答 × 20 种操作（和 2B 同一份 prompts_free.jsonl）
 #   把关模型 = sev__v4_9b / rm2__v4_9b / opm__v1_9b / rm2__d2_9b（数据同 2B 版，run_crit9b.sh 训），critic = rm1__core_r2_bfcl_9b；没训完就等
 #   ① 起点（9B 基座）在留出回答上采样，9B 把关模型打分；2B 各版生成器的留出样本也用 9B 把关模型重打一遍（文件后缀 _rm9，不覆盖 2B 打的 _rm4）
@@ -10,9 +12,10 @@ A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; O=outputs/rt/gen_ops_g
 E=${E:-s1c9}; STAGE=${STAGE:-1}; LR=${LR:-2e-5}; STEPS=${STEPS:-100}; N=${N:-16}; PPS=${PPS:-16}; LOG=$A/genops9_$E.log
 log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 ( while kill -0 $$ 2>/dev/null; do touch $A/KEEPALIVE; sleep 60; done ) &
+KEY=${VLLM_API_KEY:-}; REMOTE=${RM_URL:-}; EG=$([ -n "$REMOTE" ] && echo 0 || echo 1)   # 两台单卡：留出评测用本机的卡 0
 export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True TOKENIZERS_PARALLELISM=false PYTHONPATH=. PYTHONIOENCODING=utf-8; unset VLLM_API_KEY
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
-[ "$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)" -ge 2 ] || { log "GENOPS9 FAILED: needs two GPUs"; exit 1; }
+[ -n "$REMOTE" ] || [ "$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)" -ge 2 ] || { log "GENOPS9 FAILED: needs two GPUs"; exit 1; }
 source $S/models9b.sh; ensure_9b || { log "GENOPS9 FAILED: 9b model"; exit 1; }; B9=$A/models/Qwen3.5-9B
 GATES="sev__v4 rm2__v4 opm__v1 rm2__d2 rm1__core_r2_bfcl"
 ad() { echo $FS/adapters/${1}_9b-9b/adapter; }
@@ -32,7 +35,7 @@ INIT=${INIT:-$Z}; PF=${PROMPTS:-$O/prompts_free.jsonl}
 ev() {   # ev <标签> <生成器 adapter>：留出回答 × 20 种操作各采 4 条，9B 把关模型打分 → samples_ops_ev_<标签>.jsonl / _rm9.jsonl
   [ -s $C/samples_ops_ev_$1_rm9.jsonl ] && return 0
   free_gpu
-  A=$A bash $S/serve_loras.sh --gpu 1 --port 8000 --mem 0.85 --base $B9 --log $A/vllm-ev-$1.log $LORAS g=$2 >> $LOG 2>&1 || { log "ev serve $1 FAILED"; return 1; }
+  A=$A bash $S/serve_loras.sh --gpu $EG --port 8000 --mem 0.85 --base $B9 --log $A/vllm-ev-$1.log $LORAS g=$2 >> $LOG 2>&1 || { log "ev serve $1 FAILED"; return 1; }
   [ -s $C/samples_ops_ev_$1.jsonl ] || python -u -m ragtruth.gen_ops sample --model g --tokenizer $B9 --card --style free --n 4 --out samples_ops_ev_$1.jsonl >> $LOG 2>&1 || { log "ev sample $1 FAILED"; return 1; }
   GENOPS_SUF=rm9 python -u $T/genops_score.py "$TJ" ev_$1 >> $LOG 2>&1 || { log "ev score $1 FAILED"; return 1; }
   log "EV $1 $(grep -a GENOPS_SAMPLE $LOG | tail -1 | cut -c1-300)"
@@ -47,14 +50,18 @@ log "BASELINES_DONE"
 RD=$O/$E
 if [ ! -d $RD/ckpt/step$STEPS ]; then
   free_gpu
-  A=$A bash $S/serve_loras.sh --gpu 1 --port 8000 --mem 0.85 --base $B9 --log $A/vllm-gog9.log --priority $LORAS policy_v0=$INIT >> $LOG 2>&1 || { log "GENOPS9 FAILED: vllm"; exit 1; }
+  if [ -n "$REMOTE" ]; then URL=$REMOTE; export VLLM_API_KEY=$KEY OPENAI_API_KEY=$KEY; log "remote inference $REMOTE"
+  else URL=http://127.0.0.1:8000/v1
+    A=$A bash $S/serve_loras.sh --gpu 1 --port 8000 --mem 0.85 --base $B9 --log $A/vllm-gog9.log --priority $LORAS policy_v0=$INIT >> $LOG 2>&1 || { log "GENOPS9 FAILED: vllm"; exit 1; }
+  fi
   log "train $E: stage $STAGE lr $LR steps $STEPS n $N prompts/step $PPS init $INIT"
-  CUDA_VISIBLE_DEVICES=0 python -u -m train.gen_grpo --base $B9 --init $INIT --prompts $PF --reward ops --ops_stage $STAGE \
+  CUDA_VISIBLE_DEVICES=0 python -u -m train.gen_grpo --vllm_url $URL --base $B9 --init $INIT --prompts $PF --reward ops --ops_stage $STAGE \
     --temps sev4=sev__v4_9b,nat4=rm2__v4_9b,opm=opm__v1_9b,rm1=rm1__core_r2_bfcl_9b,disc=rm2__d2_9b \
     --share 1 --share_mb ${SHARE_MB:-4} --ref_on_vllm 1 --trip 0 --eval_k 0 --max_tokens 512 --pipeline 1 --rm_concurrency 128 \
     --steps $STEPS --lr $LR --n $N --prompts_per_step $PPS --save_every 50 --state_every 50 --version_prefix ${E}_ --out $RD ${EXTRA:-} >> $A/gengrpo_$E.log 2>&1 && log "$E done" || log "$E FAILED"
   tail -3 $A/gengrpo_$E.log | cut -c1-400 | sed "s/^/[$E] /" | tee -a $LOG
   cp $A/gengrpo_$E.log $RD/ 2>/dev/null
+  unset VLLM_API_KEY; export OPENAI_API_KEY=x
   for d in $RD/ckpt/step*; do [ -d $d ] && mkdir -p $FS/adapters/gen-ops-grpo-$E/$(basename $d) && rsync -a $d/ $FS/adapters/gen-ops-grpo-$E/$(basename $d)/; done
 fi
 G=$FS/adapters/gen-ops-grpo-$E/step$STEPS/policy
