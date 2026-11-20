@@ -55,12 +55,42 @@ def sh(info: dict, cmd: str, timeout: int = 120) -> str:
     return out
 
 
-def put(info: dict, local: str, remote: str) -> None:
+def _put_once(info: dict, local: str, tmp: str, sftp: bool) -> None:
     c = ssh(info)
+    try:
+        if sftp:
+            s = c.open_sftp()
+            s.get_channel().settimeout(120)   # 不设超时时 SFTP 卡住会一直挂着（踩过：Mac 上传代码包挂了 20 分钟，机器空等）
+            s.put(local, tmp)
+            s.close()
+        else:   # 退路：经命令的标准输入分块写（不走 SFTP 子系统）
+            data = Path(local).read_bytes()
+            i, o, _ = c.exec_command(f"cat > {tmp}", timeout=300)
+            for k in range(0, len(data), 1 << 16):
+                i.write(data[k:k + (1 << 16)])
+            i.channel.shutdown_write()
+            o.channel.recv_exit_status()
+        _, o, _ = c.exec_command(f"stat -c %s {tmp}", timeout=60)
+        got = o.read().decode().strip()
+        if got != str(Path(local).stat().st_size):
+            raise IOError(f"size mismatch {got} vs {Path(local).stat().st_size}")
+    finally:
+        c.close()
+
+
+def put(info: dict, local: str, remote: str) -> None:
     tmp = "/root/" + remote.rsplit("/", 1)[-1] + ".part"
-    s = c.open_sftp()
-    s.put(local, tmp)
-    s.close()
+    err = None
+    for sftp in (True, True, False, False):
+        try:
+            _put_once(info, local, tmp, sftp)
+            break
+        except Exception as e:  # noqa: BLE001
+            err = e
+            time.sleep(5)
+    else:
+        raise IOError(f"upload {local} failed: {err}")
+    c = ssh(info)
     c.exec_command(f"mkdir -p {os.path.dirname(remote)} && mv {tmp} {remote}")[1].channel.recv_exit_status()
     c.close()
 
