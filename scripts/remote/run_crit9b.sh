@@ -2,7 +2,7 @@
 # 同一份 critic 训练集换成 9B 底座训一遍，再给已标注的 RAG 回答逐句打分：用来分清一批补料没起作用是数据的问题还是 2B 的上限。
 #   SRC=rm1__core_r2_bfcl（基线训练集）或 rm1__core_sp1l（基线 + 说话人错位补料），数据目录原样复制成 <SRC>_9b；
 #   超参 configs/rt/rm_9b.yaml（run_rmtrain.sh），adapter 存 adapters/<SRC>_9b-9b；打分文件 <版本>_<集>_critic_<SRC>_9b.json。
-# 一台机器跑一个 SRC（两台并行）。
+# 一台机器跑一个 SRC（两台并行）。NOTRAIN=1 时只给已训好的 critic 打分（SETS 指定回答集），没训过就报错退出。
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; R=outputs/rt/rm
 SRC=${SRC:?}; RM=${SRC}_9b; name=$RM-9b; LOG=$A/crit9b_$SRC.log
@@ -14,6 +14,7 @@ free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi -
 for f in train.jsonl calib.jsonl test.jsonl meta.json; do [ -s $R/$SRC/$f ] || { log "CRIT9B FAILED: missing $R/$SRC/$f"; exit 1; }; done
 ensure_9b || { log "CRIT9B FAILED: 9b model"; exit 1; }
 if [ ! -f $FS/adapters/$name/adapter/adapter_model.safetensors ] || [ ! -f $R/$RM/eval/report.json ]; then
+  [ -n "$NOTRAIN" ] && { log "CRIT9B FAILED: $RM not trained (NOTRAIN)"; exit 1; }
   mkdir -p $R/$RM configs/rt/exp
   for f in train.jsonl calib.jsonl test.jsonl meta.json; do cp $R/$SRC/$f $R/$RM/; done
   touch $R/$RM/READY
