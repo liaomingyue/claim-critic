@@ -16,6 +16,7 @@
 import argparse
 import collections
 import json
+import os
 import random
 import difflib
 from pathlib import Path
@@ -187,7 +188,7 @@ def cmd_sample(a) -> None:
     from openai import OpenAI
     from transformers import AutoTokenizer
     from train.gen_grpo import chat_prompt
-    cl = OpenAI(base_url=a.url, api_key="x", timeout=1800, max_retries=3)
+    cl = OpenAI(base_url=a.url, api_key=os.environ.get("VLLM_API_KEY") or "x", timeout=1800, max_retries=3)   # 推理机上的 vLLM 要密钥
     tok = AutoTokenizer.from_pretrained(a.tokenizer)
     cards = examples() if a.card else None
     seen, resps = set(), []

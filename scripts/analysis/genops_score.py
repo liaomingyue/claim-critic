@@ -11,7 +11,7 @@ from ragtruth.sev_gen import prompt_dne
 from ragtruth.task import render_input
 from train.gen_reward import NO_THINK
 T = json.loads(sys.argv[1]); tags = sys.argv[2:]
-cl = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="x", timeout=900, max_retries=4)
+cl = OpenAI(base_url=os.environ.get("GENOPS_URL", "http://127.0.0.1:8000/v1"), api_key=os.environ.get("VLLM_API_KEY") or "x", timeout=900, max_retries=4)   # GENOPS_URL：打到推理机的 vLLM
 def P(model, msgs, opts):
     r = cl.chat.completions.create(model=model, messages=msgs, max_tokens=8, temperature=0.0, logprobs=True, top_logprobs=20, extra_body=NO_THINK["extra_body"])
     lp = option_logprobs(r.choices[0], opts)
