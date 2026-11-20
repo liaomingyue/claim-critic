@@ -6,6 +6,7 @@
 #   把关模型 = sev__v4_9b / rm2__v4_9b / opm__v1_9b / rm2__d2_9b（数据同 2B 版，run_crit9b.sh 训），critic = rm1__core_r2_bfcl_9b；没训完就等
 #   ① 起点（9B 基座）在留出回答上采样，9B 把关模型打分；2B 各版生成器的留出样本也用 9B 把关模型重打一遍（文件后缀 _rm9，不覆盖 2B 打的 _rm4）
 #   ② GRPO（默认阶段一，设置同 2B 的 s1c：lr 2e-5、100 步、每步 16 个任务 × 16 条）  ③ 训完的生成器在同一批留出回答上采样打分
+#   两台单卡时参考 logprob 在训练机自己的卡上算（REF_ON_VLLM 默认 0）：推理机上的 vLLM 在多 LoRA 热加载时处理 prompt logprob 请求连崩三次。
 #   环境变量：E=运行名（默认 s1c9）  STAGE  LR  STEPS  N  PPS  INIT  PROMPTS  EXTRA  SHARE_MB  RESCORE=要重打分的 2B 样本
 cd ${CODE:-/root/autodl-fs/code/critic_model}
 A=/root/autodl-tmp; FS=/root/autodl-fs; S=scripts/remote; O=outputs/rt/gen_ops_grpo; C=outputs/rt/core; R=outputs/rt/rm; T=scripts/analysis
@@ -57,7 +58,7 @@ if [ ! -d $RD/ckpt/step$STEPS ]; then
   log "train $E: stage $STAGE lr $LR steps $STEPS n $N prompts/step $PPS init $INIT"
   CUDA_VISIBLE_DEVICES=0 python -u -m train.gen_grpo --vllm_url $URL --base $B9 --init $INIT --prompts $PF --reward ops --ops_stage $STAGE \
     --temps sev4=sev__v4_9b,nat4=rm2__v4_9b,opm=opm__v1_9b,rm1=rm1__core_r2_bfcl_9b,disc=rm2__d2_9b \
-    --share 1 --share_mb ${SHARE_MB:-4} --ref_on_vllm 1 --trip 0 --eval_k 0 --max_tokens 512 --pipeline 1 --rm_concurrency 128 \
+    --share 1 --share_mb ${SHARE_MB:-4} --ref_on_vllm ${REF_ON_VLLM:-$([ -n "$REMOTE" ] && echo 0 || echo 1)} --trip 0 --eval_k 0 --max_tokens 512 --pipeline 1 --rm_concurrency 128 \
     --steps $STEPS --lr $LR --n $N --prompts_per_step $PPS --save_every 50 --state_every 50 --version_prefix ${E}_ --out $RD ${EXTRA:-} >> $A/gengrpo_$E.log 2>&1 && log "$E done" || log "$E FAILED"
   tail -3 $A/gengrpo_$E.log | cut -c1-400 | sed "s/^/[$E] /" | tee -a $LOG
   cp $A/gengrpo_$E.log $RD/ 2>/dev/null

@@ -14,7 +14,8 @@ done
 [ -z "$miss" ] || { log "GENOPS_INFER9 FAILED: gates missing:$miss"; touch $P/infer_failed; exit 1; }
 Z=$FS/adapters/gen-ops-zero-9b/adapter
 [ -f $Z/adapter_model.safetensors ] || python scripts/zero_lora.py $FS/adapters/rm1__core_9b-9b/adapter $Z >> $LOG 2>&1 || { log "GENOPS_INFER9 FAILED: zero lora"; touch $P/infer_failed; exit 1; }
-printf '%s\n' "sev4=$(ad sev__v4)" "nat4=$(ad rm2__v4)" "opm=$(ad opm__v1)" "rm1=$(ad rm1__core_r2_bfcl)" "disc=$(ad rm2__d2)" "policy_v0=${INIT:-$Z}" > $P/loras
+# 第一段奖励里没有判别器项，不挂（推理机上的 LoRA 越少越好）；DISC=1 时再挂
+printf '%s\n' "sev4=$(ad sev__v4)" "nat4=$(ad rm2__v4)" "opm=$(ad opm__v1)" "rm1=$(ad rm1__core_r2_bfcl)" $([ "${DISC:-0}" = 1 ] && echo "disc=$(ad rm2__d2)") "policy_v0=${INIT:-$Z}" > $P/loras
 wait
-PAIR=${PAIR:-gog9} INFER_MODEL=qwen3.5-9b bash $S/run_infer_node.sh || { log "GENOPS_INFER9 FAILED: infer node"; exit 1; }
+MAX_LORAS=${MAX_LORAS:-12} PAIR=${PAIR:-gog9} INFER_MODEL=qwen3.5-9b bash $S/run_infer_node.sh || { log "GENOPS_INFER9 FAILED: infer node"; exit 1; }
 log "GENOPS_INFER9_DONE"
