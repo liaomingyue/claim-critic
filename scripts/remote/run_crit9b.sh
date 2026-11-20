@@ -23,6 +23,7 @@ if [ ! -f $FS/adapters/$name/adapter/adapter_model.safetensors ] || [ ! -f $R/$R
   mkdir -p $FS/adapters/$name && rsync -a $A/ckpt/$name/adapter $FS/adapters/$name/ || { log "CRIT9B FAILED: save"; exit 1; }
 fi
 log "TRAINED $RM"
+[ "${SETS:-}" = none ] && { mkdir -p $FS/results/crit9b/$RM && cp $LOG $R/$RM/eval/report.json $FS/results/crit9b/$RM/ 2>/dev/null; log "CRIT9B_DONE $SRC"; exit 0; }   # 只训练（给错误合成把关的模型）
 free_gpu
 A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --mem 0.85 --base $B9 --log $A/vllm-crit9b.log $RM=$FS/adapters/$name/adapter >> $LOG 2>&1 || { log "CRIT9B FAILED: serve"; exit 1; }
 T=$(python -c "import json;print(json.load(open('$R/$RM/eval/report.json'))['temperature'])")
