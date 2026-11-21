@@ -212,7 +212,7 @@ case $ROLE in
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   gog9t4) CODE=$R PAIR=gog9 JOB=run_genops_st34_9.sh bash $S/run_train_node.sh; rc=$?   # 同上，训练机（run_genops_st34_9.sh：阶段三 → 多样性那一段）。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
-  of9) CODE=$R bash $S/run_ops_fill9.sh; rc=$?   # 全 9B 链路第 3 步：9B 错误合成模型造盲区样本 → 补进 critic，9B 底座重训 → 给已标注的回答打分。跑完留 20 分钟取结果，然后关机
+  of9) GEN_E=s4c9 CODE=$R bash $S/run_ops_fill9.sh; rc=$?   # 全 9B 链路第 3 步：9B 错误合成模型造盲区样本 → 补进 critic，9B 底座重训 → 给已标注的回答打分。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   of2) CODE=$R bash $S/run_of2.sh; rc=$?   # 第二轮补 critic：效果差的类别多采样补量 → 重训两个 critic → 各自接着训 RAG。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
