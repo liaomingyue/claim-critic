@@ -218,8 +218,11 @@ def main() -> None:
         role = todo[0]
         name = f"WORKER-{role}-{time.strftime('%m%d%H%M')}"
         before = {i["uuid"] for i in web.instances()}
-        r = web.create(cands[0]["machine_id"], image, expand, name, args.gpus)
-        log(f"create {name} on {cands[0]['machine_id']}: {r.get('code')} {r.get('msg')}", logf)
+        for m in cands[:8]:   # 库存变了（MachineGpuNumUpdateFailed）就立刻试同一批里的下一台，不等下一轮列表（踩过：卡紧时连续十来次都输在第一台）
+            r = web.create(m["machine_id"], image, expand, name, args.gpus)
+            log(f"create {name} on {m['machine_id']}: {r.get('code')} {r.get('msg')}", logf)
+            if r.get("code") == "Success" or "GpuNum" not in str(r.get("code")):
+                break
         if r.get("code") != "Success":
             if image.startswith("image-") and "镜像" in str(r.get("msg")):   # 自定义镜像用不了：退回基础镜像（环境从文件存储解压）
                 snap = web.call(f"/api/v1/instance/snapshot?instance_uuid={main_info['uuid']}").get("data") or {}
