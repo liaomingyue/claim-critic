@@ -13,7 +13,7 @@ export PYTHONHASHSEED=0 OPENAI_API_KEY=x TOKENIZERS_PARALLELISM=false
 [ -n "${RM_URL:-}" ] || unset VLLM_API_KEY LORA_SYNC_URL   # 双机模式（RM_URL 已设）要留着，传给 run_r3full.sh
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 source $S/model_env.sh ${POLICY_MODEL:-minicpm5-2b} || { log "model_env FAILED"; exit 1; }   # 9B 对照时 POLICY_MODEL=qwen3.5-9b：参考回答由 9B 起点重采
-MC=$MODEL_LOCAL; INIT=${INIT:-$FS/adapters/rag-sft-core/adapter}; P=$C/loop2_prompts_$(basename $(dirname $INIT))
+MC=$MODEL_LOCAL; INIT=${INIT:-$FS/adapters/rag-sft-core/adapter}; P=${PROMPTS:-$C/loop2_prompts_$(basename $(dirname $INIT))}   # PROMPTS：起点目录名会重名时（如 .../step200/policy）单独指定，免得用到别的起点的参考回答
 mkdir -p $P
 if [ ! -s $P/train_ref.jsonl ]; then
   python - $C/grpo_train.jsonl outputs/rt/minicpm/grpo/dev.jsonl $P <<'EOF'
