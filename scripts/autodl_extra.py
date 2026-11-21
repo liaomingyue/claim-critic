@@ -144,6 +144,11 @@ def code_tarball() -> bytes:
 
 def setup_fs(new: dict, role: str, run: str, logf: Path) -> None:
     """--fs 模式：传最新代码包和 bootstrap_fs.sh，后台启动；不碰主实例。"""
+    if os.environ.get("FS_CODE_ONLY") == "1":   # 不传代码包：共享盘上的代码已是最新（Mac 上传慢时先用 scripts/fs_push.py 把改动的小文件写进共享盘）
+        sh(new, "cp /root/autodl-fs/code/critic_model/scripts/remote/bootstrap_fs.sh /root/autodl-tmp/bootstrap_fs.sh")
+        bg(new, f"bash /root/autodl-tmp/bootstrap_fs.sh {role} {run}", "/root/autodl-tmp/bootstrap.log")
+        log(f"{role}: bootstrap_fs started on {new['uuid']} (run {run}, code from file storage)", logf)
+        return
     tmp = Path("outputs/autodl/code_update.tar")
     tmp.write_bytes(code_tarball())
     put(new, str(tmp), "/root/autodl-tmp/code_update.tar")
