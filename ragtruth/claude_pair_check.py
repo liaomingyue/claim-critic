@@ -119,7 +119,12 @@ def cmd_label_batch(a) -> None:
     keys = paired_keys(arms)
     path = D / "labels_batch.jsonl"
     done = {x["resp_id"] for x in read_jsonl(path)} if path.exists() else set()
-    if a.n_pairs:   # 只抽 n_pairs 对：已经标过一条的配对优先（不浪费已花的调用），其余随机；各套均分
+    if a.pairs_file:   # 外部给定的配对（如按 9B 评测器分数分层抽样，权重另存；见 scripts/analysis/strat_pairs.py）
+        keys = sorted(set(json.loads(Path(a.pairs_file).read_text(encoding="utf-8"))) & set(keys))
+        arms = {n: {rid: r for rid, r in rows.items() if rid.split("-", 1)[1] in set(keys)} for n, rows in arms.items()}
+        (D / "pairs.json").write_text(json.dumps(keys), encoding="utf-8")
+        print("pairs", len(keys), "from", a.pairs_file, flush=True)
+    elif a.n_pairs:   # 只抽 n_pairs 对：已经标过一条的配对优先（不浪费已花的调用），其余随机；各套均分
         started = {rid.split("-", 1)[1] for rid in done}
         rng = random.Random(a.seed)
         pick = []
@@ -235,6 +240,7 @@ def main() -> None:
     ap.add_argument("--max_calls", type=int, default=400)
     ap.add_argument("--batch", type=int, default=10)
     ap.add_argument("--n_pairs", type=int, default=0, help="只抽这么多对（0 = 全部）")
+    ap.add_argument("--pairs_file", default="", help="只标这个 JSON 列表里的配对键（<套><原文>-<种子>）")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dir", default="outputs/rt/core/claude_check", help="标注和报告所在目录（发布的结果在 results/q9b_claude_check）")
     a = ap.parse_args()
