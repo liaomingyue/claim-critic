@@ -43,7 +43,7 @@ def in_zone(p: dict) -> bool:
 
 def cmd_select(a) -> None:
     B = O / a.round
-    P = {r["id"]: r for r in read_jsonl(C / f"samples_ops_{a.tag}_rm4.jsonl")}
+    P = {r["id"]: r for r in read_jsonl(C / f"samples_ops_{a.tag}_{a.suf}.jsonl")}
     rows = sorted((r for r in read_jsonl(C / f"samples_ops_{a.tag}.jsonl") if r["why"] == "ok" and r["id"] in P), key=lambda r: r["id"])
     ok3 = [r for r in rows if P[r["id"]].get("p_edit") is not None and all((P[r["id"]].get(k) or 0) >= 0.5 for k in ("p_err", "p_nat", "p_op"))]
     random.Random(f"ops_fill|{a.round}|zone").shuffle(rows)
@@ -174,6 +174,7 @@ def main() -> None:
     ap.add_argument("--with_zone", default="of1", help="target / build_target：上一轮盲区所在的轮次目录（不重复挑、建数据时一起加）；空 = 不用")
     ap.add_argument("--per_sent", type=int, default=2, help="target：同一回答的同一句最多留几条不同的改法")
     ap.add_argument("--tag", default="tr_st8", help="select：outputs/rt/core/samples_ops_<tag>.jsonl 和 _rm4")
+    ap.add_argument("--suf", default="rm4", help="select：把关模型打分文件的后缀（rm4 = 2B 把关，rm9 = 9B 把关）")
     ap.add_argument("--round", default="of1", help="outputs/rt/ops_fill/ 下的目录")
     ap.add_argument("--per_op", type=int, default=30, help="select：每种操作交 Claude 的条数")
     ap.add_argument("--base", default="rm1__core_r2_bfcl")
