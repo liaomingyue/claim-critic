@@ -54,7 +54,7 @@ def skey(source: str) -> str:
     return hashlib.sha256(" ".join(source.split()).encode()).hexdigest()[:16]
 
 
-def load() -> list[dict]:
+def load(extra: dict | None = None) -> list[dict]:
     """全部标注统一成：uid、set、source、context、idx、original、sentence、severity、natural、split、（want、actual：只有按操作清单核实的有）。"""
     rows = []
     for sub in OLD_SPLIT + OLD_TRAIN + NEW:
@@ -75,7 +75,7 @@ def load() -> list[dict]:
             rows.append({"uid": f"{sub.split('/')[-1]}/{r['aid']}", "set": sub.split("/")[-1], "source": x["source"], "context": ctx, "idx": int(x["idx"]), "original": x["original"],
                          "sentence": x["sentence"], "severity": c.get("severity"), "natural": c.get("natural"), "split": sp, "old_key": x.get("id", r["aid"]).split("#")[0],
                          "task_type": x.get("task_type", "")})
-    for sub, f in OPSETS.items():
+    for sub, f in {**OPSETS, **(extra or {})}.items():
         S = {x["id"]: x for x in read_jsonl(RT / "core" / f) if x["why"] == "ok"}
         for r in read_jsonl(RT / "analysis" / sub / "labels.jsonl"):
             x = S[r["id"]]
@@ -100,7 +100,19 @@ def row(uid: str, r: dict, prompt: list[dict], lab: str) -> dict:
 
 
 def main() -> None:
-    rows = load()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--extra", nargs="*", default=[], help="另加的 Claude 核实组：<analysis 下的目录>=<core 下的采样文件>（第二轮：9B 生成器各阶段抽查 + 训练原文上的边界样本）")
+    ap.add_argument("--dup", type=int, default=1, help="另加的组在训练集里重复几次（加权）")
+    ap.add_argument("--names", default="sev__v4,rm2__v4,opm__v1")
+    a = ap.parse_args()
+    extra = dict(x.split("=", 1) for x in a.extra)
+    NS, NN, NO = a.names.split(",")
+    rows = load(extra)
+    if a.dup > 1:   # 只加权训练集：校准 / 测试保持一条一份
+        base = list(rows)
+        for k in range(1, a.dup):
+            rows += [{**r, "uid": f"{r['uid']}#dup{k}"} for r in base if r["set"] in extra and r["split"] == "train"]
     print("labelled items", len(rows), dict(collections.Counter(r["set"] for r in rows)))
     # sev
     parts = collections.defaultdict(list)
@@ -108,14 +120,14 @@ def main() -> None:
         lab = {"clear": "A", "minor": "B", "none": "C"}.get(r["severity"])
         if lab:
             parts[r["split"]].append(row("sev4/" + r["uid"], r, prompt_dne(r), lab))
-    m = write_rm("sev__v4", parts, 4096)
+    m = write_rm(NS, parts, 4096)
     print("SEV_V4", json.dumps({k: m[k]["n"] for k in ("train", "calib", "test")}), {k: m[k]["label"] for k in ("train", "test")}, "too long", m["too_long_dropped"])
     # 自然度
     parts = collections.defaultdict(list)
     for r in assign(rows, "rm2_v3"):
         if r["natural"] in ("yes", "no"):
             parts[r["split"]].append(row("rm2v4/" + r["uid"], r, nat_prompt(r), "A" if r["natural"] == "yes" else "B"))
-    m = write_rm("rm2__v4", parts, 3072)
+    m = write_rm(NN, parts, 3072)
     print("RM2_V4", json.dumps({k: m[k]["n"] for k in ("train", "calib", "test")}), {k: m[k]["label"] for k in ("train", "test")}, "too long", m["too_long_dropped"])
     # 判操作
     parts = collections.defaultdict(list)
@@ -141,7 +153,7 @@ def main() -> None:
         other = neg[hsplit(p["id"], "opm_neg", tuple(range(1, 100))) % len(neg)]
         parts[sp].append(row(f"opm/seed/{p['id']}|{op}", r, opm_prompt(r, op), "A"))
         parts[sp].append(row(f"opm/seed/{p['id']}|{other}", r, opm_prompt(r, other), "B"))
-    m = write_rm("opm__v1", parts, 4096)
+    m = write_rm(NO, parts, 4096)
     print("OPM_V1", json.dumps({k: m[k]["n"] for k in ("train", "calib", "test")}), {k: m[k]["label"] for k in ("train", "test")}, {k: m[k]["origin"] for k in ("train", "test")}, "too long", m["too_long_dropped"])
 
 

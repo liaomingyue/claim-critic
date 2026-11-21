@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|g5sev|g5nat|g5opm|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -221,6 +221,12 @@ case $ROLE in
   q9ci2) PAIR_C=q9c2 CRIT_C=rm1__core_r2_bfcl_9b CODE=$R bash $S/q9b_task.sh pair_infer_c; rc=$?   # 第 4 步的对照组推理机：奖励 critic 用补样本前的基线 critic，其余同 q9ci。训练机写 train_done 后退出，留 20 分钟，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   q9ct2) CRIT_C=rm1__core_r2_bfcl_9b CRIT_TAG=r2b STEPS_C=50 EVAL_C=50 CODE=$R PAIR=q9c2 JOB=run_q9b_cont.sh bash $S/run_train_node.sh; rc=$?   # 同上，训练机：从第 200 步接着训 50 步 + 第 50 步验收评测，和新 critic 那组的第 50 步比。跑完留 20 分钟取结果，然后关机
+     nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  g5sev) WHICH=sev CODE=$R bash $S/run_gate9v5.sh; rc=$?   # 第二轮：9B 把关模型（严重程度）加 Claude 标签重训。跑完留 20 分钟取结果，然后关机
+     nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  g5nat) WHICH=nat CODE=$R bash $S/run_gate9v5.sh; rc=$?   # 第二轮：9B 把关模型（自然度）加 Claude 标签重训。跑完留 20 分钟取结果，然后关机
+     nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  g5opm) WHICH=opm CODE=$R bash $S/run_gate9v5.sh; rc=$?   # 第二轮：9B 把关模型（类别一致）加 Claude 标签重训。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   of2) CODE=$R bash $S/run_of2.sh; rc=$?   # 第二轮补 critic：效果差的类别多采样补量 → 重训两个 critic → 各自接着训 RAG。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
