@@ -18,7 +18,9 @@ export PYTHONHASHSEED=0 OPENAI_API_KEY=x PYTORCH_CUDA_ALLOC_CONF=expandable_segm
 free_gpu() { pkill -f '[v]llm serve'; for i in $(seq 1 40); do [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -1)" -lt 1000 ] && break; sleep 3; done; }
 [ -n "$REMOTE" ] || [ "$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)" -ge 2 ] || { log "GENOPS9 FAILED: needs two GPUs"; exit 1; }
 source $S/models9b.sh; ensure_9b || { log "GENOPS9 FAILED: 9b model"; exit 1; }; B9=$A/models/Qwen3.5-9B
-GATES="sev__v4 rm2__v4 opm__v1 rm2__d2 rm1__core_r2_bfcl"
+# 第二轮起把关模型 / critic 可换（G_SEV / G_NAT / G_OPM / G_CR），打分文件后缀 GSUF 跟着换，免得用到旧把关模型打的分
+GSEV=${G_SEV:-sev__v4}; GNAT=${G_NAT:-rm2__v4}; GOPM=${G_OPM:-opm__v1}; GCR=${G_CR:-rm1__core_r2_bfcl}; SUF=${GSUF:-rm9}
+GATES="$GSEV $GNAT $GOPM rm2__d2 $GCR"
 ad() { echo $FS/adapters/${1}_9b-9b/adapter; }
 for i in $(seq 1 480); do   # 把关模型在别的机器上训，最多等 8 小时
   miss=""; for g in $GATES; do [ -f $(ad $g)/adapter_model.safetensors ] && [ -f $R/${g}_9b/eval/report.json ] || miss="$miss $g"; done
@@ -26,28 +28,29 @@ for i in $(seq 1 480); do   # 把关模型在别的机器上训，最多等 8 �
 done
 [ -z "$miss" ] || { log "GENOPS9 FAILED: gates missing:$miss"; exit 1; }
 t() { python -c "import json;print(json.load(open('$R/${1}_9b/eval/report.json'))['temperature'])"; }
-TJ="{\"sev4\": $(t sev__v4), \"nat4\": $(t rm2__v4), \"opm\": $(t opm__v1), \"rm1\": $(t rm1__core_r2_bfcl), \"disc\": $(t rm2__d2)}"
-LORAS="sev4=$(ad sev__v4) nat4=$(ad rm2__v4) opm=$(ad opm__v1) rm1=$(ad rm1__core_r2_bfcl) disc=$(ad rm2__d2)"
+TJ="{\"sev4\": $(t $GSEV), \"nat4\": $(t $GNAT), \"opm\": $(t $GOPM), \"rm1\": $(t $GCR), \"disc\": $(t rm2__d2)}"
+LORAS="sev4=$(ad $GSEV) nat4=$(ad $GNAT) opm=$(ad $GOPM) rm1=$(ad $GCR) disc=$(ad rm2__d2)"
 log "gates ready, temperatures $TJ"
 Z=$FS/adapters/gen-ops-zero-9b/adapter
 [ -f $Z/adapter_model.safetensors ] || python scripts/zero_lora.py $FS/adapters/rm1__core_9b-9b/adapter $Z >> $LOG 2>&1 || { log "GENOPS9 FAILED: zero lora"; exit 1; }
 INIT=${INIT:-$Z}; PF=${PROMPTS:-$O/prompts_free.jsonl}
 [ -s $PF ] || python -u -m ragtruth.gen_ops prompts --pool genpool_train.jsonl --style free >> $LOG 2>&1 || { log "GENOPS9 FAILED: prompts"; exit 1; }
 ev() {   # ev <标签> <生成器 adapter>：留出回答 × 20 种操作各采 4 条，9B 把关模型打分 → samples_ops_ev_<标签>.jsonl / _rm9.jsonl
-  [ -s $C/samples_ops_ev_$1_rm9.jsonl ] && return 0
+  [ -s $C/samples_ops_ev_$1_$SUF.jsonl ] && return 0
   free_gpu
   A=$A bash $S/serve_loras.sh --gpu $EG --port 8000 --mem 0.85 --base $B9 --log $A/vllm-ev-$1.log $LORAS g=$2 >> $LOG 2>&1 || { log "ev serve $1 FAILED"; return 1; }
   [ -s $C/samples_ops_ev_$1.jsonl ] || python -u -m ragtruth.gen_ops sample --model g --tokenizer $B9 --card --style free --n 4 --out samples_ops_ev_$1.jsonl >> $LOG 2>&1 || { log "ev sample $1 FAILED"; return 1; }
-  GENOPS_SUF=rm9 python -u $T/genops_score.py "$TJ" ev_$1 >> $LOG 2>&1 || { log "ev score $1 FAILED"; return 1; }
+  GENOPS_SUF=$SUF python -u $T/genops_score.py "$TJ" ev_$1 >> $LOG 2>&1 || { log "ev score $1 FAILED"; return 1; }
   log "EV $1 $(grep -a GENOPS_SAMPLE $LOG | tail -1 | cut -c1-300)"
 }
-ev base9 $Z
+[ "${SKIP_BASE:-0}" = 1 ] || ev base9 $Z   # 第二轮不再评基座
 for x in ${RESCORE-ev_base_free ev_s1c ev_st4 ev_st8}; do   # 2B 生成器的留出样本换 9B 把关模型重打（vLLM 还开着）
   [ -s $C/samples_ops_$x.jsonl ] || { [ -s $C/samples_ops_$x.jsonl.gz ] && gunzip -k $C/samples_ops_$x.jsonl.gz; }
   [ -s $C/samples_ops_$x.jsonl ] || { log "rescore: missing $x"; continue; }
-  [ -s $C/samples_ops_${x}_rm9.jsonl ] || GENOPS_SUF=rm9 python -u $T/genops_score.py "$TJ" $x >> $LOG 2>&1 || log "rescore $x FAILED"
+  [ -s $C/samples_ops_${x}_$SUF.jsonl ] || GENOPS_SUF=$SUF python -u $T/genops_score.py "$TJ" $x >> $LOG 2>&1 || log "rescore $x FAILED"
 done
 log "BASELINES_DONE"
+[ "${ONLY_BASE:-0}" = 1 ] && { free_gpu; exit 0; }   # 只做重打分（第二轮：先用新把关模型给上一轮终点的留出样本打分，定基准线）
 RD=$O/$E
 if [ ! -d $RD/ckpt/step$STEPS ]; then
   free_gpu
@@ -57,7 +60,7 @@ if [ ! -d $RD/ckpt/step$STEPS ]; then
   fi
   log "train $E: stage $STAGE lr $LR steps $STEPS n $N prompts/step $PPS init $INIT"
   CUDA_VISIBLE_DEVICES=0 python -u -m train.gen_grpo --vllm_url $URL --base $B9 --init $INIT --prompts $PF --reward ops --ops_stage $STAGE \
-    --temps sev4=sev__v4_9b,nat4=rm2__v4_9b,opm=opm__v1_9b,rm1=rm1__core_r2_bfcl_9b,disc=rm2__d2_9b \
+    --temps sev4=${GSEV}_9b,nat4=${GNAT}_9b,opm=${GOPM}_9b,rm1=${GCR}_9b,disc=rm2__d2_9b \
     --share 1 --share_mb ${SHARE_MB:-4} --ref_on_vllm ${REF_ON_VLLM:-$([ -n "$REMOTE" ] && echo 0 || echo 1)} --trip 0 --eval_k 0 --max_tokens 512 --pipeline 1 --rm_concurrency 128 \
     --steps $STEPS --lr $LR --n $N --prompts_per_step $PPS --save_every 50 --state_every 50 --version_prefix ${E}_ --out $RD ${EXTRA:-} >> $A/gengrpo_$E.log 2>&1 && log "$E done" || log "$E FAILED"
   tail -3 $A/gengrpo_$E.log | cut -c1-400 | sed "s/^/[$E] /" | tee -a $LOG

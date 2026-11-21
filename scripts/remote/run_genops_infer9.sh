@@ -8,14 +8,15 @@ mkdir -p $P; rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed 
 ( source $S/models9b.sh; _copy_9b ) > /dev/null 2>&1 &
 ad() { echo $FS/adapters/${1}_9b-9b/adapter; }
 for i in $(seq 1 480); do
-  miss=""; for g in sev__v4 rm2__v4 opm__v1 rm2__d2 rm1__core_r2_bfcl; do [ -f $(ad $g)/adapter_model.safetensors ] && [ -f $R/${g}_9b/eval/report.json ] || miss="$miss $g"; done
+  GSEV=${G_SEV:-sev__v4}; GNAT=${G_NAT:-rm2__v4}; GOPM=${G_OPM:-opm__v1}; GCR=${G_CR:-rm1__core_r2_bfcl}
+  miss=""; for g in $GSEV $GNAT $GOPM rm2__d2 $GCR; do [ -f $(ad $g)/adapter_model.safetensors ] && [ -f $R/${g}_9b/eval/report.json ] || miss="$miss $g"; done
   [ -z "$miss" ] && break; [ $((i % 10)) = 1 ] && log "waiting for gates:$miss"; sleep 60
 done
 [ -z "$miss" ] || { log "GENOPS_INFER9 FAILED: gates missing:$miss"; touch $P/infer_failed; exit 1; }
 Z=$FS/adapters/gen-ops-zero-9b/adapter
 [ -f $Z/adapter_model.safetensors ] || python scripts/zero_lora.py $FS/adapters/rm1__core_9b-9b/adapter $Z >> $LOG 2>&1 || { log "GENOPS_INFER9 FAILED: zero lora"; touch $P/infer_failed; exit 1; }
 # 第一段奖励里没有判别器项，不挂（推理机上的 LoRA 越少越好）；DISC=1 时再挂
-printf '%s\n' "sev4=$(ad sev__v4)" "nat4=$(ad rm2__v4)" "opm=$(ad opm__v1)" "rm1=$(ad rm1__core_r2_bfcl)" $([ "${DISC:-0}" = 1 ] && echo "disc=$(ad rm2__d2)") "policy_v0=${INIT:-$Z}" > $P/loras
+printf '%s\n' "sev4=$(ad $GSEV)" "nat4=$(ad $GNAT)" "opm=$(ad $GOPM)" "rm1=$(ad $GCR)" $([ "${DISC:-0}" = 1 ] && echo "disc=$(ad rm2__d2)") "policy_v0=${INIT:-$Z}" > $P/loras
 wait
 MAX_LORAS=${MAX_LORAS:-12} PAIR=${PAIR:-gog9} INFER_MODEL=qwen3.5-9b bash $S/run_infer_node.sh || { log "GENOPS_INFER9 FAILED: infer node"; exit 1; }
 log "GENOPS_INFER9_DONE"
