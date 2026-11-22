@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|g5sev|g5nat|g5opm|gr2i|gr2t|gckev|gckev2|gckev3|of9r2|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|g5sev|g5nat|g5opm|gr2i|gr2t|gckev|gckev2|gckev3|of9r2|of9r2n|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2|q9di|q9dt|q9di2|q9dt2) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -235,6 +235,16 @@ case $ROLE in
   gckev3) CK="s4r2s100=$FS/adapters/gen-ops-grpo-s4r2/step100/policy" CODE=$R bash $S/run_genops_ckev9.sh; rc=$?   # 同上，第四段第 100 步（结果在共享盘上，跑完直接关机）
      /usr/bin/shutdown ;;
   of9r2) GEN_E=s3r2 RD=of9r2 NAME=rm1__core_of9r2 CR=rm1__core_of9all G_SEV=sev__v5 G_NAT=rm2__v5 G_OPM=opm__v2 SUF=rm9v5 BUILD_EXTRA="--pair_orig 1 --prev_zone of9" SETS="q9b_p9r9:s200 q9b_cof9:s50 q9b_cof9:s100 q9b_cr2b:s50 q9b_p9r2:s200 cont8:v0 cont8:s100 cont9:v0 cont9:s100 cont9dyn:s100 cont8dyn:s100" CODE=$R bash $S/run_ops_fill9.sh; rc=$?   # 第二轮第 4 步：第二轮生成器终点（s3r2）在训练集原文上造盲区样本（新把关模型 + 新 critic 判），加上同位置原句当近邻负例，补进 rm1__core_of9all 重训。结果都在共享盘上，跑完直接关机
+     /usr/bin/shutdown ;;
+  of9r2n) GEN_E=s3r2 RD=of9r2 NAME=rm1__core_of9r2n CR=rm1__core_of9all G_SEV=sev__v5 G_NAT=rm2__v5 G_OPM=opm__v2 SUF=rm9v5 BUILD_EXTRA="--prev_zone of9" SETS="q9b_p9r9:s200 q9b_cof9:s100 cont8:v0 cont8:s100 cont9:v0 cont9:s100 cont9dyn:s100 cont8dyn:s100" CODE=$R bash $S/run_ops_fill9.sh; rc=$?   # 对照：同 of9r2 的 338 条盲区错句，不配原句（看配原句是不是让 critic 变差的原因）。结果都在共享盘上，跑完直接关机
+     /usr/bin/shutdown ;;
+  q9di) PAIR_C=q9d CRIT_C=rm1__core_of9r2nall_9b INIT_C=$FS/adapters/9b-grpo-r3_core_q9b_cof9/step100/policy CODE=$R bash $S/q9b_task.sh pair_infer_c; rc=$?   # 第二轮第 5 步推理机：RAG 策略从 cof9 第 100 步接着训，奖励 critic = 第二轮补数据（不配原句）的 of9r2nall。训练机写 train_done 后退出，直接关机
+     /usr/bin/shutdown ;;
+  q9dt) PAIR=q9d CRIT_C=rm1__core_of9r2nall_9b ARM_C=q9b_dr2n INIT_C=$FS/adapters/9b-grpo-r3_core_q9b_cof9/step100/policy PROMPTS_C=outputs/rt/core/loop2_prompts_q9b_cof9_s100 CODE=$R JOB=run_q9b_cont.sh bash $S/run_train_node.sh; rc=$?   # 同上，训练机：起点重采参考回答 → 接着训 100 步 + 第 50 / 100 步验收评测。结果在共享盘上，跑完直接关机
+     /usr/bin/shutdown ;;
+  q9di2) PAIR_C=q9d2 CRIT_C=rm1__core_of9all_9b INIT_C=$FS/adapters/9b-grpo-r3_core_q9b_cof9/step100/policy CODE=$R bash $S/q9b_task.sh pair_infer_c; rc=$?   # 第 5 步对照组推理机：同起点，奖励 critic 不换（of9all），看提升是来自新 critic 还是多训的步数。训练机写 train_done 后退出，直接关机
+     /usr/bin/shutdown ;;
+  q9dt2) PAIR=q9d2 CRIT_C=rm1__core_of9all_9b ARM_C=q9b_dof9 REF_WAIT=1 INIT_C=$FS/adapters/9b-grpo-r3_core_q9b_cof9/step100/policy PROMPTS_C=outputs/rt/core/loop2_prompts_q9b_cof9_s100 CODE=$R JOB=run_q9b_cont.sh bash $S/run_train_node.sh; rc=$?   # 同上，训练机：等 q9dt 重采完参考回答再开训。结果在共享盘上，跑完直接关机
      /usr/bin/shutdown ;;
   gr2i) PAIR=gog9r2 DISC=1 G_SEV=sev__v5 G_NAT=rm2__v5 G_OPM=opm__v2 G_CR=rm1__core_of9all INIT=$FS/adapters/gen-ops-grpo-s4c9/step100/policy CODE=$R bash $S/run_genops_infer9.sh; rc=$?   # 第二轮错误合成 GRPO 的推理机（新把关模型 + 新 critic，起点 = 第一轮终点）。训练机写 train_done 后退出，留 20 分钟，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;

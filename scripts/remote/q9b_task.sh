@@ -159,16 +159,21 @@ pair_infer_c)   # 全 9B 链路第 4 步的推理机：9B 底座 + 新 critic（
   rm -f $P/infer_ready $P/infer_failed $P/train_done $P/train_failed $P/domains.json
   hostname > $P/infer_host
   printf '%s\n' "critic=$FS/adapters/${CRIT_C:-rm1__core_of9all_9b}-9b/adapter" "sat=$FS/adapters/sat_pair__core_9b-9b/adapter" \
-    "refuse=$FS/adapters/refuse__core_9b-9b/adapter" "policy_v0=$FS/adapters/9b-grpo-r3_core_q9b_p9r9/step200/policy" > $P/loras
+    "refuse=$FS/adapters/refuse__core_9b-9b/adapter" "policy_v0=${INIT_C:-$FS/adapters/9b-grpo-r3_core_q9b_p9r9/step200/policy}" > $P/loras
   PAIR=${PAIR_C:-q9c} INFER_MODEL=qwen3.5-9b bash $S/run_infer_node.sh || exit 1
   [ -f $P/train_done ] || exit 1
   log "PAIR_INFER_C_DONE" ;;
 grpo_c)   # 第 4 步的训练（双机训练机的 JOB）：从 9B RAG GRPO 第 200 步接着训 100 步，奖励里的 critic 换成新 critic，其余同 p9r9；
           # 起点重采参考回答（单独目录，避免和 2B 接着训的 step200 重名），第 50 / 100 步在三套验收集上生成、金标 critic 打分（起点 = p9r9 已有的 s200）
-  POLICY_MODEL=qwen3.5-9b RM_MODEL=qwen3.5-9b ARM=q9b_c${CRIT_TAG:-of9} CRITIC=${CRIT_C:-rm1__core_of9all_9b} SAT=sat_pair__core_9b REFUSE=refuse__core_9b \
-    INIT=$FS/adapters/9b-grpo-r3_core_q9b_p9r9/step200/policy PROMPTS=outputs/rt/core/loop2_prompts_q9b_p9r9_s200 \
-    STEPS=${STEPS_C:-100} EVAL_STEPS="${EVAL_C:-50 100}" EVAL_V0=0 SHARE_MB=8 CODE=$PWD bash $S/run_loop2.sh   # 对照组（旧 critic）：STEPS_C=50 EVAL_C=50
-  [ -f outputs/rt/core/loop2_q9b_c${CRIT_TAG:-of9}/eval/s${STEPS_C:-100}_c_9b.json ] || exit 1
+  # 再接一轮（INIT_C / PROMPTS_C / ARM_C 换起点和组名）：两组共用起点的参考回答，REF_WAIT=1 的那组等另一组重采完（ref_ready）再开训
+  IC=${INIT_C:-$FS/adapters/9b-grpo-r3_core_q9b_p9r9/step200/policy}; PR=${PROMPTS_C:-outputs/rt/core/loop2_prompts_q9b_p9r9_s200}; AC=${ARM_C:-q9b_c${CRIT_TAG:-of9}}
+  RUN=(env POLICY_MODEL=qwen3.5-9b RM_MODEL=qwen3.5-9b ARM=$AC CRITIC=${CRIT_C:-rm1__core_of9all_9b} SAT=sat_pair__core_9b REFUSE=refuse__core_9b INIT=$IC PROMPTS=$PR \
+    STEPS=${STEPS_C:-100} EVAL_STEPS="${EVAL_C:-50 100}" EVAL_V0=0 SHARE_MB=8 CODE=$PWD)   # 对照组（旧 critic）：STEPS_C=50 EVAL_C=50
+  if [ "${REF_WAIT:-0}" = 1 ]; then
+    for i in $(seq 1 180); do [ -f $PR/ref_ready ] && break; sleep 60; done; [ -f $PR/ref_ready ] || { log "GRPO_C FAILED: no ref_ready in $PR"; exit 1; }
+  else "${RUN[@]}" REF_ONLY=1 bash $S/run_loop2.sh || exit 1; touch $PR/ref_ready; fi
+  "${RUN[@]}" bash $S/run_loop2.sh
+  [ -f outputs/rt/core/loop2_$AC/eval/s${STEPS_C:-100}_c_9b.json ] || exit 1
   log "GRPO_C_DONE" ;;
 pair_train)   # 两台单卡跑 9B GRPO 的训练机：等推理机就绪（域名由本地 scripts/pair_setup.py 写），跑 9B × 9B 的 GRPO，训完在本机评测
   PAIR=q9b JOB=run_q9b_pair.sh bash $S/run_train_node.sh || exit 1
