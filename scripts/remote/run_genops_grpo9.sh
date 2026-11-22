@@ -44,10 +44,11 @@ ev() {   # ev <标签> <生成器 adapter>：留出回答 × 20 种操作各采 
   log "EV $1 $(grep -a GENOPS_SAMPLE $LOG | tail -1 | cut -c1-300)"
 }
 [ "${SKIP_BASE:-0}" = 1 ] || ev base9 $Z   # 第二轮不再评基座
+RS=(); [ "${SKIP_BASE:-0}" = 1 ] && [ -n "$REMOTE" ] && RS=(env GENOPS_URL=$REMOTE VLLM_API_KEY=$KEY)   # 没评基座就没开本机 vLLM：重打分发给推理机（把关模型在那边已加载）
 for x in ${RESCORE-ev_base_free ev_s1c ev_st4 ev_st8}; do   # 2B 生成器的留出样本换 9B 把关模型重打（vLLM 还开着）
   [ -s $C/samples_ops_$x.jsonl ] || { [ -s $C/samples_ops_$x.jsonl.gz ] && gunzip -k $C/samples_ops_$x.jsonl.gz; }
   [ -s $C/samples_ops_$x.jsonl ] || { log "rescore: missing $x"; continue; }
-  [ -s $C/samples_ops_${x}_$SUF.jsonl ] || GENOPS_SUF=$SUF python -u $T/genops_score.py "$TJ" $x >> $LOG 2>&1 || log "rescore $x FAILED"
+  [ -s $C/samples_ops_${x}_$SUF.jsonl ] || GENOPS_SUF=$SUF "${RS[@]}" python -u $T/genops_score.py "$TJ" $x >> $LOG 2>&1 || log "rescore $x FAILED"
 done
 log "BASELINES_DONE"
 [ "${ONLY_BASE:-0}" = 1 ] && { free_gpu; exit 0; }   # 只做重打分（第二轮：先用新把关模型给上一轮终点的留出样本打分，定基准线）

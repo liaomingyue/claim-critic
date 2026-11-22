@@ -72,6 +72,10 @@ def cmd_build(a) -> None:
     zone = {x["id"]: x for x in read_jsonl(B / "zone.jsonl")}
     items = sorted(x["id"] for x in read_jsonl(B / "items.jsonl"))
     base = OUT / a.base
+    if a.prev_zone:   # 上一轮已经补进基线训练集的盲区（同一回答同一句同样的错句）不重复加
+        kk = lambda r: (r["resp_id"], int(r["idx"]), " ".join(r["sentence"].lower().split()))
+        old = {kk(r) for r in read_jsonl(O / a.prev_zone / "zone.jsonl")}
+        zone = {k: x for k, x in zone.items() if kk(x) not in old}
     held = {r["group"] for sp in ("calib.jsonl", "test.jsonl") for r in read_jsonl(base / sp) if "group" in r}
     leak = sorted(k for k, x in zone.items() if str(x["source_id"]) in held)
     assert not leak, f"{len(leak)} zone samples come from calib / test sources"
@@ -92,6 +96,9 @@ def cmd_build(a) -> None:
             op = lab[k]["op"] if arm == "cl" and lab[k].get("op") in OPS else x["op"]
             add.append(row(k.replace("#", "_") + "-err", x["source"], x["context"], int(x["idx"]), RM1_OPT["baseless" if op in BASELESS else "conflict"],
                            x["task_type"], "of-" + str(x["source_id"]), f"ops_fill_{arm}_error"))
+            so = x.get("sentences_orig")
+            if a.pair_orig and so and " ".join(so[int(x["idx"]) - 1].split()) != " ".join(x["sentence"].split()):   # 近邻负例：同一位置的原句（参考回答已改正，算忠实），压假阳性；idx 从 1 起
+                add.append(row(k.replace("#", "_") + "-orig", x["source"], so, int(x["idx"]), RM1_OPT["faithful"], x["task_type"], "of-" + str(x["source_id"]), f"ops_fill_{arm}_orig"))
         d = OUT / f"{a.name}{arm}"
         d.mkdir(parents=True, exist_ok=True)
         train = list(read_jsonl(base / "train.jsonl")) + add
@@ -102,7 +109,7 @@ def cmd_build(a) -> None:
         meta = {**json.load(open(base / "meta.json", encoding="utf-8")), "base": a.base, "arm": arm, "added_errors": len(add), **stat,
                 "train": {"n": len(train), "label": dict(sorted(collections.Counter(r["label"] for r in train).items()))}}
         (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-        stat[f"added_{arm}"] = len(add)
+        stat[f"added_{arm}"] = len(add); stat[f"added_{arm}_orig"] = sum(r["label"] == RM1_OPT["faithful"] for r in add)
     print("OPS_FILL_BUILD", json.dumps(stat), flush=True)
 
 
@@ -179,6 +186,8 @@ def main() -> None:
     ap.add_argument("--per_op", type=int, default=30, help="select：每种操作交 Claude 的条数")
     ap.add_argument("--base", default="rm1__core_r2_bfcl")
     ap.add_argument("--name", default="rm1__core_of1", help="build：新 critic 的名字前缀，后面接组名")
+    ap.add_argument("--pair_orig", type=int, default=0, help="build：每条错句另加同位置的原句当忠实样本（近邻负例）")
+    ap.add_argument("--prev_zone", default="", help="build：上一轮盲区所在的轮次目录，重复的错句不再加")
     ap.add_argument("--arms", nargs="+", default=["cl", "nc"], choices=["cl", "nc", "all", "zone", "clear"])
     a = ap.parse_args()
     {"select": cmd_select, "build": cmd_build, "target": cmd_target, "build_target": cmd_build_target}[a.cmd](a)
