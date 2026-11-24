@@ -510,6 +510,8 @@ def _chunk_loss(ch: list[dict], lp, mask, ref, n_tok: int, args, st: collections
         ref = pad(ref)
     # adv 可以是一条样本一个数（整段一个优势），也可以是每个 token 一个数（分步奖励，ans_grpo --sent_beta）
     adv = pad([s["adv"] if isinstance(s["adv"], list) else [float(s["adv"])] * len(s["old_lp"]) for s in ch])
+    if any("lmask" in s for s in ch):   # 多轮（cs_agent）：工具返回、用户的话也在 completion 里，只对策略生成的 token 算损失和 KL
+        mask = mask & (pad([[float(x) for x in s.get("lmask", [1] * len(s["old_lp"]))] for s in ch]) > 0.5)
     ratio = torch.exp(lp - old)
     surr = torch.minimum(ratio * adv, torch.clamp(ratio, 1 - args.clip, 1 + args.clip) * adv)
     kl = torch.exp(ref - lp) - (ref - lp) - 1   # k3 估计，非负
@@ -584,7 +586,7 @@ def train_step(model, opt, batch: dict, cur_version: int, args) -> dict:
     """参考 logprob 优先用推理卡算好的（ref_lp），没有才在训练卡算。share=1 时用 prompt 共享。"""
     import torch
     keep = [s for s in batch["samples"] if has_adv(s) and s["ids"]]
-    n_tok = sum(len(s["ids"]) for s in keep) or 1
+    n_tok = sum(sum(s["lmask"]) if "lmask" in s else len(s["ids"]) for s in keep) or 1
     st = collections.Counter()
     t0 = time.time()
     groups = collections.defaultdict(list)

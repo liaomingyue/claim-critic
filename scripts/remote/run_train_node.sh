@@ -49,6 +49,7 @@ log "remote inference reachable; running $JOB"
 bash $S/$JOB; rc=$?
 log "$JOB exit $rc"
 # 只有成功才让推理机收尾；失败时推理机留着，改好直接重跑训练机（踩过：训练机 OOM 退出，推理机跟着关掉，重启又要等 5 分钟加载）
+[ "${KEEP_INFER:-0}" = 1 ] && { log "KEEP_INFER=1: infer node left running"; log "TRAIN_NODE_DONE"; exit $rc; }   # 冒烟测试后接着正式跑，推理机别收尾
 for p in $PS; do if [ $rc = 0 ]; then date '+%F %T' > $p/train_done; else date '+%F %T' > $p/train_failed; fi; done
 log "TRAIN_NODE_DONE"
 exit $rc

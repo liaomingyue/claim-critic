@@ -75,12 +75,52 @@ CUDA_VISIBLE_DEVICES=0 python -u -m train.ans_grpo --causal $CAUSAL --sys_qa 1 -
 grep -ah "QUICK_EVAL\|TRIP" $A/r3full${TAG}_train.log | cut -c1-500 | tee -a $LOG
 mkdir -p $FS/adapters/$PSFX-grpo-r3$TAG && rsync -a $O/run/ckpt/ $FS/adapters/$PSFX-grpo-r3$TAG/ && log "ckpts saved to adapters/$PSFX-grpo-r3$TAG: $(ls $O/run/ckpt | tr '\n' ' ')"
 free_gpu
-# 评测在本机做（训练卡此时空了）：双机模式下切回本机服务，不带密钥
+# 评测：训练卡此时空了。双机且推理机和本机同底座（9B 策略、没有单独的打分机）时，推理机也一起做（EVAL_REMOTE=0 关掉）：
+#   推理机经 lora_sync /sync 从共享盘热加载待评检查点和金标 critic（名字 gold，不和奖励里的 critic 重名），
+#   生成和打分任务按顺序轮流分给本机和各台推理机；进程都在本机跑、文件写本机，只有请求发到推理机。推理机要等训练机写 train_done 才收尾，整段评测期间都在。
+RURLS=(); RSYNC=(); RKEY=
+if [ -n "${RM_URL:-}" ] && [ $PM = qwen3.5-9b ] && [ -z "${POLICY_URL:-}" ] && [ "${EVAL_REMOTE:-1}" = 1 ]; then
+  IFS=, read -ra RURLS <<< "$RM_URL"; IFS=, read -ra RSYNC <<< "${LORA_SYNC_URL:-}"; RKEY=$VLLM_API_KEY
+  [ ${#RSYNC[@]} = ${#RURLS[@]} ] || { log "eval: sync urls do not match infer urls, local only"; RURLS=(); }
+fi
 if [ -n "${RM_URL:-}" ]; then unset RM_URL LORA_SYNC_URL VLLM_API_KEY PUSH_DIR; export OPENAI_API_KEY=x; fi
 
 # 独立评测
 POL=""; [ "${EVAL_V0:-1}" = 1 ] && POL="v0=$INIT"; for s in ${EVAL_STEPS:-100 200 300}; do [ -d $O/run/ckpt/step$s ] && POL+=" s$s=$(ad $O/run/ckpt/step$s)"; done
 POL=${POL# }; [ -n "$POL" ] || { log "no ckpts to eval"; exit 1; }
+C9=rm1__rm1_gold_9b; T=$(temp $C9); G9=$FS/adapters/$C9-9b/adapter
+if [ ${#RURLS[@]} -gt 0 ]; then
+  # 推理机看不到本机盘：检查点用上面同步到共享盘的那份，起点本来就在共享盘
+  RPOL=""; [ "${EVAL_V0:-1}" = 1 ] && RPOL="v0=$INIT"; for s in ${EVAL_STEPS:-100 200 300}; do [ -d $O/run/ckpt/step$s ] && RPOL+=" s$s=$(ad $FS/adapters/$PSFX-grpo-r3$TAG/step$s)"; done
+  ok=1
+  for j in ${!RSYNC[@]}; do for kv in $RPOL gold=$G9; do
+    code=$(curl -s -m 900 -o $A/eval_sync.out -w '%{http_code}' -X POST -H "Authorization: Bearer $RKEY" -H "Content-Type: application/json" \
+      -d "{\"name\": \"${kv%%=*}\", \"src\": \"${kv#*=}\"}" ${RSYNC[$j]}/sync)
+    [ "$code" = 200 ] || { log "eval: remote load ${kv%%=*} on ${RSYNC[$j]} FAILED ($code: $(head -c 200 $A/eval_sync.out))"; ok=0; }
+  done; done
+  [ $ok = 1 ] || { log "eval: falling back to local only"; RURLS=(); }
+fi
+if [ ${#RURLS[@]} -gt 0 ]; then
+  URLS=(http://127.0.0.1:8000/v1 "${RURLS[@]}"); KEYS=(x); for u in "${RURLS[@]}"; do KEYS+=("$RKEY"); done; NU=${#URLS[@]}
+  log "eval on $NU machines (local + ${#RURLS[@]} infer)"
+  A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --base $MC --log $A/vllm-r3gen.log $POL gold=$G9 >> $LOG 2>&1 || { log "serve policies FAILED"; exit 1; }
+  i=0
+  for kv in $POL; do m=${kv%%=*}
+    for spec in "a grpo300 1.0" "b grpo300b 0.7" "c grpo300c 0.7"; do set -- $spec; j=$((i % NU)); i=$((i + 1))
+      VLLM_API_KEY=${KEYS[$j]} python -u -m ragtruth.mc_accept_gen --ref outputs/rt/minicpm/$2/answers.jsonl --temperature $3 --top_p 0.95 --url ${URLS[$j]} --model $m --out $E/${m}_$1.jsonl >> $LOG 2>&1 &
+    done
+  done
+  for p in $(jobs -p); do [ "$p" = "$KA" ] || wait $p; done
+  declare -a JB; i=0
+  for kv in $POL; do m=${kv%%=*}; for s in ${SETS:-a b c}; do j=$((i % NU)); i=$((i + 1)); JB[$j]+="{\"model\":\"gold\",\"temp\":$T,\"answers\":\"$E/${m}_$s.jsonl\",\"out\":\"$E/${m}_${s}_9b.json\"},"; done; done
+  for j in ${!JB[@]}; do echo "[${JB[$j]%,}]" > $E/jobs9b_$j.json
+    VLLM_API_KEY=${KEYS[$j]} python -u -m ragtruth.critic_score_multi --url ${URLS[$j]} --jobs $E/jobs9b_$j.json --concurrency 256 >> $LOG 2>&1 || log "9b score FAILED (${URLS[$j]})" &
+  done
+  for p in $(jobs -p); do [ "$p" = "$KA" ] || wait $p; done
+  free_gpu
+  log "R3FULL_DONE"
+  exit 0
+fi
 A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --base $MC --log $A/vllm-r3gen.log $POL >> $LOG 2>&1 || { log "serve policies FAILED"; exit 1; }
 for kv in $POL; do m=${kv%%=*}
   python -u -m ragtruth.mc_accept_gen --ref outputs/rt/minicpm/grpo300/answers.jsonl --temperature 1.0 --top_p 0.95 --url http://127.0.0.1:8000/v1 --model $m --out $E/${m}_a.jsonl >> $LOG 2>&1 &
@@ -89,7 +129,6 @@ for kv in $POL; do m=${kv%%=*}
   python -u -m ragtruth.mc_accept_gen --ref outputs/rt/minicpm/grpo300c/answers.jsonl --temperature 0.7 --top_p 0.95 --url http://127.0.0.1:8000/v1 --model $m --out $E/${m}_c.jsonl >> $LOG 2>&1 &
 done
 for p in $(jobs -p); do [ "$p" = "$KA" ] || wait $p; done; free_gpu
-C9=rm1__rm1_gold_9b; T=$(temp $C9)
 ensure_9b || { log "9b copy FAILED"; exit 1; }   # 后台拷（start_9b_bg）还没完就等它
 A=$A/s0 bash $S/serve_loras.sh --gpu 0 --port 8000 --base $A/models/Qwen3.5-9B --log $A/vllm-r39b.log critic=$FS/adapters/$C9-9b/adapter >> $LOG 2>&1 || { log "serve 9b FAILED"; exit 1; }
 jobs="["; for kv in $POL; do m=${kv%%=*}; for s in ${SETS:-a b c}; do jobs+="{\"model\":\"critic\",\"temp\":$T,\"answers\":\"$E/${m}_$s.jsonl\",\"out\":\"$E/${m}_${s}_9b.json\"},"; done; done

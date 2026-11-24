@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|g5sev|g5nat|g5opm|gr2i|gr2t|gckev|gckev2|gckev3|of9r2|of9r2n|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2|q9di|q9dt|q9di2|q9dt2) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|g5sev|g5nat|g5opm|gr2i|gr2t|gckev|gckev2|gckev3|of9r2|of9r2n|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2|q9di|q9dt|q9di2|q9dt2|csbase|cssftA|cssftB|cssample|cssampleB|csjudge|csjudge4|csjudge5|cscriticS|cscriticO) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -254,6 +254,22 @@ case $ROLE in
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   corag) CODE=$R bash $S/run_critic_on_rag.sh; rc=$?   # 定位：补过样本的 critic 训出来的 RAG 模型自己写错的句子，critic 认不认得出（只打分）。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  cscriticS|cscriticO) T=${ROLE#cscritic}; [ $T = S ] && TASK=step || TASK=outcome; TASK=$TASK CODE=$R bash $S/run_cs_critic.sh; rc=$?   # 客服 Agent：过程 critic（S）/ 全流程 reward（O）。不关机
+     ;;
+  csjudge5) JPROMPT=v5 JV=5 CODE=$R bash $S/run_cs_judge4.sh; rc=$?   # 同上，第五版问法（第一个关键错误 + 出事步 + 引文定位），写 <策略>_judge5.jsonl。跑完直接关机
+     /usr/bin/shutdown ;;
+  csjudge4) CODE=$R bash $S/run_cs_judge4.sh; rc=$?   # 客服 Agent：失败轨迹用第四版问法重判（根因步 + 出事步 + 引文定位）。跑完直接关机
+     /usr/bin/shutdown ;;
+  csjudge) CODE=$R bash $S/run_cs_judge.sh; rc=$?   # 客服 Agent：带特权信息的 9B 逐步判断，和另一台的采样同时进行（看到 SAMPLE_DONE 后最后补判一轮）。跑完直接关机
+     /usr/bin/shutdown ;;
+  cssampleB) POLS="sftB=$FS/adapters/cs-sft-B-9b" CONC=24 CODE=$R bash $S/run_cs_sample.sh; rc=$?   # 同上，只采 SFT-B 这一个策略（和另一台分摊）。跑完直接关机
+     /usr/bin/shutdown ;;
+  cssample) CODE=$R bash $S/run_cs_sample.sh; rc=$?   # 客服 Agent：训练任务上大规模采样（9B 基座 + SFT-B）+ 自动标注，结果模型 / 步骤模型第 0 轮数据。结果在共享盘上，跑完直接关机
+     /usr/bin/shutdown ;;
+  cssftA|cssftB) V=${ROLE#cssft} CODE=$R bash $S/run_cs_sft.sh; rc=$?   # 客服 Agent：9B 多轮 SFT（APIGen-MT retail，A 只按结果筛 / B 再按规则筛）+ 测试集评测。结果在共享盘上，跑完直接关机
+     /usr/bin/shutdown ;;
+  csbase) CODE=$R bash $S/run_cs_base.sh; rc=$?   # 客服 Agent 第 1 步：Qwen3.5-2B 基座在 τ²-bench retail 上的基线（9B 用户模拟器同卡）。结果在共享盘上，跑完直接关机
+     /usr/bin/shutdown ;;
   smoke) python -c "import torch; print(torch.cuda.get_device_name(0))" >> $LOG 2>&1; rc=$? ;;
 esac
 log "role $ROLE exit $rc"
