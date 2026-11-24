@@ -45,7 +45,7 @@ def communicate_reward(task, msgs: list) -> float | None:
 
 
 def run_episode(tok, task, sample, user_llm: str, user_args: dict, max_steps: int = 60, max_ctx: int = 32000,
-                gen_max_tokens: int = 4096, user_retries: int = 3, max_errors: int = 10) -> dict:
+                gen_max_tokens: int = 4096, user_retries: int = 3, max_errors: int = 10, deadline: float = 0.0) -> dict:
     """跑一条轨迹。sample(prompt_ids, max_tokens) -> {"ids", "old_lp", "text", "finish"}（一次采一条）。"""
     from tau2.data_model.message import AssistantMessage, ToolCall
     from tau2.domains.retail.environment import get_environment
@@ -83,6 +83,9 @@ def run_episode(tok, task, sample, user_llm: str, user_args: dict, max_steps: in
         while True:   # 策略连续调用工具，直到给用户发一条文字
             if steps >= max_steps:
                 term = "max_steps"
+                break
+            if deadline and time.time() > deadline:   # 墙钟超时（GRPO 采样：一条拖太久的对话不能卡住整批），按没办完算
+                term = "timeout"
                 break
             prompt = conv.gen_prompt()
             if len(prompt) + gen_max_tokens > max_ctx:

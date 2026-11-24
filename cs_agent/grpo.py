@@ -4,8 +4,8 @@
   推理机：一个 vLLM 服务，策略 LoRA（每步热加载新版本）+ 9B 原版当用户模拟器（model=base，关闭思考）。
   训练机（本程序）：一个 9B 底座挂四套参数——policy（训练的 LoRA，起点 B 全零 = 原版）、参考模型（关掉 LoRA 的原版）、
     cstep（过程 critic，cs_agent.critic --task step）、cout（全流程 reward，--task outcome）。
-采样（线程，只发 HTTP 请求）和训练（GPU）错开一个版本并行：训练第 k 批时，推理机已经在用 policy_v(k) 采第 k+1 批；
-落后超过 max_stale 个版本的批丢掉重采。重要性比值用采样时 vLLM 返回的 logprob，延迟一个版本是 PPO 截断管得住的范围。
+采样（线程，只发 HTTP 请求）和训练（GPU）并行，采样是流式的：并发槽一直填满，同一任务的 n 条到齐就整组交给训练，
+训练凑够 tasks_per_step 组训一步；最早一条落后超过 max_stale 个版本的组丢掉。单条对话有墙钟上限（ep_timeout），超时按没办完算。重要性比值用采样时 vLLM 返回的 logprob，延迟一个版本是 PPO 截断管得住的范围。
 
 奖励（和用户对过的设计）：
   全局（结果监督，默认 --outcome_source model）：R = 结果模型的 P(正确) = p(GOOD) / (p(GOOD) + p(FAIL))（三分类模型去掉 FLAWED 重新归一）；
@@ -44,58 +44,90 @@ from cs_agent.step_cls import REWARD as STEP_REWARD
 
 # ---------------------------------------------------------------- 采样
 class Producer(threading.Thread):
-    """后台线程：按版本号采样一批（tasks_per_step 个任务 × n 条），放进队列。只发 HTTP 请求，不碰 GPU。"""
+    """后台线程，流式采样（只发 HTTP 请求，不碰 GPU）：并发槽一直填满，一条对话结束就补下一条，不等整批。
+    任务按组排（每个任务 n 条），一组的 n 条到齐就整组放进队列；训练凑够 tasks_per_step 组训一步。
+    整批同步时，一步的耗时由 64 条里最慢的那条决定（实测中位数 137 秒、最长 85 分钟），并发槽大半时间空着。
+    每条对话记下开始时的策略版本，用那个版本采到底（重要性比值按它的 logprob 算）；领先训练最多 ahead_groups 组。"""
 
-    def __init__(self, a, tok, tasks, server, version_ref):
+    def __init__(self, a, tok, tasks, servers, version_ref):
         super().__init__(daemon=True)
-        self.a, self.tok, self.tasks, self.server, self.version_ref = a, tok, tasks, server, version_ref
-        self.q: queue.Queue = queue.Queue(maxsize=1)
+        self.a, self.tok, self.tasks, self.servers, self.version_ref = a, tok, tasks, servers, version_ref
+        self.active = [0] * len(servers)   # 每台推理机上正在跑的对话数：新对话派给最闲的那台
+        self.lock = threading.Lock()
+        self.q: queue.Queue = queue.Queue()
         self.order: list = []
         self.pos = 0
-        self.batch_no = 0
+        self.epoch = 0
         self.stop = False
         self.err = None
+        self.consumed = 0   # 训练取走的组数（run 里更新）
 
-    def next_tasks(self) -> list:
-        out = []
-        while len(out) < self.a.tasks_per_step:
-            if self.pos >= len(self.order):
-                self.order = list(self.tasks)
-                random.Random(self.a.seed + self.batch_no).shuffle(self.order)
-                self.pos = 0
-            out.append(self.order[self.pos])
-            self.pos += 1
-        return out
+    def next_task(self):
+        if self.pos >= len(self.order):
+            self.order = list(self.tasks)
+            random.Random(self.a.seed + self.epoch).shuffle(self.order)
+            self.epoch += 1
+            self.pos = 0
+        self.pos += 1
+        return self.order[self.pos - 1]
+
+    def one(self, gid: int, t, j: int) -> dict:
+        from cs_agent import rollout as R
+        ver = self.version_ref[0]
+        with self.lock:   # 一条对话的策略和模拟器都在同一台推理机上（前缀缓存留在一台机器里）
+            k = min(range(len(self.servers)), key=lambda i: self.active[i])
+            self.active[k] += 1
+        try:
+            return self._one(gid, t, j, ver, k)
+        finally:
+            with self.lock:
+                self.active[k] -= 1
+
+    def _one(self, gid: int, t, j: int, ver: int, k: int) -> dict:
+        from cs_agent import rollout as R
+        sample = R.vllm_sampler(self.servers[k], f"policy_v{ver}", self.a.temperature)
+        user_args = {"api_base": self.servers[k].url, "api_key": self.a.user_key, "temperature": 0.0,
+                     "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+        t0, err = time.time(), ""
+        for attempt in range(2):
+            try:
+                ep = R.run_episode(self.tok, t, sample, user_llm=f"openai/{self.a.user_model}",
+                                   user_args={**user_args, "seed": gid * 100 + j * 10 + attempt},
+                                   gen_max_tokens=self.a.gen_max_tokens, max_ctx=self.a.max_ctx,
+                                   deadline=t0 + self.a.ep_timeout if self.a.ep_timeout else 0.0)
+                ep.update(trial=j, prompt_id=f"{gid}:{t.id}", version=ver, wall=round(time.time() - t0, 1), node=k)
+                return ep
+            except Exception as e:  # noqa: BLE001
+                err = repr(e)[:200]
+        return {"task_id": t.id, "prompt_id": f"{gid}:{t.id}", "trial": j, "error": err, "version": ver}
 
     def run(self) -> None:
-        from cs_agent import rollout as R
+        from concurrent.futures import FIRST_COMPLETED, wait
         try:
-            while not self.stop:
-                ver = self.version_ref[0]
-                name = f"policy_v{ver}"
-                sample = R.vllm_sampler(self.server, name, self.a.temperature)
-                user_args = {"api_base": self.a.user_url, "api_key": self.a.user_key, "temperature": 0.0,
-                             "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
-                tasks = self.next_tasks()
-                jobs = [(t, j) for t in tasks for j in range(self.a.n)]
-                t0 = time.time()
-
-                def one(tj, b=self.batch_no):
-                    t, j = tj
-                    for attempt in range(2):
-                        try:
-                            ep = R.run_episode(self.tok, t, sample, user_llm=f"openai/{self.a.user_model}",
-                                               user_args={**user_args, "seed": b * 1000 + j * 10 + attempt},
-                                               gen_max_tokens=self.a.gen_max_tokens, max_ctx=self.a.max_ctx)
-                            ep.update(trial=j, prompt_id=t.id)
-                            return ep
-                        except Exception as e:  # noqa: BLE001
-                            err = repr(e)[:200]
-                    return {"task_id": t.id, "prompt_id": t.id, "trial": j, "error": err}
-                with ThreadPoolExecutor(self.a.concurrency) as ex:
-                    eps = list(ex.map(one, jobs))
-                self.batch_no += 1
-                self.q.put({"version": ver, "episodes": eps, "t_gen": time.time() - t0, "tasks": [t.id for t in tasks]})
+            groups, pending, gid, started = {}, {}, 0, collections.deque()
+            cap = self.a.concurrency * len(self.servers)
+            with ThreadPoolExecutor(cap) as ex:
+                while not self.stop:
+                    # 补满并发槽：按组顺序发，一组 n 条；领先训练太多组就先停一停
+                    while len(pending) < cap and (gid - self.consumed) < self.a.ahead_groups:
+                        if not started:
+                            t = self.next_task()
+                            groups[gid] = {"task": t, "eps": [], "t0": time.time()}
+                            started.extend((gid, t, j) for j in range(self.a.n))
+                            gid += 1
+                        g, t, j = started.popleft()
+                        pending[ex.submit(self.one, g, t, j)] = g
+                    if not pending:
+                        time.sleep(1)
+                        continue
+                    done, _ = wait(list(pending), timeout=5, return_when=FIRST_COMPLETED)
+                    for f in done:
+                        g = pending.pop(f)
+                        groups[g]["eps"].append(f.result())
+                        if len(groups[g]["eps"]) == self.a.n:
+                            G = groups.pop(g)
+                            self.q.put({"gid": g, "task_id": G["task"].id, "episodes": G["eps"], "t_gen": time.time() - G["t0"],
+                                        "version": min(e.get("version", 0) for e in G["eps"])})
         except Exception as e:  # noqa: BLE001
             self.err = repr(e)
             raise
@@ -145,13 +177,104 @@ def use_policy(model) -> None:
             p.requires_grad_(".policy." in n)
 
 
-def score_episode(model, heads, ep: dict) -> tuple[list[list[float]], list[float]]:
+# ---------------------------------------------------------------- 系统提示共享（train.prefix_share）
+# 所有轨迹开头的系统提示（零售政策 + 工具定义，5,066 token）完全相同，约占整条轨迹的四成。
+# 参考模型、两个奖励模型参数冻结：系统提示的状态开训时算一次，整个训练复用；策略模型每步算一次（带梯度），
+# 这一步的全部轨迹接在后面，最后对系统提示统一反向一次（数学上和整段拼接相同，见 train.prefix_share）。
+class PrefixCache:
+    def __init__(self, prompt_ids: list[int]):
+        self.pids, self.frozen = list(prompt_ids), {}
+
+    def frozen_prefix(self, model, name: str):
+        """name：ref（关掉 LoRA 的原版）/ cstep / cout。"""
+        import torch
+        from train.prefix_share import prompt_pass
+        if name not in self.frozen:
+            with torch.no_grad():
+                if name == "ref":
+                    with model.disable_adapter():
+                        self.frozen[name] = prompt_pass(model, self.pids, grad=False)
+                else:
+                    model.set_adapter(name)
+                    self.frozen[name] = prompt_pass(model, self.pids, grad=False)
+                    use_policy(model)
+        return self.frozen[name]
+
+
+def shared_hidden(model, prefix: list, comp: list[int]):
+    """接在系统提示状态后面算 completion，返回 [C+1, H] 的归一化隐状态：第 0 行是系统提示最后一个位置，第 t 行是 completion 第 t-1 个 token。
+    所以：预测绝对位置 q 的 token 用第 q-P 行；绝对位置 p 的 token 自己的输出（critic 读分）是第 p-P+1 行。"""
+    import torch
+    from torch.utils.checkpoint import checkpoint
+    from train.prefix_share import KEYS, _Shim, _rope, parts  # noqa: F401
+    text, _ = parts(model)
+    dev = text.embed_tokens.weight.device
+    comp = list(comp) if len(comp) >= 2 else list(comp) + [comp[-1]]   # 至少 2 个 token（单 token 会走线性注意力的原地更新分支）
+    C = len(comp)
+    ids = torch.tensor([comp], device=dev)
+    h_last, states = prefix[0], prefix[1:]
+    P = states[2 * text.config.layer_types.index("full_attention")].shape[-2]
+    attn = (torch.arange(P + C, device=dev)[None, :] <= P + torch.arange(C, device=dev)[:, None])[None, None]
+    h = text.embed_tokens(ids)
+    pe, tpos = _rope(text, h, P)
+    grad = torch.is_grad_enabled()
+    si = 0
+    for i, layer in enumerate(text.layers[: text.config.num_hidden_layers]):
+        kind = text.config.layer_types[i]
+        a_, b_ = states[si], states[si + 1]
+        si += 2
+
+        def f(h_, a_, b_, i=i, layer=layer, kind=kind):
+            if kind == "full_attention":
+                pre, m = {"k": a_, "v": b_}, attn
+            else:
+                pre, m = {"conv": a_, "rec": b_.contiguous()}, None
+            return layer.forward(h_, position_embeddings=pe, attention_mask=m, position_ids=tpos, past_key_values=_Shim(i, pre))
+        h = checkpoint(f, h, a_, b_, use_reentrant=False) if grad else f(h, a_, b_)
+    return text.norm(torch.cat([h_last, h], 1))[0]
+
+
+def _lp_rows(model, hs, tgt, grad: bool):
+    import torch
+    from torch.utils.checkpoint import checkpoint
+    head = model.base_model.model.lm_head
+
+    def lp_chunk(hc, tc):
+        lg = head(hc).float()
+        return lg.gather(1, tc[:, None])[:, 0] - torch.logsumexp(lg, -1)
+    out = [checkpoint(lp_chunk, hs[c:c + 512], tgt[c:c + 512], use_reentrant=False) if grad else lp_chunk(hs[c:c + 512], tgt[c:c + 512])
+           for c in range(0, len(tgt), 512)]
+    return torch.cat(out) if out else torch.zeros(0, device="cuda")
+
+
+def shared_logprobs(model, prefix, ids: list[int], P: int, pos: list[int], grad: bool):
+    """绝对位置 pos 上 token 的 logprob（pos 都 ≥ P），系统提示用共享状态。"""
+    import torch
+    hs = shared_hidden(model, prefix, ids[P:max(pos) + 1])
+    return _lp_rows(model, hs[torch.tensor([q - P for q in pos], device="cuda")], torch.tensor([ids[q] for q in pos], device="cuda"), grad)
+
+
+def score_episode(model, heads, ep: dict, cache=None) -> tuple[list[list[float]], list[float]]:
     """cstep：每个客服步骤结尾的 5 类概率；cout：最后一个 token 的 3 类概率。都看全长（不反向，显存够）。"""
     import torch
     inner = model.base_model.model.model
     ids = ep["prompt_ids"] + ep["ids"]
     P = len(ep["prompt_ids"])
     pos = [P + t["b"] - 1 for t in ep["turns"]]
+    if cache is not None and ep["prompt_ids"] == cache.pids:
+        with torch.no_grad():
+            model.set_adapter("cstep")
+            hs = shared_hidden(model, cache.frozen_prefix(model, "cstep"), ids[P:])
+            ps = torch.softmax(heads["cstep"](hs[torch.tensor([q - P + 1 for q in pos], device="cuda")].float()), -1).cpu().tolist() if pos else []
+            del hs
+            po = []
+            if "cout" in heads:
+                model.set_adapter("cout")
+                hs = shared_hidden(model, cache.frozen_prefix(model, "cout"), ids[P:])
+                po = torch.softmax(heads["cout"](hs[-1:].float()), -1)[0].cpu().tolist()
+                del hs
+        use_policy(model)
+        return ps, po
     x = torch.tensor([ids], device="cuda")
     with torch.no_grad():
         model.set_adapter("cstep")
@@ -193,13 +316,13 @@ def caps_from_scores(path: str) -> dict:
     return {c: round(sum(v) / len(v), 4) for c, v in xs.items() if c != "OK" and v}
 
 
-def rewards(batch: dict, model, heads, a) -> list[dict]:
+def rewards(batch: dict, model, heads, a, cache=None) -> list[dict]:
     from cs_agent.rules import check
     samples = []
     for ep in batch["episodes"]:
         if ep.get("error") or not ep.get("turns"):
             continue
-        ps, po = score_episode(model, heads, ep)
+        ps, po = score_episode(model, heads, ep, cache)
         viol = check(ep["messages"])
         s1 = any(v["sev"] == "S1" and v.get("executed") for v in viol)
         db = ep.get("reward") == 1.0
@@ -296,7 +419,35 @@ def token_logprobs(model, ids: list[int], pos: list[int], grad: bool):
     return torch.cat(out) if out else torch.zeros(0, device="cuda")
 
 
-def train_step(model, opt, params, samples: list[dict], a) -> dict:
+def check_share(model, heads, cache, samples: list[dict], n: int = 2, tol: float = 0.05) -> bool:
+    """开训前自检：前 n 条轨迹，整段计算和共享系统提示各算一遍参考 / 策略 logprob 和过程 critic 概率，最大差值超过 tol 就不用共享。"""
+    import torch
+    worst = {"ref": 0.0, "policy": 0.0, "cstep": 0.0}
+    for s in samples[:n]:
+        ep = s["ep"]
+        P = len(ep["prompt_ids"])
+        ids = ep["prompt_ids"] + ep["ids"]
+        pos = [P + k for k, m in enumerate(ep["lmask"]) if m][:2000]
+        L = max(pos) + 1
+        with torch.no_grad():
+            with model.disable_adapter():
+                a1 = token_logprobs(model, ids[:L], pos, grad=False)
+                a2 = shared_logprobs(model, cache.frozen_prefix(model, "ref"), ids[:L], P, pos, grad=False)
+            use_policy(model)
+            b1 = token_logprobs(model, ids[:L], pos, grad=False)
+            from train.prefix_share import prompt_pass
+            b2 = shared_logprobs(model, prompt_pass(model, cache.pids, grad=False), ids[:L], P, pos, grad=False)
+        c1, _ = score_episode(model, heads, ep, None)
+        c2, _ = score_episode(model, heads, ep, cache)
+        worst["ref"] = max(worst["ref"], (a1 - a2).abs().max().item())
+        worst["policy"] = max(worst["policy"], (b1 - b2).abs().max().item())
+        worst["cstep"] = max(worst["cstep"], max((abs(x - y) for p1, p2 in zip(c1, c2) for x, y in zip(p1, p2)), default=0.0))
+    ok = all(v <= tol for v in worst.values())
+    print(f"SHARE_CHECK max abs diff {json.dumps({k: round(v, 4) for k, v in worst.items()})} -> {'use shared prefix' if ok else 'FALLBACK to full sequences'}", flush=True)
+    return ok
+
+
+def train_step(model, opt, params, samples: list[dict], a, cache=None) -> dict:
     import torch
     keep = [s for s in samples if any(abs(x) > 1e-6 for x in s["adv"])]
     items = []
@@ -309,6 +460,13 @@ def train_step(model, opt, params, samples: list[dict], a) -> dict:
     n_tok = sum(len(ks) for _, ks in items) or 1
     st = collections.Counter()
     t0 = time.time()
+    share = cache is not None and items and all(s["ep"]["prompt_ids"] == cache.pids for s, _ in items)
+    if share:   # 策略的系统提示这一步只算一次（带梯度），全部轨迹接在它后面，最后统一反向
+        from train.prefix_share import backward_prompt, leaves, prompt_pass
+        use_policy(model)
+        pre = prompt_pass(model, cache.pids, grad=True)
+        leaf = leaves(pre)
+        ref_pre = cache.frozen_prefix(model, "ref")
     for s, ks in items:
         ep = s["ep"]
         P = len(ep["prompt_ids"])
@@ -316,9 +474,9 @@ def train_step(model, opt, params, samples: list[dict], a) -> dict:
         ids = (ep["prompt_ids"] + ep["ids"])[:L]
         pos = [P + k for k in ks]
         with torch.no_grad(), model.disable_adapter():
-            ref = token_logprobs(model, ids, pos, grad=False)
+            ref = shared_logprobs(model, ref_pre, ids, P, pos, grad=False) if share else token_logprobs(model, ids, pos, grad=False)
         use_policy(model)
-        lp = token_logprobs(model, ids, pos, grad=True)
+        lp = shared_logprobs(model, leaf, ids, P, pos, grad=True) if share else token_logprobs(model, ids, pos, grad=True)
         old = torch.tensor([ep["old_lp"][k] for k in ks], device="cuda")
         adv = torch.tensor([s["adv"][k] for k in ks], device="cuda")
         ratio = torch.exp(lp - old)
@@ -330,12 +488,16 @@ def train_step(model, opt, params, samples: list[dict], a) -> dict:
         st["clip"] += ((ratio.detach() - 1).abs() > a.clip).sum().item()
         st["old_absdiff"] += (lp.detach() - old).abs().sum().item()
         st["truncated_tok"] += sum(1 for k, m in enumerate(ep["lmask"]) if m) - len(ks)
+    if share:
+        backward_prompt(pre, leaf)
+        del pre, leaf
     gn = torch.nn.utils.clip_grad_norm_(params, 1.0).item() if items else 0.0
     if items:
         opt.step()
     opt.zero_grad(set_to_none=True)
     return {"train_samples": len(items), "train_tokens": n_tok, "kl": st["kl"] / n_tok, "clip_frac": st["clip"] / n_tok,
-            "vllm_hf_absdiff": st["old_absdiff"] / n_tok, "truncated_tokens": st["truncated_tok"], "grad_norm": gn, "t_train": round(time.time() - t0, 1)}
+            "vllm_hf_absdiff": st["old_absdiff"] / n_tok, "truncated_tokens": st["truncated_tok"], "grad_norm": gn, "t_train": round(time.time() - t0, 1),
+            "shared_prefix": bool(share)}
 
 
 def batch_stats(samples: list[dict], batch: dict, out_classes: list[str]) -> dict:
@@ -377,43 +539,78 @@ def run(a) -> None:
     params = policy_params(model)
     print(f"GRPO policy params {sum(p.numel() for p in params) / 1e6:.1f}M trainable", flush=True)
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=0.0)
-    server = Server(a.policy_url)
+    servers = [Server(u) for u in a.policy_url.split(",") if u.strip()]   # 多台推理机：逗号分隔，LoRA 每步推给每一台
+    for server in servers:
+        for v in range(1, a.keep_versions + 3):   # 新开一轮：推理机上同名的旧版本（冒烟测试、上一次中断的训练）先卸掉
+            try:
+                server.unload_lora(f"policy_v{v}")
+            except Exception:  # noqa: BLE001
+                pass
+    print(f"inference nodes: {len(servers)}", flush=True)
     tasks = load_tasks("train")
     version = [0]
-    prod = Producer(a, tok, tasks, server, version)
+    prod = Producer(a, tok, tasks, servers, version)
     prod.start()
     log = open(out / "log.jsonl", "a", encoding="utf-8")
     step = 0
+    t_wait0, cache = time.time(), None
     while step < a.steps:
-        while True:
+        got, n_stale = [], 0
+        while len(got) < a.tasks_per_step:   # 凑够 tasks_per_step 组；太旧的组（最早的一条落后超过 max_stale 个版本）丢掉
             try:
-                batch = prod.q.get(timeout=60)
-                break
+                G = prod.q.get(timeout=60)
             except queue.Empty:
                 if prod.err:
                     raise RuntimeError(f"producer died: {prod.err}")
-        if version[0] - batch["version"] > a.max_stale:
-            print(f"drop stale batch v{batch['version']} (now v{version[0]})", flush=True)
-            continue
+                continue
+            prod.consumed += 1
+            if version[0] - G["version"] > a.max_stale:
+                n_stale += 1
+                continue
+            got.append(G)
+        batch = {"episodes": [e for G in got for e in G["episodes"]], "version": min(G["version"] for G in got),
+                 "t_gen": time.time() - t_wait0, "stale_groups_dropped": n_stale,
+                 "versions": dict(collections.Counter(e.get("version", 0) for G in got for e in G["episodes"]))}
+        if a.share and cache is None:
+            eps0 = [e for e in batch["episodes"] if not e.get("error") and e.get("turns")]
+            if eps0:
+                cache = PrefixCache(eps0[0]["prompt_ids"])
+                try:
+                    ok = check_share(model, heads, cache, [{"ep": e} for e in eps0])
+                except Exception as e:  # noqa: BLE001  共享实现依赖 transformers 内部结构，出错就退回整段计算，不让训练停下
+                    print(f"SHARE_CHECK error {repr(e)[:300]} -> FALLBACK to full sequences", flush=True)
+                    ok = False
+                if not ok:
+                    a.share, cache = 0, None
+                    import torch
+                    torch.cuda.empty_cache()
         t0 = time.time()
-        samples = rewards(batch, model, heads, a)
+        samples = rewards(batch, model, heads, a, cache)
         t_rm = time.time() - t0
         st = batch_stats(samples, batch, a.out_classes)
-        tr = train_step(model, opt, params, samples, a)
+        tr = train_step(model, opt, params, samples, a, cache)
         step += 1
         d = out / "lora" / f"v{step}"
         model.save_pretrained(str(d), selected_adapters=["policy"])
         path = d / "policy" if (d / "policy").exists() else d
-        server.load_lora(f"policy_v{step}", str(path))
+        for server in servers:
+            server.load_lora(f"policy_v{step}", str(path))
         version[0] = step   # 推理机加载好新版本之后，采样线程才开始用它
         if step - a.keep_versions >= 1:
-            server.unload_lora(f"policy_v{step - a.keep_versions}")
+            for server in servers:
+                server.unload_lora(f"policy_v{step - a.keep_versions}")
             old = out / "lora" / f"v{step - a.keep_versions}"
             if (step - a.keep_versions) % a.save_every:
                 import shutil
                 shutil.rmtree(old, ignore_errors=True)
         save_samples(samples, step, out)
-        rec = {"step": step, **st, **tr, "t_rm": round(t_rm, 1), "staleness": step - 1 - batch["version"], "time": time.strftime("%F %T")}
+        eps_ok = [e for e in batch["episodes"] if not e.get("error")]
+        walls = sorted(e.get("wall", 0) for e in eps_ok)
+        rec = {"step": step, **st, **tr, "t_rm": round(t_rm, 1), "staleness": step - 1 - batch["version"], "versions": batch["versions"],
+               "stale_groups_dropped": batch["stale_groups_dropped"], "timeouts": sum(e.get("term") == "timeout" for e in eps_ok),
+               "wall_p50": walls[len(walls) // 2] if walls else None, "wall_max": walls[-1] if walls else None,
+               "t_step": round(time.time() - t_wait0, 1), "time": time.strftime("%F %T")}
+        t_wait0 = time.time()
         log.write(json.dumps(rec, ensure_ascii=False) + "\n")
         log.flush()
         print("STEP", json.dumps(rec, ensure_ascii=False), flush=True)
@@ -432,7 +629,7 @@ def main() -> None:
     ap.add_argument("--outcome_source", choices=["model", "db"], default="model",
                     help="model：全局奖励 = 结果模型的 P(正确)（GOOD 和 FAIL 两类重新归一，不看 FLAWED）；db：真实数据库比对")
     ap.add_argument("--policy_url", required=True)
-    ap.add_argument("--user_url", required=True)
+    ap.add_argument("--user_url", default="", help="（不再使用：用户模拟器和策略在同一台推理机上）")
     ap.add_argument("--user_model", default="base")
     ap.add_argument("--user_key", default="x")
     ap.add_argument("--out", required=True)
@@ -440,7 +637,9 @@ def main() -> None:
     ap.add_argument("--tasks_per_step", type=int, default=8)
     ap.add_argument("--n", type=int, default=8, help="每个任务采几条（组大小 G）")
     ap.add_argument("--temperature", type=float, default=1.0)
-    ap.add_argument("--concurrency", type=int, default=16, help="同时跑的对话数（每条对话策略 + 模拟器两个上下文，单卡 KV 有限）")
+    ap.add_argument("--concurrency", type=int, default=20, help="每台推理机同时跑的对话数（每条对话策略 + 模拟器两个上下文；32 条时 KV 满、前缀缓存被挤掉，生成反而慢一半）")
+    ap.add_argument("--ahead_groups", type=int, default=16, help="采样最多领先训练多少组（已发出但还没被训练取走）")
+    ap.add_argument("--ep_timeout", type=float, default=900.0, help="一条对话的墙钟上限（秒），超时按没办完算；0 = 不限")
     ap.add_argument("--gen_max_tokens", type=int, default=4096)
     ap.add_argument("--max_ctx", type=int, default=32000)
     ap.add_argument("--max_len", type=int, default=16384, help="反向传播的最大长度")
@@ -453,9 +652,10 @@ def main() -> None:
     ap.add_argument("--sigma_floor", type=float, default=0.1, help="去底噪时标准差的下限（一组都很干净时别把噪声放大）")
     ap.add_argument("--step_clip", type=float, default=3.0)
     ap.add_argument("--floor_caps", default="", help="过程 critic 留出集打分（scores.jsonl）：取真实 OK 步骤上各类别平均概率作底噪上限；空 = 不设上限")
-    ap.add_argument("--max_stale", type=int, default=1)
-    ap.add_argument("--keep_versions", type=int, default=3)
+    ap.add_argument("--max_stale", type=int, default=2)
+    ap.add_argument("--keep_versions", type=int, default=4, help="推理机上保留几个策略版本：要大于 max_stale，进行中的对话还在用旧版本")
     ap.add_argument("--save_every", type=int, default=10, help="每多少步保留一个 LoRA 版本（其余旧版本删掉）")
+    ap.add_argument("--share", type=int, default=1, help="1 = 系统提示共享（参考模型、两个奖励模型的系统提示状态只算一次，策略每步算一次）；开训前自检不过自动退回整段")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     a.floor_caps = caps_from_scores(a.floor_caps) if a.floor_caps else {}
