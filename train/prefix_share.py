@@ -40,7 +40,9 @@ class _Shim:
     def update_conv_state(self, x, layer_idx, conv_kernel_size=None, **kw):
         full = torch.cat([self.prefix["conv"], x], -1) if "conv" in self.prefix else x
         k = conv_kernel_size
-        self.out["conv"] = full[..., -k:] if full.shape[-1] >= k else torch.nn.functional.pad(full, (k - full.shape[-1], 0))
+        # 必须 clone：切片是视图，会把整段 prompt 的卷积输入（[1, 8192, P]，24 层共约 2 GB）一直留在显存里；
+        # 参考模型 + 两个奖励模型的冻结状态各留一份就常驻约 6 GB（之前开共享训练 OOM 的真正原因）
+        self.out["conv"] = full[..., -k:].clone() if full.shape[-1] >= k else torch.nn.functional.pad(full, (k - full.shape[-1], 0))
         return full
 
     def update_recurrent_state(self, s, layer_idx, **kw):
@@ -60,10 +62,45 @@ class _Shim:
 KEYS = {"full_attention": ("k", "v"), "linear_attention": ("conv", "rec")}
 
 
+# ---------------------------------------------------------------- completion 阶段的注意力
+# completion 的第 t 个 token 看 prompt 全部 + completion 的 0..t：查询是 KV 的最后 Lq 个位置的因果注意力（右下角对齐）。
+# 以前传一个 [Lq, P+Lq] 的布尔掩码，SDPA 带任意掩码就退出 Flash 内核，长 completion 上注意力分数整块进显存，
+# 比整段计算还占显存（训练时三次 OOM 的主因）。现在传占位对象 LOWER_RIGHT，由下面的 sdpa 包装改用 PyTorch 的
+# causal_lower_right：走 memory-efficient 内核（custom_mask_type=2），不生成掩码、不存分数，显存随长度线性。
+# 不是占位对象的调用原样交给 transformers 的 sdpa（整段计算、prompt 阶段不受影响）。
+class _LowerRight:
+    def __repr__(self) -> str:
+        return "LOWER_RIGHT"
+
+
+LOWER_RIGHT = _LowerRight()
+
+
+def _install_attention() -> None:
+    from transformers.integrations.sdpa_attention import sdpa_attention_forward
+    from transformers.modeling_utils import AttentionInterface
+
+    def sdpa(module, query, key, value, attention_mask, dropout=0.0, scaling=None, is_causal=None, **kw):
+        if attention_mask is not LOWER_RIGHT:
+            return sdpa_attention_forward(module, query, key, value, attention_mask, dropout=dropout, scaling=scaling, is_causal=is_causal, **kw)
+        from torch.nn.attention.bias import causal_lower_right
+        n = getattr(module, "num_key_value_groups", 1)
+        if n > 1:   # 同 transformers 的 repeat_kv（每个 KV 头连续复制 n 份）；CausalBias 不接 enable_gqa
+            key, value = key.repeat_interleave(n, 1), value.repeat_interleave(n, 1)
+        o = torch.nn.functional.scaled_dot_product_attention(query, key, value, attn_mask=causal_lower_right(query.shape[2], key.shape[2]),
+                                                             dropout_p=dropout, scale=scaling)
+        return o.transpose(1, 2).contiguous(), None
+    sdpa._prefix_share = True
+    AttentionInterface.register("sdpa", sdpa)
+
+
+_install_attention()
+
+
 def parts(model):
     core = model.get_base_model() if hasattr(model, "get_base_model") else model
     text = next(m for m in core.modules() if type(m).__name__ == "Qwen3_5TextModel")
-    assert text.config._attn_implementation == "sdpa", text.config._attn_implementation   # completion 阶段用布尔掩码
+    assert text.config._attn_implementation == "sdpa", text.config._attn_implementation   # completion 阶段的 LOWER_RIGHT 只在 sdpa 包装里认
     return text, core.lm_head
 
 
@@ -109,8 +146,7 @@ def completion_logprobs(model, prefix: list, comps: list[list[int]], pad_id: int
         mask[b, :len(c)] = True
     h_last, states = prefix[0], prefix[1:]
     P = states[2 * text.config.layer_types.index("full_attention")].shape[-2]   # 第一层全注意力的 K：[1, 头, P, d]
-    # 右侧补齐只影响补齐位置自己（因果），不用 padding 掩码；全注意力层：completion 第 t 个位置看 prompt 全部 + 自己及之前
-    attn = (torch.arange(P + cmax, device=dev)[None, :] <= P + torch.arange(cmax, device=dev)[:, None])[None, None]
+    # 右侧补齐只影响补齐位置自己（因果），不用 padding 掩码；全注意力层：completion 第 t 个位置看 prompt 全部 + 自己及之前（LOWER_RIGHT）
     h = text.embed_tokens(ids)
     pe, tpos = _rope(text, h, P)
     grad = torch.is_grad_enabled()
@@ -123,7 +159,7 @@ def completion_logprobs(model, prefix: list, comps: list[list[int]], pad_id: int
         def f(h_, a_, b_, i=i, layer=layer, kind=kind):
             if kind == "full_attention":
                 pre = {"k": a_.expand(B, -1, -1, -1), "v": b_.expand(B, -1, -1, -1)}
-                m = attn
+                m = LOWER_RIGHT
             else:
                 pre = {"conv": a_.expand(B, -1, -1), "rec": b_.expand(B, -1, -1, -1).contiguous()}
                 m = None

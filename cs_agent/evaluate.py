@@ -49,6 +49,7 @@ def main() -> None:
     ap.add_argument("--user_temp", type=float, default=0.0)   # τ² 默认 0
     ap.add_argument("--temp", type=float, default=0.6)        # 策略温度：pass^k 要有随机性；τ² 默认 0，这里写进报告
     ap.add_argument("--split", default="test")
+    ap.add_argument("--tasks_file", default="", help="用自建任务代替 τ² 的 split（cs_agent.apigen_tasks 的输出）")
     ap.add_argument("--k", type=int, default=4)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=32)
@@ -57,7 +58,11 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     tok = AutoTokenizer.from_pretrained(a.tok)
-    tasks = R.load_tasks(a.split)
+    if a.tasks_file:   # 自建任务（cs_agent.apigen_tasks：APIGen 对话整理的剧本 + 重放参考写操作得到的数据库状态）
+        from cs_agent.apigen_tasks import load_tasks_file
+        tasks = load_tasks_file(a.tasks_file)
+    else:
+        tasks = R.load_tasks(a.split)
     tasks = tasks[: a.limit] if a.limit else tasks
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)

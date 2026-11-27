@@ -59,7 +59,7 @@ case $ROLE in
   refuse) MODELS=""; MERGE="" ;;
   pairinfer|pairtrain) MODELS=""; MERGE="" ;;
   evalmid) MODELS=""; MERGE="" ;;
-  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|g5sev|g5nat|g5opm|gr2i|gr2t|gckev|gckev2|gckev3|of9r2|of9r2n|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2|q9di|q9dt|q9di2|q9dt2|csbase|cssftA|cssftB|cssample|cssampleB|csjudge|csjudge4|csjudge5|cscriticS|cscriticO|csinfer) MODELS=""; MERGE="" ;;
+  core1|loop2co|loop2cont|r2|r3|gen9b|sevfilter|sevgen|sevvar|v3c|gengrpo|scopeno|gengrpoh|genrank|blindfill2|round2fill|round2rag|sevrm2|repro_bf|repro_r1|satw|satdyn|cont8dyn|cont9dyn|ownfill|attrl|attrt|spkl|c9base|c9spk|c9blind|g9sev|g9nat|g9opm|g9disc|gog9|gog9i|gog9t|gog9i2|gog9t2|gog9i3|gog9t3|gog9i4|gog9t4|of9|q9ci|q9ct|q9ci2|q9ct2|g5sev|g5nat|g5opm|gr2i|gr2t|gckev|gckev2|gckev3|of9r2|of9r2n|corag|eval9b|q9bd|q9bs|q9bs2|q9binf2|p9r2inf|p9r2rm|p9r2tr|p9r2i48|p9r2trb|p9r2one|suitans|synthsuit|mech|s2r9rm|s2r9tr|genops|genopsvar|genopsprompt|rmops|rmops2|gogrpoc|gost4|rmopc|gost6|gost7|gost8|gost9|opsfill|rags5|opsfillb|of2|q9di|q9dt|q9di2|q9dt2|csbase|cssftA|cssftB|cssample|cssampleB|csjudge|csjudge4|csjudge5|cscriticS|cscriticO|csinfer|csprobe|cs2inf|cs2tr) MODELS=""; MERGE="" ;;
   worker1|worker2|worker3|worker4|worker5|worker6|worker7|worker8|worker9) MODELS=""; MERGE="" ;;   # 共享队列 $FS/runs/q2（run_worker.sh），模型脚本自己拷
   smoke)      MODELS="Qwen3.5-9B"; MERGE="" ;;
   *) log "unknown role $ROLE"; exit 1 ;;
@@ -254,6 +254,12 @@ case $ROLE in
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
   corag) CODE=$R bash $S/run_critic_on_rag.sh; rc=$?   # 定位：补过样本的 critic 训出来的 RAG 模型自己写错的句子，critic 认不认得出（只打分）。跑完留 20 分钟取结果，然后关机
      nohup bash -c 'sleep 1200; /usr/bin/shutdown' > /dev/null 2>&1 & ;;
+  csprobe) CODE=$R bash $S/run_cs_probe.sh; rc=$? ;;
+  cs2inf)   # 客服 GRPO 第二段（接着第 17 步训）的推理机：配对 cs2，单台；收到 train_done 才收尾
+    P=$FS/runs/pair/cs2; mkdir -p $P; rm -f $P/extra_pairs $P/rm_loras; echo "policy_v0=$FS/adapters/cs-zero-9b" > $P/loras
+    PAIR=cs2 INFER_MODEL=qwen3.5-9b MAX_LEN=32768 MAX_LORAS=6 CODE=$R bash $S/run_infer_node.sh; rc=$? ;;
+  cs2tr)   # 训练机：从 cs_grpo_r1 第 17 步的 LoRA 接着训到 60 步，训练和打分都共享系统提示（修过显存泄漏），训完在推理机上评测
+    PAIR=cs2 JOB=run_cs_grpo.sh RUN=cs_grpo_r1c INIT=$FS/adapters/cs_grpo_r1-v17-9b START_STEP=17 CONC=${CONC:-20} EVAL_STEPS="30" CODE=$R bash $S/run_train_node.sh; rc=$? ;;   # 系统提示共享的显存 / 速度 / 一致性实测（不关机，取完结果手动关）
   csinfer) CODE=$R bash $S/run_cs_infer.sh; rc=$?   # 客服 Agent GRPO 的额外推理机（配对 cs1b，跟主配对 cs1 同一把密钥）。不关机
      ;;
   cscriticS|cscriticO) T=${ROLE#cscritic}; [ $T = S ] && TASK=step || TASK=outcome; TASK=$TASK CODE=$R bash $S/run_cs_critic.sh; rc=$?   # 客服 Agent：过程 critic（S）/ 全流程 reward（O）。不关机

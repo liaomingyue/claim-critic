@@ -14,6 +14,7 @@
   步骤：分值 OK +1 / ERR −2 / AFTER_ERR −1 / FIX +3 / TRY +0.5（cstep 的类别概率）。
         默认去底噪（--step_mode floor，同 RAG 句子层）：每个非 OK 类别减掉同组全部步骤的平均概率，只有超出平均的部分计分，
         A_step = clip(Σ_c (分值_c / 3) × max(0, p_c − b_c) / σ_c, ±3)；处在平均水平的步骤优势为 0。
+        后一步的负值按 0.3 往前传一步（--step_gamma，同 RAG 句子层）：出错点定得偏后时，真正埋下错的前一步也分到惩罚。
         底噪 b_c 不超过 critic 在留出集正常步骤上的平均概率（--floor_caps）；FIX / TRY 只在更早有错可纠时计分
         （更早某步 ERR / AFTER_ERR 超出底噪 ≥ 1σ，或工具报过错）。
   每个 token 的优势 = A_glob + β_step · A_step(所在步骤)。
@@ -184,6 +185,7 @@ def use_policy(model) -> None:
 class PrefixCache:
     def __init__(self, prompt_ids: list[int]):
         self.pids, self.frozen = list(prompt_ids), {}
+        self.share_train = self.share_score = True
 
     def frozen_prefix(self, model, name: str):
         """name：ref（关掉 LoRA 的原版）/ cstep / cout。"""
@@ -206,15 +208,13 @@ def shared_hidden(model, prefix: list, comp: list[int]):
     所以：预测绝对位置 q 的 token 用第 q-P 行；绝对位置 p 的 token 自己的输出（critic 读分）是第 p-P+1 行。"""
     import torch
     from torch.utils.checkpoint import checkpoint
-    from train.prefix_share import KEYS, _Shim, _rope, parts  # noqa: F401
+    from train.prefix_share import KEYS, LOWER_RIGHT, _Shim, _rope, parts  # noqa: F401
     text, _ = parts(model)
     dev = text.embed_tokens.weight.device
     comp = list(comp) if len(comp) >= 2 else list(comp) + [comp[-1]]   # 至少 2 个 token（单 token 会走线性注意力的原地更新分支）
-    C = len(comp)
     ids = torch.tensor([comp], device=dev)
     h_last, states = prefix[0], prefix[1:]
     P = states[2 * text.config.layer_types.index("full_attention")].shape[-2]
-    attn = (torch.arange(P + C, device=dev)[None, :] <= P + torch.arange(C, device=dev)[:, None])[None, None]
     h = text.embed_tokens(ids)
     pe, tpos = _rope(text, h, P)
     grad = torch.is_grad_enabled()
@@ -226,7 +226,7 @@ def shared_hidden(model, prefix: list, comp: list[int]):
 
         def f(h_, a_, b_, i=i, layer=layer, kind=kind):
             if kind == "full_attention":
-                pre, m = {"k": a_, "v": b_}, attn
+                pre, m = {"k": a_, "v": b_}, LOWER_RIGHT   # 右下角对齐的因果注意力，不生成掩码（见 train.prefix_share）
             else:
                 pre, m = {"conv": a_, "rec": b_.contiguous()}, None
             return layer.forward(h_, position_embeddings=pe, attention_mask=m, position_ids=tpos, past_key_values=_Shim(i, pre))
@@ -261,20 +261,12 @@ def score_episode(model, heads, ep: dict, cache=None) -> tuple[list[list[float]]
     ids = ep["prompt_ids"] + ep["ids"]
     P = len(ep["prompt_ids"])
     pos = [P + t["b"] - 1 for t in ep["turns"]]
-    if cache is not None and ep["prompt_ids"] == cache.pids:
-        with torch.no_grad():
-            model.set_adapter("cstep")
-            hs = shared_hidden(model, cache.frozen_prefix(model, "cstep"), ids[P:])
-            ps = torch.softmax(heads["cstep"](hs[torch.tensor([q - P + 1 for q in pos], device="cuda")].float()), -1).cpu().tolist() if pos else []
-            del hs
-            po = []
-            if "cout" in heads:
-                model.set_adapter("cout")
-                hs = shared_hidden(model, cache.frozen_prefix(model, "cout"), ids[P:])
-                po = torch.softmax(heads["cout"](hs[-1:].float()), -1)[0].cpu().tolist()
-                del hs
-        use_policy(model)
-        return ps, po
+    if cache is not None and cache.share_score and ep["prompt_ids"] == cache.pids:
+        try:
+            return _score_shared(model, heads, ep, cache, ids, P, pos)
+        except torch.OutOfMemoryError:   # 长轨迹显存不够：清掉、这一条走整段
+            torch.cuda.empty_cache()
+            use_policy(model)
     x = torch.tensor([ids], device="cuda")
     with torch.no_grad():
         model.set_adapter("cstep")
@@ -289,6 +281,24 @@ def score_episode(model, heads, ep: dict, cache=None) -> tuple[list[list[float]]
             del h
     use_policy(model)
     return ps, po
+
+
+def _score_shared(model, heads, ep, cache, ids, P, pos):
+    import torch
+    if True:
+        with torch.no_grad():
+            model.set_adapter("cstep")
+            hs = shared_hidden(model, cache.frozen_prefix(model, "cstep"), ids[P:])
+            ps = torch.softmax(heads["cstep"](hs[torch.tensor([q - P + 1 for q in pos], device="cuda")].float()), -1).cpu().tolist() if pos else []
+            del hs
+            po = []
+            if "cout" in heads:
+                model.set_adapter("cout")
+                hs = shared_hidden(model, cache.frozen_prefix(model, "cout"), ids[P:])
+                po = torch.softmax(heads["cout"](hs[-1:].float()), -1)[0].cpu().tolist()
+                del hs
+        use_policy(model)
+        return ps, po
 
 
 # ---------------------------------------------------------------- 奖励
@@ -381,6 +391,10 @@ def rewards(batch: dict, model, heads, a, cache=None) -> list[dict]:
                                                                        if s["fix_gate"][t] or STEP_CLASSES[k] not in ("FIX", "TRY"))))
                                for t, p in enumerate(s["p_step"])]
                 s["floors"] = {STEP_CLASSES[k]: round(b, 4) for k, (b, _) in bs.items()}
+                if a.step_gamma > 0:   # 错误往前传一步（同 RAG 句子层 train.ans_reward.sentence_adv 的 gamma）：后一步的负值按 gamma 加到前一步上，
+                    raw = list(s["A_step"])   # 只传一步、按原始值传，不层层累积；判官 / critic 定的出错点偏后时，真正埋下错的前一步也分到惩罚
+                    for t in range(len(raw) - 1):
+                        s["A_step"][t] = max(-a.step_clip, s["A_step"][t] + a.step_gamma * min(0.0, raw[t + 1]))
         else:   # center：期望步骤分整组标准化（初版）
             rs = [x for s in g for x in s["r_step"]]
             smu = sum(rs) / len(rs) if rs else 0.0
@@ -419,10 +433,12 @@ def token_logprobs(model, ids: list[int], pos: list[int], grad: bool):
     return torch.cat(out) if out else torch.zeros(0, device="cuda")
 
 
-def check_share(model, heads, cache, samples: list[dict], n: int = 2, tol: float = 0.05) -> bool:
-    """开训前自检：前 n 条轨迹，整段计算和共享系统提示各算一遍参考 / 策略 logprob 和过程 critic 概率，最大差值超过 tol 就不用共享。"""
+def check_share(model, heads, cache, samples: list[dict], n: int = 2, tol: float = 0.01) -> bool:
+    """开训前自检：前 n 条轨迹，整段计算和共享系统提示各算一遍参考 / 策略 logprob 和过程 critic 概率，看平均绝对差。
+    fp32 迷你模型上两条路径差 < 1e-6（数学等价）；9B bf16 上线性注意力的 GPU 核按块累加，长序列上个别 token 会差到 0.2 左右，
+    所以按平均差判（采样侧 vLLM 和训练侧 HF 的 logprob 平均差本来就有约 0.005），平均差超过 tol 才不用共享。"""
     import torch
-    worst = {"ref": 0.0, "policy": 0.0, "cstep": 0.0}
+    worst = {"ref": [], "policy": [], "cstep": []}
     for s in samples[:n]:
         ep = s["ep"]
         P = len(ep["prompt_ids"])
@@ -439,12 +455,17 @@ def check_share(model, heads, cache, samples: list[dict], n: int = 2, tol: float
             b2 = shared_logprobs(model, prompt_pass(model, cache.pids, grad=False), ids[:L], P, pos, grad=False)
         c1, _ = score_episode(model, heads, ep, None)
         c2, _ = score_episode(model, heads, ep, cache)
-        worst["ref"] = max(worst["ref"], (a1 - a2).abs().max().item())
-        worst["policy"] = max(worst["policy"], (b1 - b2).abs().max().item())
-        worst["cstep"] = max(worst["cstep"], max((abs(x - y) for p1, p2 in zip(c1, c2) for x, y in zip(p1, p2)), default=0.0))
-    ok = all(v <= tol for v in worst.values())
-    print(f"SHARE_CHECK max abs diff {json.dumps({k: round(v, 4) for k, v in worst.items()})} -> {'use shared prefix' if ok else 'FALLBACK to full sequences'}", flush=True)
-    return ok
+        worst["ref"] += (a1 - a2).abs().tolist()
+        worst["policy"] += (b1 - b2).abs().tolist()
+        worst["cstep"] += [abs(x - y) for p1, p2 in zip(c1, c2) for x, y in zip(p1, p2)]
+    st = {k: {"mean": round(sum(v) / max(1, len(v)), 5), "p99": round(sorted(v)[int(0.99 * (len(v) - 1))], 4) if v else 0.0, "max": round(max(v, default=0.0), 4)}
+          for k, v in worst.items()}
+    # 训练（参考 / 策略 logprob）和打分（过程 critic 概率）分开判：logprob 的偏差和采样侧本来的偏差同量级就用；
+    # critic 概率经过分类头放大得更多（实测平均差 0.023），不达标就打分仍走整段，不连累训练
+    cache.share_train = st["ref"]["mean"] <= tol and st["policy"]["mean"] <= tol
+    cache.share_score = st["cstep"]["mean"] <= tol
+    print(f"SHARE_CHECK abs diff {json.dumps(st)} -> train {'shared' if cache.share_train else 'full'}, score {'shared' if cache.share_score else 'full'}", flush=True)
+    return cache.share_train or cache.share_score
 
 
 def train_step(model, opt, params, samples: list[dict], a, cache=None) -> dict:
@@ -460,23 +481,21 @@ def train_step(model, opt, params, samples: list[dict], a, cache=None) -> dict:
     n_tok = sum(len(ks) for _, ks in items) or 1
     st = collections.Counter()
     t0 = time.time()
-    share = cache is not None and items and all(s["ep"]["prompt_ids"] == cache.pids for s, _ in items)
-    if share:   # 策略的系统提示这一步只算一次（带梯度），全部轨迹接在它后面，最后统一反向
-        from train.prefix_share import backward_prompt, leaves, prompt_pass
-        use_policy(model)
-        pre = prompt_pass(model, cache.pids, grad=True)
-        leaf = leaves(pre)
-        ref_pre = cache.frozen_prefix(model, "ref")
-    for s, ks in items:
+    share = cache is not None and cache.share_train and items and all(s["ep"]["prompt_ids"] == cache.pids for s, _ in items)
+
+    def lens(s, ks):
+        return len(s["ep"]["prompt_ids"]) + max(ks) + 1 - len(s["ep"]["prompt_ids"])
+
+    def one(s, ks, use_sh, leaf=None, ref_pre=None):
         ep = s["ep"]
         P = len(ep["prompt_ids"])
         L = P + max(ks) + 1
         ids = (ep["prompt_ids"] + ep["ids"])[:L]
         pos = [P + k for k in ks]
         with torch.no_grad(), model.disable_adapter():
-            ref = shared_logprobs(model, ref_pre, ids, P, pos, grad=False) if share else token_logprobs(model, ids, pos, grad=False)
+            ref = shared_logprobs(model, ref_pre, ids, P, pos, grad=False) if use_sh else token_logprobs(model, ids, pos, grad=False)
         use_policy(model)
-        lp = shared_logprobs(model, leaf, ids, P, pos, grad=True) if share else token_logprobs(model, ids, pos, grad=True)
+        lp = shared_logprobs(model, leaf, ids, P, pos, grad=True) if use_sh else token_logprobs(model, ids, pos, grad=True)
         old = torch.tensor([ep["old_lp"][k] for k in ks], device="cuda")
         adv = torch.tensor([s["adv"][k] for k in ks], device="cuda")
         ratio = torch.exp(lp - old)
@@ -488,24 +507,61 @@ def train_step(model, opt, params, samples: list[dict], a, cache=None) -> dict:
         st["clip"] += ((ratio.detach() - 1).abs() > a.clip).sum().item()
         st["old_absdiff"] += (lp.detach() - old).abs().sum().item()
         st["truncated_tok"] += sum(1 for k, m in enumerate(ep["lmask"]) if m) - len(ks)
+
+    # 分两段：先把短轨迹接在共享的系统提示后面算完、对系统提示做完反向、释放它的计算图；再把长轨迹（和共享路径上 OOM 的）整段算。
+    # （早先共享路径传显式掩码、冻结状态又漏显存，长序列上比整段还占显存；两处修好后共享在各长度都比整段省约 2 GB，默认全部走共享）
+    later = []
     if share:
+        from train.prefix_share import backward_prompt, leaves, prompt_pass
+        use_policy(model)
+        pre = prompt_pass(model, cache.pids, grad=True)
+        leaf = leaves(pre)
+        ref_pre = cache.frozen_prefix(model, "ref")
+        for s, ks in items:
+            if lens(s, ks) > a.share_max_comp:
+                later.append((s, ks))
+                continue
+            try:
+                one(s, ks, True, leaf, ref_pre)
+                st["shared_eps"] += 1
+            except torch.OutOfMemoryError:   # 前向就 OOM（反向还没开始，梯度不受影响）：放到后面整段算
+                torch.cuda.empty_cache()
+                st["share_oom"] += 1
+                later.append((s, ks))
         backward_prompt(pre, leaf)
         del pre, leaf
-    gn = torch.nn.utils.clip_grad_norm_(params, 1.0).item() if items else 0.0
+        torch.cuda.empty_cache()
+    else:
+        later = items
+    for s, ks in later:
+        try:
+            one(s, ks, False)
+        except torch.OutOfMemoryError:   # 整段也放不下（只剩最长的那几条）：这一条跳过并计数，不让整次训练退出
+            torch.cuda.empty_cache()
+            st["skip_oom"] += 1
+    gn =torch.nn.utils.clip_grad_norm_(params, 1.0).item() if items else 0.0
     if items:
         opt.step()
     opt.zero_grad(set_to_none=True)
     return {"train_samples": len(items), "train_tokens": n_tok, "kl": st["kl"] / n_tok, "clip_frac": st["clip"] / n_tok,
             "vllm_hf_absdiff": st["old_absdiff"] / n_tok, "truncated_tokens": st["truncated_tok"], "grad_norm": gn, "t_train": round(time.time() - t0, 1),
-            "shared_prefix": bool(share)}
+            "shared_prefix": bool(share), "shared_eps": st["shared_eps"], "share_oom": st["share_oom"], "skip_oom": st["skip_oom"]}
+
+
+TASK_BASE: dict = {}   # 起点模型在每个训练任务上的成功率（--task_baseline）：每步抽到的任务不同，难度差很多，直接看正确率会被任务组成带着走
 
 
 def batch_stats(samples: list[dict], batch: dict, out_classes: list[str]) -> dict:
     n = max(1, len(samples))
+    base = [TASK_BASE[s["ep"]["task_id"]] for s in samples if s["ep"]["task_id"] in TASK_BASE]
+    db_vs_base = round(sum(s["db"] for s in samples if s["ep"]["task_id"] in TASK_BASE) / len(base) - sum(base) / len(base), 4) if base else None
     m = lambda f: round(sum(f(s) for s in samples) / n, 4)
     exp_cls = {c: m(lambda s, k=k: sum(p[k] for p in s["p_step"])) for k, c in enumerate(STEP_CLASSES)}   # 每条轨迹各类步骤的期望个数
     return {"episodes": len(batch["episodes"]), "scored": len(samples), "errors": sum(1 for e in batch["episodes"] if e.get("error")),
             "R": m(lambda s: s["R"]), "db": m(lambda s: s["db"]),
+            "n_apigen": sum(str(s["ep"]["task_id"]).startswith("apigen:") for s in samples),
+            "db_apigen": (lambda xs: round(sum(xs) / len(xs), 4) if xs else None)([s["db"] for s in samples if str(s["ep"]["task_id"]).startswith("apigen:")]),
+            "db_tau2": (lambda xs: round(sum(xs) / len(xs), 4) if xs else None)([s["db"] for s in samples if not str(s["ep"]["task_id"]).startswith("apigen:")]), "db_base_same_tasks": round(sum(base) / len(base), 4) if base else None, "db_vs_base": db_vs_base,
             "p_ok_db1": round(sum(s["p_ok"] or 0 for s in samples if s["db"]) / max(1, sum(s["db"] for s in samples)), 4),
             "p_ok_db0": round(sum(s["p_ok"] or 0 for s in samples if not s["db"]) / max(1, sum(not s["db"] for s in samples)), 4), "s1": m(lambda s: s["s1"]), "q_flaw_if_db": round(
                 sum(s["q_flaw"] for s in samples if s["db"]) / max(1, sum(s["db"] for s in samples)), 4),
@@ -541,18 +597,36 @@ def run(a) -> None:
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=0.0)
     servers = [Server(u) for u in a.policy_url.split(",") if u.strip()]   # 多台推理机：逗号分隔，LoRA 每步推给每一台
     for server in servers:
-        for v in range(1, a.keep_versions + 3):   # 新开一轮：推理机上同名的旧版本（冒烟测试、上一次中断的训练）先卸掉
+        for v in range(1, max(a.keep_versions + 3, a.steps + 3)):   # 新开一轮：推理机上同名的旧版本（冒烟测试、上一次中断的训练）全部先卸掉，免得接着训时同名版本用到旧权重
             try:
                 server.unload_lora(f"policy_v{v}")
             except Exception:  # noqa: BLE001
                 pass
     print(f"inference nodes: {len(servers)}", flush=True)
     tasks = load_tasks("train")
+    if a.extra_tasks:   # 无标签的新任务（APIGen 对话整理的剧本）：奖励照样来自两个奖励模型，不需要标准答案
+        from cs_agent.apigen_tasks import load_tasks_file
+        extra = load_tasks_file(a.extra_tasks)
+        # 按比例混：每轮任务池里 τ² 训练任务全部保留（它们的数据库结果是真的，留作锚：每步都能对照奖励有没有跑偏）
+        k = max(1, round(len(tasks) * a.extra_ratio / max(1e-9, 1 - a.extra_ratio))) if a.extra_ratio < 1 else len(extra)
+        tasks = tasks + extra[:k] if a.extra_ratio < 1 else extra
+        print(f"task pool: {len(tasks)} ({len(extra[:k]) if a.extra_ratio < 1 else len(extra)} label-free APIGen tasks)", flush=True)
     version = [0]
     prod = Producer(a, tok, tasks, servers, version)
+    step = 0
+    if a.start_step:   # 接着上一次中断的训练：--init 是第 start_step 步存下的策略 LoRA；任务顺序跳过已经训过的部分，版本号接着编
+        step = version[0] = a.start_step
+        for _ in range(a.start_step * a.tasks_per_step):
+            prod.next_task()
+        for server in servers:
+            try:   # 同一台推理机上次已经挂过这个名字
+                server.unload_lora(f"policy_v{step}")
+            except Exception:  # noqa: BLE001
+                pass
+            server.load_lora(f"policy_v{step}", a.init)
+        print(f"RESUME from step {step} (init {a.init}); optimizer state starts fresh", flush=True)
     prod.start()
     log = open(out / "log.jsonl", "a", encoding="utf-8")
-    step = 0
     t_wait0, cache = time.time(), None
     while step < a.steps:
         got, n_stale = [], 0
@@ -598,7 +672,10 @@ def run(a) -> None:
         version[0] = step   # 推理机加载好新版本之后，采样线程才开始用它
         if step - a.keep_versions >= 1:
             for server in servers:
-                server.unload_lora(f"policy_v{step - a.keep_versions}")
+                try:   # 接着训时，起点之前的版本推理机上本来就没有
+                    server.unload_lora(f"policy_v{step - a.keep_versions}")
+                except Exception:  # noqa: BLE001
+                    pass
             old = out / "lora" / f"v{step - a.keep_versions}"
             if (step - a.keep_versions) % a.save_every:
                 import shutil
@@ -633,7 +710,8 @@ def main() -> None:
     ap.add_argument("--user_model", default="base")
     ap.add_argument("--user_key", default="x")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--steps", type=int, default=60)
+    ap.add_argument("--steps", type=int, default=60, help="训到第几步为止（接着训时也按总步数算）")
+    ap.add_argument("--start_step", type=int, default=0, help="接着训：--init 是第几步的策略 LoRA（任务顺序跳过前面的、版本号接着编、优化器状态重新开始）")
     ap.add_argument("--tasks_per_step", type=int, default=8)
     ap.add_argument("--n", type=int, default=8, help="每个任务采几条（组大小 G）")
     ap.add_argument("--temperature", type=float, default=1.0)
@@ -651,14 +729,29 @@ def main() -> None:
     ap.add_argument("--step_mode", choices=["floor", "center"], default="floor", help="floor：各类别减同组平均（底噪）后只计超出部分；center：期望步骤分组内标准化")
     ap.add_argument("--sigma_floor", type=float, default=0.1, help="去底噪时标准差的下限（一组都很干净时别把噪声放大）")
     ap.add_argument("--step_clip", type=float, default=3.0)
+    ap.add_argument("--step_gamma", type=float, default=0.3, help="步骤优势的负值往前传一步的系数（0 = 不传）")
     ap.add_argument("--floor_caps", default="", help="过程 critic 留出集打分（scores.jsonl）：取真实 OK 步骤上各类别平均概率作底噪上限；空 = 不设上限")
     ap.add_argument("--max_stale", type=int, default=2)
     ap.add_argument("--keep_versions", type=int, default=4, help="推理机上保留几个策略版本：要大于 max_stale，进行中的对话还在用旧版本")
     ap.add_argument("--save_every", type=int, default=10, help="每多少步保留一个 LoRA 版本（其余旧版本删掉）")
+    ap.add_argument("--share_max_comp", type=int, default=100000, help="训练时只有系统提示之后的部分不超过这么多 token 才走共享（更长的走整段，省显存）")
     ap.add_argument("--share", type=int, default=1, help="1 = 系统提示共享（参考模型、两个奖励模型的系统提示状态只算一次，策略每步算一次）；开训前自检不过自动退回整段")
+    ap.add_argument("--extra_tasks", default="", help="无标签的新任务文件（cs_agent.apigen_tasks build 的输出）；不能和监控集重叠")
+    ap.add_argument("--extra_ratio", type=float, default=0.5, help="任务池里新任务的占比（其余是 τ² 的 74 个训练任务）")
+    ap.add_argument("--task_baseline", default="", help="起点模型在训练任务上的采样（如 sample_r0/base9_train.jsonl）：每步额外记「同一批任务上起点模型的成功率」和差值")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     a.floor_caps = caps_from_scores(a.floor_caps) if a.floor_caps else {}
+    if a.task_baseline:
+        acc = collections.defaultdict(list)
+        for l in open(a.task_baseline, encoding="utf-8"):
+            try:
+                e = json.loads(l)
+            except ValueError:
+                continue
+            acc[e["task_id"]].append(e.get("reward") == 1.0)
+        TASK_BASE.update({t: sum(v) / len(v) for t, v in acc.items()})
+        print(f"task baseline: {len(TASK_BASE)} tasks, mean {sum(TASK_BASE.values()) / max(1, len(TASK_BASE)):.3f}", flush=True)
     print("floor caps", a.floor_caps, flush=True)
     run(a)
 

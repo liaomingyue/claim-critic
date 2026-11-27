@@ -11,8 +11,8 @@ log() { echo "$(date '+%F %T') $*" | tee -a $LOG; }
 export LITELLM_LOCAL_MODEL_COST_MAP=True PYTHONHASHSEED=0 TOKENIZERS_PARALLELISM=false PYTHONPATH=. PYTHONIOENCODING=utf-8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 source $S/setup_tau2.sh || { log "CS_GRPO FAILED: setup_tau2"; exit 1; }
 source $S/models9b.sh; ensure_9b || { log "CS_GRPO FAILED: 9b copy"; exit 1; }; B9=$A/models/Qwen3.5-9B
-INIT=$FS/adapters/cs-zero-9b
-[ -f $INIT/adapter_model.safetensors ] || $PY scripts/make_lora_init.py $B9 $INIT >> $LOG 2>&1 || { log "CS_GRPO FAILED: zero lora"; exit 1; }
+INIT=${INIT:-$FS/adapters/cs-zero-9b}   # 接着训：INIT=上次存下的策略 LoRA，START_STEP=它是第几步
+[ -f $INIT/adapter_model.safetensors ] || { [ -z "${START_STEP:-}" ] && $PY scripts/make_lora_init.py $B9 $INIT >> $LOG 2>&1; } || { log "CS_GRPO FAILED: init lora $INIT"; exit 1; }
 [ -s outputs/rt/cs/critic_step/scores.jsonl ] || { log "CS_GRPO FAILED: missing step critic scores (floor caps)"; exit 1; }
 [ -f $FS/adapters/cs-critic-step-9b/head.pt ] || { log "CS_GRPO FAILED: missing step critic"; exit 1; }
 [ -f $FS/adapters/cs-critic-outcome-9b/head.pt ] || { log "CS_GRPO FAILED: missing outcome critic"; exit 1; }
@@ -21,7 +21,7 @@ URL=${RM_URL:?need RM_URL (inference node)}
 EXTRA=""; [ "${SMOKE:-0}" = 1 ] && { EXTRA="--steps 1 --tasks_per_step 1 --n 2"; O=$A/${RUN}_smoke; }
 log "start $RUN -> $O (policy/user $URL)"
 $PY -u -m cs_agent.grpo --base $B9 --init $INIT --critic_step $FS/adapters/cs-critic-step-9b $OUTRM \
-  --floor_caps outputs/rt/cs/critic_step/scores.jsonl --policy_url $URL --user_url $URL --user_key "$VLLM_API_KEY" --out $O --steps ${STEPS:-60} --concurrency ${CONC:-16} $EXTRA ${GRPO_ARGS:-} >> $LOG 2>&1 \
+  --floor_caps outputs/rt/cs/critic_step/scores.jsonl --task_baseline outputs/rt/cs/sample_r0/base9_train.jsonl ${EXTRA_TASKS:+--extra_tasks $EXTRA_TASKS --extra_ratio ${EXTRA_RATIO:-0.5}} ${START_STEP:+--start_step $START_STEP} --policy_url $URL --user_url $URL --user_key "$VLLM_API_KEY" --out $O --steps ${STEPS:-60} --concurrency ${CONC:-16} $EXTRA ${GRPO_ARGS:-} >> $LOG 2>&1 \
   || { log "CS_GRPO FAILED: train"; exit 1; }
 F=$O/final; [ -d $F/policy ] && F=$F/policy
 mkdir -p $FS/runs/$RUN && rsync -a --exclude 'lora/' $O/ $FS/runs/$RUN/ && rsync -a $F/ $FS/adapters/$RUN-9b/
@@ -30,15 +30,21 @@ log "CS_GRPO_TRAINED $RUN"
 [ "${SMOKE:-0}" = 1 ] && { log "CS_GRPO_DONE $RUN (smoke)"; exit 0; }
 # 评测：推理机还开着（train_done 之后才收尾），把要评的版本推上去，用和基线相同的设置跑测试集
 export USER_API_KEY=$VLLM_API_KEY
+EURL=${URL%%,*}   # 评测用第一台推理机；LoRA 推给每一台
 for tag in final ${EVAL_STEPS:-}; do
   [ $tag = final ] && AD=$FS/adapters/$RUN-9b NAME=${RUN}_final || { AD=$FS/adapters/$RUN-v$tag-9b; NAME=${RUN}_v$tag; }
   [ -d $AD ] || continue
-  $PY -c "from train.gen_grpo import Server; Server('$URL').load_lora('$NAME', '$AD')" >> $LOG 2>&1 || { log "push $NAME FAILED"; continue; }
+  $PY -c "from train.gen_grpo import Server; [Server(u).load_lora('$NAME', '$AD') for u in '$URL'.split(',') if u]" >> $LOG 2>&1 || { log "push $NAME FAILED"; continue; }
   EO=outputs/rt/cs/${NAME}_q9b; mkdir -p $EO
-  $PY -u -m cs_agent.evaluate --policy_url $URL --policy $NAME --tok $B9 --user_url $URL --split test --k ${K:-4} --concurrency ${ECONC:-16} \
+  $PY -u -m cs_agent.evaluate --policy_url $EURL --policy $NAME --tok $B9 --user_url $EURL --split test --k ${K:-4} --concurrency ${ECONC:-16} \
     --out $EO/test.jsonl >> $LOG 2>&1 || log "eval $NAME FAILED"
   $PY -c "import json; from cs_agent.rules import summarize; eps=[json.loads(l) for l in open('$EO/test.jsonl')]; s=summarize(eps); open('$EO/test_rules.json','w').write(json.dumps(s, indent=1)); print('RULES', json.dumps(s))" >> $LOG 2>&1
   log "EVAL $NAME $(grep -a EVAL_DONE $LOG | tail -1 | cut -c1-400)"
+  if [ -n "${MONITOR:-}" ]; then   # 有标签的监控集（APIGen 50 条，参考写操作重放出数据库状态），不参与训练
+    $PY -u -m cs_agent.evaluate --policy_url $EURL --policy $NAME --tok $B9 --user_url $EURL --tasks_file $MONITOR --k ${MK:-2} --concurrency ${ECONC:-16} \
+      --out $EO/monitor.jsonl >> $LOG 2>&1 || log "monitor $NAME FAILED"
+    log "MONITOR $NAME $(grep -a EVAL_DONE $LOG | tail -1 | cut -c1-400)"
+  fi
 done
 cp $LOG $FS/runs/$RUN/ 2>/dev/null
 log "CS_GRPO_DONE $RUN"

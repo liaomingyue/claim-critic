@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import re
 from pathlib import Path
 
 SCORE = {"OK": 1.0, "FIRST_ERR": -2.0, "OVERFIX": -3.0, "AFTER_ERR": -1.0,
@@ -34,6 +35,8 @@ SCORE = {"OK": 1.0, "FIRST_ERR": -2.0, "OVERFIX": -3.0, "AFTER_ERR": -1.0,
          "VIOLATION": -1.0, "VIOLATION_S1": -2.0, "INFO_ERR": -1.0, "USER_CORRECTED": -1.0, "LUCKY": 0.0}
 SOFT = {"R5", "R2b", "R10"}
 TRANSFER = "transfer_to_human_agents"
+AUTH = {"find_user_id_by_email", "find_user_id_by_name_zip"}
+R5_RE = re.compile(r"at the same time|simultaneously|while (executing|making) a tool call|while responding", re.I)
 
 
 def _load(path: Path, key="episode_id", keep=lambda r: True) -> dict:
@@ -86,11 +89,25 @@ def build_failed(ep, idxs, j3, code, j5, ofx=None):
                     "overfix": (ofx or {}).get("overfix"), "handoff": handoff, "overfix_reason": (ofx or {}).get("overfix_reason", "")}
 
 
-def build_success(ep, idxs, js, code):
+def sim_auth(ep, idx) -> bool:
+    """核实身份的调用报错，且每个参数值都在之前的用户消息里出现过 → 查不到是用户模拟器给错了信息
+    （剧本里有两个邮箱只报一个、报了新地址的邮编），不是客服的错。和 scripts/analysis/cs_critic_errors.py 同一个判法。"""
+    msgs = ep["messages"]
+    tc = msgs[idx].get("tool_calls") or []
+    if not tc or tc[0]["name"] not in AUTH or idx + 1 >= len(msgs) or not str(msgs[idx + 1].get("content", "")).lower().startswith("error"):
+        return False
+    said = " ".join(str(x.get("content", "")) for x in msgs[:idx] if x.get("role") == "user").lower()
+    vals = [str(v).strip().lower() for v in (tc[0].get("arguments") or {}).values()]
+    return bool(vals) and all(v and v in said for v in vals)
+
+
+def build_success(ep, idxs, js, code, clean=False):
     n = len(idxs)
     labels = {s: "OK" for s in range(1, n + 1)}
     if js:
         for x in js.get("violations") or []:
+            if clean and R5_RE.search(x.get("reason", "")):   # 判断把 R5（说话同时调工具）当成违规；规则库里 R5 只记 tag
+                continue
             labels[x["step"]] = "VIOLATION"
         for x in js.get("info_errors") or []:
             labels[x["step"]] = "INFO_ERR"
@@ -117,6 +134,8 @@ def main() -> None:
     ap.add_argument("--dir", required=True)
     ap.add_argument("--pols", nargs="+", default=["base9", "sftB"])
     ap.add_argument("--out", required=True)
+    ap.add_argument("--clean", action="store_true", help="剔除两类标签噪声：成功轨迹里判断按 R5 记的违规；"
+                    "失败轨迹第一错误落在「模拟器给错信息导致的核实身份失败」上的整条轨迹（第一错误不在客服，跳过）")
     a = ap.parse_args()
     D = Path(a.dir)
     rows, st = [], collections.Counter()
@@ -135,11 +154,15 @@ def main() -> None:
                 if js and js.get("sim_leak"):
                     st["skip_sim_leak"] += 1
                     continue
-                labels, meta = build_success(ep, idxs, js, code.get(eid))
+                labels, meta = build_success(ep, idxs, js, code.get(eid), clean=a.clean)
             else:
                 j = j3.get(eid)
                 if not j or j.get("mode") != "failed" or j.get("step_idx") != idxs:
                     st["skip_failed_unjudged"] += 1
+                    continue
+                fe = j.get("first_error_step")
+                if a.clean and isinstance(fe, int) and 1 <= fe <= len(idxs) and sim_auth(ep, idxs[fe - 1]):
+                    st["skip_sim_auth"] += 1
                     continue
                 labels, meta = build_failed(ep, idxs, j, code.get(eid), j5.get(eid), jo.get(eid))
             st[f"traj_{'ok' if ok else 'fail'}_{meta['conf']}"] += 1
